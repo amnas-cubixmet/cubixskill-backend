@@ -1,0 +1,26 @@
+from django.urls import path, include
+
+urlpatterns = [
+    path('auth/', include('authentication.urls')),
+    path('users/', include('users_roles.urls')),
+    path('academy/', include('academy.urls')),
+    path('courses/', include('courses.urls')),
+    path('modules/', include('modules.urls')),
+    path('lessons/', include('lessons.urls')),
+    path('storage/', include('storage.urls')),
+    path('media/', include('storage.urls')),
+    path('students/', include('students.urls')),
+    path('enrollments/', include('enrollments.urls')),
+    path('certificates/', include('certificates.urls')),
+    path('live-classes/', include('live_classes.urls')),
+    path('discussions/', include('discussions_chat.urls')),
+    path('leads/', include('leads.urls')),
+    path('payments/', include('payments.urls')),
+    path('credits/', include('credits.urls')),
+    path('website/', include('website.urls')),
+    path('notifications/', include('notifications.urls')),
+    path('analytics/', include('analytics_reports.urls')),
+    path('audit-logs/', include('audit_logs.urls')),
+    path('settings/', include('settings.urls')),
+    path('features/', include('features.urls')),
+]

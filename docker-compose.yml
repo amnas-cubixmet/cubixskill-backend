@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cubixskill_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-cubixskill_db}
+      POSTGRES_USER: ${DB_USER:-cubixskill_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-cubixskill_pass}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-cubixskill_user} -d ${DB_NAME:-cubixskill_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: cubixskill_minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  create-buckets:
+    image: minio/mc:latest
+    container_name: cubixskill_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-minioadmin} ${MINIO_SECRET_KEY:-minioadmin};
+      /usr/bin/mc mb --ignore-existing local/${MINIO_STORAGE_BUCKET_NAME:-cubixskill-media};
+      /usr/bin/mc anonymous set download local/${MINIO_STORAGE_BUCKET_NAME:-cubixskill-media};
+      exit 0;
+      "
+
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local

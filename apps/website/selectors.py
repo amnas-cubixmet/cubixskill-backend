@@ -1,0 +1,39 @@
+from django.shortcuts import get_object_or_404
+from django.db.models import QuerySet
+from academy.models import Academy
+from courses.models import Course, CourseStatus, CourseVisibility
+
+# --------------------------------------------------------------
+# Website Selectors
+# Authoritative read queries for public website pages and course discovery.
+# Strictly filters for active, published, publicly visible Courses.
+# --------------------------------------------------------------
+
+class WebsiteSelector:
+
+    @classmethod
+    def get_public_academy_courses(cls, academy: Academy) -> QuerySet[Course]:
+        """
+        Retrieves publicly visible, published, active courses for an Academy.
+        """
+        return Course.objects.filter(
+            academy=academy,
+            is_active=True,
+            status=CourseStatus.PUBLISHED,
+            visibility=CourseVisibility.PUBLIC
+        ).select_related('category').prefetch_related('modules').order_by('-created_at')
+
+    @classmethod
+    def get_public_academy_course_by_slug(cls, academy: Academy, course_slug: str) -> Course:
+        """
+        Retrieves a single public course by slug for an Academy.
+        """
+        return get_object_or_404(
+            Course.objects.filter(
+                academy=academy,
+                is_active=True,
+                status=CourseStatus.PUBLISHED,
+                visibility=CourseVisibility.PUBLIC
+            ).select_related('category'),
+            slug=course_slug
+        )
