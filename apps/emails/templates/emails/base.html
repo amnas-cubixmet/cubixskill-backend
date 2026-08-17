@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}CubixSkill{% endblock %}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F8FAFC; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased;">
+  <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #F8FAFC; padding: 40px 16px;">
+    <tr>
+      <td align="center">
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 560px; background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+          <!-- HEADER -->
+          <tr>
+            <td align="center" style="background-color: #0F172A; padding: 24px 32px;">
+              <table border="0" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="font-size: 20px; font-weight: 800; color: #FFFFFF; letter-spacing: -0.5px;">
+                    Cubix<span style="color: #3B82F6;">Skill</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- BODY -->
+          <tr>
+            <td style="padding: 32px; color: #334155; font-size: 15px; line-height: 1.6;">
+              {% block content %}{% endblock %}
+            </td>
+          </tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td style="background-color: #F1F5F9; padding: 24px 32px; text-align: center; font-size: 12px; color: #64748B; border-top: 1px solid #E2E8F0;">
+              <p style="margin: 0 0 8px 0; font-weight: 500;">Need assistance? Contact our team at <a href="mailto:support@cubixskill.com" style="color: #2563EB; text-decoration: none;">support@cubixskill.com</a></p>
+              <p style="margin: 0; color: #94A3B8;">&copy; {% now "Y" %} CubixSkill. All rights reserved.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

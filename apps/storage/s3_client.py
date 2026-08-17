@@ -1,7 +1,12 @@
 import logging
-import boto3
-from botocore.config import Config
-from botocore.exceptions import ClientError
+try:
+    import boto3
+    from botocore.config import Config
+    from botocore.exceptions import ClientError
+    BOTO3_AVAILABLE = True
+except ImportError:
+    BOTO3_AVAILABLE = False
+
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -22,30 +27,34 @@ class S3StorageClient:
         self.region_name = getattr(settings, 'MINIO_REGION_NAME', 'us-east-1')
         self.use_ssl = getattr(settings, 'MINIO_USE_SSL', False)
 
-        # Build boto3 client for internal communication
-        self.client = boto3.client(
-            's3',
-            endpoint_url=self.endpoint_url,
-            aws_access_key_id=self.access_key,
-            aws_secret_access_key=self.secret_key,
-            region_name=self.region_name,
-            use_ssl=self.use_ssl,
-            config=Config(signature_version='s3v4')
-        )
-
-        # Build client for external presigned URL generation if external endpoint differs
-        if self.external_endpoint_url != self.endpoint_url:
-            self.ext_client = boto3.client(
+        if BOTO3_AVAILABLE:
+            # Build boto3 client for internal communication
+            self.client = boto3.client(
                 's3',
-                endpoint_url=self.external_endpoint_url,
+                endpoint_url=self.endpoint_url,
                 aws_access_key_id=self.access_key,
                 aws_secret_access_key=self.secret_key,
                 region_name=self.region_name,
                 use_ssl=self.use_ssl,
                 config=Config(signature_version='s3v4')
             )
+
+            # Build client for external presigned URL generation if external endpoint differs
+            if self.external_endpoint_url != self.endpoint_url:
+                self.ext_client = boto3.client(
+                    's3',
+                    endpoint_url=self.external_endpoint_url,
+                    aws_access_key_id=self.access_key,
+                    aws_secret_access_key=self.secret_key,
+                    region_name=self.region_name,
+                    use_ssl=self.use_ssl,
+                    config=Config(signature_version='s3v4')
+                )
+            else:
+                self.ext_client = self.client
         else:
-            self.ext_client = self.client
+            self.client = None
+            self.ext_client = None
 
     def ensure_bucket_exists(self) -> bool:
         """

@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'credits',
     'website',
     'notifications',
+    'emails',
     'analytics_reports',
     'audit_logs',
     'settings',
@@ -171,6 +172,10 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply
 # CORS Configuration
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
+
+# Frontend URL Configuration
+FRONTEND_ACADEMY_URL = os.getenv('FRONTEND_ACADEMY_URL', 'http://localhost:5173')
+
 
 
 

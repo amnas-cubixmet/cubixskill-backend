@@ -1,0 +1,8 @@
+CubixSkill
+--------------------------------------------------
+
+{% block content %}{% endblock %}
+
+--------------------------------------------------
+Need assistance? Contact our team at support@cubixskill.com
+© {% now "Y" %} CubixSkill. All rights reserved.

@@ -1,0 +1,15 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}
+Hello {{ user_name }},
+
+Welcome to CubixSkill! Your Academy workspace {{ academy_name }} has been successfully registered.
+
+To complete your administrator account setup and set your secure password, please open the following link:
+
+{{ action_url }}
+
+This setup link is secure and valid for single-use. For your security, this link will expire in 24 hours.
+
+If you did not request or register this account, you can safely ignore this email.
+{% endblock %}

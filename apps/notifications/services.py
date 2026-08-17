@@ -7,12 +7,29 @@ class EmailService:
     @staticmethod
     def send_email(to_email: str, subject: str, body: str):
         logger.info(f"Sending email to {to_email}: {subject}")
-        return True
+        from emails.services import send_transactional_email
+        return send_transactional_email(recipient=to_email, template_name="base", subject=subject, context={"body": body})
 
     @classmethod
     def send_transactional(cls, recipient: str, template_code: str, subject: str, context: dict = None, user=None, academy=None, idempotency_key: str = None, **kwargs):
-        body = context.get('body', subject) if context else subject
-        return cls.send_email(to_email=recipient, subject=subject, body=body)
+        from emails.services import send_transactional_email
+        ctx = context or {}
+        body = ctx.get('body', subject)
+        ctx['body'] = body
+        # Map template_code to template file name if applicable
+        template_map = {
+            "ACADEMY_ACCOUNT_SETUP": "academy_activation",
+            "PASSWORD_RESET": "password_reset",
+            "PASSWORD_CHANGED": "password_changed",
+            "EMAIL_VERIFICATION": "verification"
+        }
+        template_name = template_map.get(template_code, "base")
+        return send_transactional_email(
+            recipient=recipient,
+            template_name=template_name,
+            subject=subject,
+            context=ctx
+        )
 
 
 class NotificationService:

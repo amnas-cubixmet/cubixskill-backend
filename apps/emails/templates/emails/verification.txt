@@ -1,0 +1,13 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}
+Hello {{ user_name }},
+
+Thank you for creating an account on CubixSkill. Please verify your email address by opening the link below:
+
+{{ action_url }}
+
+This verification link is secure and valid for single-use. The link expires in 24 hours.
+
+If you did not create a CubixSkill account, you can safely ignore this message.
+{% endblock %}

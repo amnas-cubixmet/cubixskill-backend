@@ -17,6 +17,12 @@ from authentication.serializers import (
     PasswordSetupSerializer, ForgotPasswordSerializer, PasswordResetSerializer,
     AuthenticatedPasswordChangeSerializer
 )
+from emails.services import (
+    send_academy_activation_email,
+    send_password_reset_email,
+    send_password_changed_email,
+    send_verification_email
+)
 
 class RegisterAcademyView(APIView):
     permission_classes = [AllowAny]
@@ -52,31 +58,7 @@ class RegisterAcademyView(APIView):
             )
 
             raw_token = AuthTokenService.generate_token(user, TokenType.PASSWORD_SETUP)
-            setup_url = f"http://localhost:5173/setup-password?token={raw_token}"
-
-            try:
-                EmailService.send_transactional(
-                    recipient=user.email,
-                    template_code="ACADEMY_ACCOUNT_SETUP",
-                    subject="Activate Your CubixSkill Academy Account",
-                    context={
-                        "user_name": user.full_name,
-                        "action_url": setup_url,
-                        "body": f"Hello {user.full_name},\n\nWelcome to CubixSkill! Your Academy '{academy.name}' has been created. Please complete your account setup and set your password by clicking the link below:\n\n{setup_url}\n\nThis link is secure and single-use."
-                    },
-                    user=user,
-                    academy=academy
-                )
-            except Exception:
-                from django.core.mail import send_mail
-                from django.conf import settings
-                send_mail(
-                    subject="Activate Your CubixSkill Academy Account",
-                    message=f"Hello {user.full_name},\n\nWelcome to CubixSkill! Your Academy '{academy.name}' has been created. Please complete your account setup and set your password by clicking the link below:\n\n{setup_url}\n\nThis link is secure and single-use.",
-                    from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@cubixskill.com'),
-                    recipient_list=[user.email],
-                    fail_silently=True
-                )
+            send_academy_activation_email(user=user, academy=academy, raw_token=raw_token)
 
             return api_response(
                 data={
@@ -222,43 +204,29 @@ class ResendVerificationView(APIView):
 
     def post(self, request):
         email = request.data.get('email')
+        if not email:
+            raise CubixSkillAPIException("Email is required.", code="EMAIL_REQUIRED")
+
+        # Rate limiting: max 3 requests per 5 minutes per email/IP
+        from django.core.cache import cache
+        ip = request.META.get('REMOTE_ADDR', '')
+        cache_key = f"resend_email_rate:{email}:{ip}"
+        resend_count = cache.get(cache_key, 0)
+        if resend_count >= 3:
+            # Safe generic message to avoid leaking rate limit state or account existence
+            return api_response(message="If account exists and is unverified, an activation email has been sent.")
+
+        cache.set(cache_key, resend_count + 1, timeout=300)
+
         user = User.objects.filter(email=email).first()
         if user and (not user.is_email_verified or not user.password_setup_completed):
             if user.role_code in [SystemRoleCode.ACADEMY_ADMIN, SystemRoleCode.ACADEMY_STAFF]:
                 raw_token = AuthTokenService.generate_token(user, TokenType.PASSWORD_SETUP)
-                setup_url = f"http://localhost:5173/setup-password?token={raw_token}"
-                try:
-                    EmailService.send_transactional(
-                        recipient=user.email,
-                        template_code="ACADEMY_ACCOUNT_SETUP",
-                        subject="Activate Your CubixSkill Academy Account",
-                        context={
-                            "user_name": user.full_name,
-                            "action_url": setup_url,
-                            "body": f"Hello {user.full_name},\n\nPlease complete your account setup and set your password by clicking the link below:\n\n{setup_url}"
-                        },
-                        user=user,
-                        academy=user.academy
-                    )
-                except Exception:
-                    from django.core.mail import send_mail
-                    from django.conf import settings
-                    send_mail(
-                        subject="Activate Your CubixSkill Academy Account",
-                        message=f"Hello {user.full_name},\n\nPlease complete your account setup and set your password by clicking the link below:\n\n{setup_url}",
-                        from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@cubixskill.com'),
-                        recipient_list=[user.email],
-                        fail_silently=True
-                    )
+                send_academy_activation_email(user=user, academy=user.academy, raw_token=raw_token)
             else:
                 raw_token = AuthTokenService.generate_token(user, TokenType.EMAIL_VERIFICATION)
-                academy_slug = user.academy.slug if user.academy else "app"
-                verify_url = f"https://{academy_slug}.cubixskill.com/verify-email?token={raw_token}"
-                send_email_task.delay(
-                    subject="Verify Your CubixSkill Email",
-                    recipient=user.email,
-                    message_body=f"Click to verify: {verify_url}"
-                )
+                send_verification_email(user=user, raw_token=raw_token)
+
         return api_response(message="If account exists and is unverified, an activation email has been sent.")
 
 
@@ -325,9 +293,24 @@ class SetupPasswordView(APIView):
         user.set_password(data['new_password'])
         user.is_email_verified = True
         user.password_setup_completed = True
+        user.last_login = timezone.now()
         user.save()
 
-        return api_response(message="Password setup complete. You can now login.")
+        send_password_changed_email(user=user)
+
+        refresh = RefreshToken.for_user(user)
+
+        return api_response({
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+            'user': {
+                'id': str(user.id),
+                'email': user.email,
+                'full_name': user.full_name,
+                'role': user.role_code,
+                'academy_id': str(user.academy.id) if user.academy else None
+            }
+        }, message="Password setup completed successfully.")
 
 class ForgotPasswordView(APIView):
     """
@@ -342,28 +325,16 @@ class ForgotPasswordView(APIView):
         email = serializer.validated_data['email']
 
         user = User.objects.filter(email=email, is_active=True).first()
-        if user:
-            raw_token = AuthTokenService.generate_token(user, TokenType.PASSWORD_RESET)
-            academy_slug = user.academy.slug if user.academy else "app"
-            reset_url = f"https://{academy_slug}.cubixskill.com/reset-password?token={raw_token}"
-            try:
-                send_email_task.delay(
-                    subject="Reset Your CubixSkill Password",
-                    recipient=user.email,
-                    message_body=f"Click to reset password: {reset_url}"
-                )
-            except Exception:
-                from django.core.mail import send_mail
-                from django.conf import settings
-                send_mail(
-                    subject="Reset Your CubixSkill Password",
-                    message=f"Click to reset password: {reset_url}",
-                    from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@cubixskill.com'),
-                    recipient_list=[user.email],
-                    fail_silently=True
-                )
+        if not user:
+            raise CubixSkillAPIException(
+                {"email": ["This email is not registered."]},
+                code="EMAIL_NOT_FOUND",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
-        # Use a generic response to prevent account enumeration.
+        raw_token = AuthTokenService.generate_token(user, TokenType.PASSWORD_RESET)
+        send_password_reset_email(user=user, raw_token=raw_token)
+
         return api_response(message="If an account with that email exists, a password reset link has been sent.")
 
 
@@ -401,6 +372,8 @@ class ChangePasswordView(APIView):
 
         user.set_password(data['new_password'])
         user.save()
+
+        send_password_changed_email(user=user)
 
         return api_response(message="Password changed successfully.")
 
