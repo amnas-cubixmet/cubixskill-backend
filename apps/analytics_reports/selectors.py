@@ -83,15 +83,18 @@ class AnalyticsSelector:
         upcoming_live_sessions = live_qs.filter(scheduled_start__gte=now, status__in=[LiveStatus.SCHEDULED, LiveStatus.LIVE]).count()
 
         # 7. Storage & Credits
-        storage_bytes = MediaFile.objects.filter(academy=academy, status='ACTIVE').aggregate(total=Sum('size_bytes'))['total'] or 0
+        academy_id = academy.id if academy else None
+        storage_bytes = (
+            MediaFile.objects.filter(academy_uuid=academy_id, status='ACTIVE').aggregate(total=Sum('size_bytes'))['total'] or 0
+        ) if academy_id else 0
         storage_gb = f"{(storage_bytes / (1024 ** 3)):.2f} GB"
 
 
-        credit_account = CreditAccount.objects.filter(academy=academy).first()
+        credit_account = CreditAccount.objects.filter(academy=academy).first() if academy else None
         credit_balance = str(credit_account.balance) if credit_account else "0.000000"
 
         # 8. Certificates
-        certificates_issued = Certificate.objects.filter(student__academy=academy, status='ISSUED').count()
+        certificates_issued = Certificate.objects.filter(student__academy=academy, status='ISSUED').count() if academy else 0
 
 
         return {

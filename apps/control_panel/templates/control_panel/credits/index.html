@@ -1,0 +1,31 @@
+{% extends 'control_panel/base.html' %}
+{% block title %}Credit Engine Overview{% endblock %}
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 20px;">
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card"><div class="cp-kpi-label">Total Issued</div><div class="cp-kpi-value" style="color: var(--cp-primary);">{{ total_issued }}</div></div>
+    <div class="cp-kpi-card"><div class="cp-kpi-label">Total Consumed</div><div class="cp-kpi-value" style="color: var(--cp-danger);">{{ total_consumed }}</div></div>
+  </div>
+
+  <div class="cp-card">
+    <div class="cp-card-header"><h3 class="cp-card-title">Top Academy Credit Wallets</h3></div>
+    <div class="cp-table-container">
+      <table class="cp-table">
+        <thead><tr><th>Academy</th><th>Balance</th><th>Total Credited</th><th>Total Debited</th></tr></thead>
+        <tbody>
+          {% for acc in accounts %}
+          <tr>
+            <td><strong>{{ acc.academy.name }}</strong></td>
+            <td><strong style="color: var(--cp-primary);">{{ acc.balance|floatformat:2 }}</strong></td>
+            <td>{{ acc.total_credited|floatformat:2 }}</td>
+            <td>{{ acc.total_debited|floatformat:2 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" style="text-align: center; color: var(--cp-text-muted);">No credit accounts.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

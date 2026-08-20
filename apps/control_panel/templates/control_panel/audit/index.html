@@ -1,0 +1,70 @@
+{% extends 'control_panel/base.html' %}
+
+{% block title %}System Audit Logs{% endblock %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 20px;">
+
+  <div class="cp-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h2 class="cp-card-title">System Audit Trail</h2>
+      <p style="color: var(--cp-text-muted); font-size: 12px; margin-top: 2px;">Append-only security log tracking Super Admin and system operations.</p>
+    </div>
+  </div>
+
+  <div class="cp-card" style="padding: 12px 16px;">
+    <form method="GET" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <input type="text" name="q" value="{{ q }}" class="cp-input" placeholder="Search description, actor, or action..." style="max-width: 320px;">
+      
+      <select name="category" class="cp-select" style="max-width: 180px;" onchange="this.form.submit()">
+        <option value="">All Categories</option>
+        <option value="ACADEMY" {% if category_filter == 'ACADEMY' %}selected{% endif %}>Academy Management</option>
+        <option value="USER" {% if category_filter == 'USER' %}selected{% endif %}>User Administration</option>
+        <option value="CREDIT" {% if category_filter == 'CREDIT' %}selected{% endif %}>Credit Wallet</option>
+        <option value="STORAGE" {% if category_filter == 'STORAGE' %}selected{% endif %}>Storage Billing</option>
+        <option value="SYSTEM" {% if category_filter == 'SYSTEM' %}selected{% endif %}>System Operation</option>
+      </select>
+
+      <button type="submit" class="cp-btn cp-btn-primary">Search Audit Trail</button>
+      {% if q or category_filter %}
+        <a href="{% url 'control_panel:audit_logs' %}" class="cp-btn cp-btn-secondary">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    <div class="cp-table-container">
+      <table class="cp-table">
+        <thead>
+          <tr>
+            <th>Actor</th>
+            <th>Category</th>
+            <th>Action</th>
+            <th>Description</th>
+            <th>IP Address</th>
+            <th>Timestamp</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in audits %}
+          <tr>
+            <td>
+              <strong style="color: var(--cp-text-primary);">{{ log.actor_display|default:log.actor.email|default:"SYSTEM" }}</strong>
+              <div style="font-size: 10px; color: var(--cp-text-muted);">{{ log.actor_type }}</div>
+            </td>
+            <td><span class="cp-badge cp-badge-neutral">{{ log.category }}</span></td>
+            <td><strong style="font-size: 11px;">{{ log.action }}</strong></td>
+            <td>{{ log.description }}</td>
+            <td style="font-size: 11px; font-family: monospace;">{{ log.ip_address|default:"-" }}</td>
+            <td style="font-size: 11px;">{{ log.occurred_at|date:"M d, Y H:i:s" }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="6" style="text-align: center; color: var(--cp-text-muted); padding: 24px;">No audit records found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

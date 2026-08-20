@@ -7,8 +7,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
 
-    initial = True
-
     dependencies = [
         ('learning_progress', '0002_initial'),
         ('lessons', '0002_initial'),

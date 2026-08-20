@@ -1,0 +1,23 @@
+{% extends 'control_panel/base.html' %}
+{% block title %}Global Settings{% endblock %}
+{% block content %}
+<div class="cp-card">
+  <div class="cp-card-header"><h3 class="cp-card-title">Global Platform Settings</h3></div>
+  <form method="POST" style="display: flex; flex-direction: column; gap: 14px; max-width: 500px;">
+    {% csrf_token %}
+    <div>
+      <label style="font-size: 11px; color: var(--cp-text-muted); display: block; margin-bottom: 4px;">Platform Name</label>
+      <input type="text" name="platform_name" value="{{ settings.platform_name|default:'CubixSkill' }}" class="cp-input">
+    </div>
+    <div>
+      <label style="font-size: 11px; color: var(--cp-text-muted); display: block; margin-bottom: 4px;">Support Email</label>
+      <input type="email" name="support_email" value="{{ settings.support_email|default:'support@cubixskill.com' }}" class="cp-input">
+    </div>
+    <div>
+      <label style="font-size: 11px; color: var(--cp-text-muted); display: block; margin-bottom: 4px;">Default Currency</label>
+      <input type="text" name="default_currency" value="{{ settings.default_currency|default:'INR' }}" class="cp-input">
+    </div>
+    <button type="submit" class="cp-btn cp-btn-primary" style="height: 38px;">Save Settings</button>
+  </form>
+</div>
+{% endblock %}

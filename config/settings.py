@@ -30,6 +30,7 @@ INSTALLED_APPS = [
 
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'channels',
 
@@ -58,6 +59,7 @@ INSTALLED_APPS = [
     'analytics_reports',
     'audit_logs',
     'settings',
+    'control_panel',
 ]
 
 MIDDLEWARE = [
@@ -128,6 +130,9 @@ CHANNEL_LAYERS = {
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
 
+# Storage Backend Selector (local vs s3/minio)
+STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'local' if DEBUG else 's3').lower()
+
 # MinIO / S3 Object Storage Settings
 MINIO_ENDPOINT_URL = os.getenv('MINIO_ENDPOINT_URL', 'http://localhost:9000')
 MINIO_EXTERNAL_ENDPOINT_URL = os.getenv('MINIO_EXTERNAL_ENDPOINT_URL', os.getenv('MINIO_ENDPOINT_URL', 'http://localhost:9000'))
@@ -175,6 +180,10 @@ CORS_ALLOW_CREDENTIALS = True
 
 # Frontend URL Configuration
 FRONTEND_ACADEMY_URL = os.getenv('FRONTEND_ACADEMY_URL', 'http://localhost:5173')
+
+# Authentication Settings
+LOGIN_URL = '/control/login/'
+LOGIN_REDIRECT_URL = '/control/dashboard/'
 
 
 

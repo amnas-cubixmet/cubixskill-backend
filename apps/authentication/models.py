@@ -105,6 +105,40 @@ class AuthTokenService:
 
 
     @classmethod
+    def validate_reset_token(cls, raw_token: str):
+        """
+        Validates token status specifically for reset password without consuming it yet.
+        Returns: (auth_token, user, error_message, error_code)
+        """
+        if not raw_token:
+            return None, None, "Reset token is required.", "TOKEN_REQUIRED"
+
+        token_hash = cls._hash_token(raw_token)
+        auth_token = AuthToken.objects.filter(
+            token_hash=token_hash,
+            token_type=TokenType.PASSWORD_RESET
+        ).select_related('user').first()
+
+        if not auth_token:
+            return None, None, "Invalid reset token.", "TOKEN_INVALID"
+
+        if auth_token.used_at is not None:
+            return None, None, "This reset token has already been used.", "TOKEN_ALREADY_USED"
+
+        if auth_token.revoked_at is not None:
+            return None, None, "This reset token has been revoked.", "TOKEN_REVOKED"
+
+        if auth_token.expires_at <= timezone.now():
+            return None, None, "This reset token has expired.", "TOKEN_EXPIRED"
+
+        return auth_token, auth_token.user, None, None
+
+    @classmethod
+    def mark_token_used(cls, auth_token: AuthToken):
+        auth_token.used_at = timezone.now()
+        auth_token.save(update_fields=['used_at'])
+
+    @classmethod
     def revoke_existing_tokens(cls, user: User, token_type: str):
         AuthToken.objects.filter(
             user=user,

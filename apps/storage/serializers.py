@@ -24,7 +24,9 @@ class MediaFileSerializer(serializers.ModelSerializer):
         try:
             return storage_client.generate_presigned_download_url(obj.storage_key)
         except Exception:
-            return storage_client.get_public_url(obj.storage_key)
+            # Fall back to local Django media URL if MinIO is not running
+            return f"/media/{obj.storage_key.lstrip('/')}"
+
 
 class DirectUploadSerializer(serializers.Serializer):
     file = serializers.FileField(required=True)

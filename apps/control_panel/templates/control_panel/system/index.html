@@ -1,0 +1,15 @@
+{% extends 'control_panel/base.html' %}
+{% block title %}System Health{% endblock %}
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 20px;">
+  <div class="cp-card">
+    <div class="cp-card-header"><h3 class="cp-card-title">System Status & Environment</h3></div>
+    <div style="display: flex; flex-direction: column; gap: 12px; font-size: 13px;">
+      <div><strong style="color: var(--cp-text-muted);">Database Status:</strong> <span class="cp-badge cp-badge-success">{{ db_status }}</span></div>
+      <div><strong style="color: var(--cp-text-muted);">Storage Provider:</strong> <span class="cp-badge cp-badge-neutral">{{ storage_status }}</span></div>
+      <div><strong style="color: var(--cp-text-muted);">Python Version:</strong> {{ python_version }}</div>
+      <div><strong style="color: var(--cp-text-muted);">Environment:</strong> {{ django_environment }}</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

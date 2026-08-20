@@ -10,12 +10,10 @@ from rest_framework.exceptions import ValidationError
 from academy.models import Academy
 from users_roles.models import User
 from storage.models import MediaFile
-from storage.services import StorageService
 from notifications.services import NotificationService
 from analytics_reports.models import (
     AnalyticsSnapshot,
     ReportJob,
-    SavedReport,
     ReportStatus,
     ReportFormat,
     ReportType,
@@ -133,7 +131,7 @@ class ReportService:
             django_file = ContentFile(csv_bytes, name=file_name)
 
             media_file = MediaFile.objects.create(
-                academy=job.academy,
+                academy_uuid=job.academy.id if job.academy else None,
                 original_filename=file_name,
                 stored_filename=file_name,
                 storage_key=f"reports/{file_name}",
@@ -142,7 +140,7 @@ class ReportService:
                 mime_type='text/csv',
                 media_type='DOCUMENT',
                 status='ACTIVE',
-                uploaded_by=job.requested_by
+                uploaded_by_uuid=job.requested_by.id if job.requested_by else None
             )
 
 

@@ -1,0 +1,24 @@
+{% extends 'control_panel/base.html' %}
+{% block title %}Background Jobs{% endblock %}
+{% block content %}
+<div class="cp-card">
+  <div class="cp-card-header"><h3 class="cp-card-title">Recurring System Jobs & Scheduler</h3></div>
+  <div class="cp-table-container">
+    <table class="cp-table">
+      <thead><tr><th>Job Name</th><th>Frequency</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Storage Metering Job</strong></td>
+          <td>Every {{ storage_config.metering_interval_hours }} Hours</td>
+          <td><span class="cp-badge cp-badge-success">ACTIVE</span></td>
+        </tr>
+        <tr>
+          <td><strong>Demo Academy Expiry Monitor</strong></td>
+          <td>Daily (24h)</td>
+          <td><span class="cp-badge cp-badge-success">ACTIVE</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

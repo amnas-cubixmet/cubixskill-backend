@@ -1,0 +1,160 @@
+{% extends 'control_panel/base.html' %}
+
+{% block title %}{{ academy.name }} | Control Detail{% endblock %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 20px;">
+
+  <!-- Breadcrumb & Header -->
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <div style="font-size: 11px; color: var(--cp-text-muted); margin-bottom: 4px;">
+        <a href="{% url 'control_panel:academies_list' %}" style="color: var(--cp-primary); text-decoration: none;">Academies</a> / {{ academy.name }}
+      </div>
+      <h2 class="cp-card-title" style="font-size: 20px;">{{ academy.name }}</h2>
+    </div>
+
+    <!-- Status Change Quick Buttons -->
+    <div style="display: flex; gap: 8px;">
+      {% if academy.status == 'ACTIVE' %}
+        <form method="POST" action="{% url 'control_panel:academy_action' pk=academy.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="suspend">
+          <input type="hidden" name="reason" value="Manual Super Admin suspension">
+          <button type="submit" class="cp-btn cp-btn-danger" onclick="return confirm('Suspend this academy?')">Suspend Academy</button>
+        </form>
+      {% else %}
+        <form method="POST" action="{% url 'control_panel:academy_action' pk=academy.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="activate">
+          <button type="submit" class="cp-btn cp-btn-primary">Activate Academy</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- KPI Overview Strip -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Operational Status</div>
+      <div style="margin-top: 4px;">
+        {% if academy.status == 'ACTIVE' %}
+          <span class="cp-badge cp-badge-success" style="font-size: 13px;">ACTIVE</span>
+        {% elif academy.status == 'SUSPENDED' %}
+          <span class="cp-badge cp-badge-danger" style="font-size: 13px;">SUSPENDED</span>
+        {% else %}
+          <span class="cp-badge cp-badge-neutral" style="font-size: 13px;">{{ academy.status }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Credit Balance</div>
+      <div class="cp-kpi-value" style="color: var(--cp-primary);">{{ credit_account.balance|floatformat:2 }}</div>
+      <div style="font-size: 10px; color: var(--cp-text-muted);">Credits Available</div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Storage Consumed</div>
+      <div class="cp-kpi-value">{{ media_gb }} GB</div>
+      <div style="font-size: 10px; color: var(--cp-text-muted);">Local Media Storage</div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Students & Courses</div>
+      <div class="cp-kpi-value">{{ students_count }} / {{ courses_count }}</div>
+      <div style="font-size: 10px; color: var(--cp-text-muted);">{{ enrollments_count }} Total Enrollments</div>
+    </div>
+  </div>
+
+  <!-- Details & Action Panels Grid -->
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+
+    <!-- Left Panel: General Info & Admin User -->
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h3 class="cp-card-title">Academy Information</h3>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px; font-size: 13px;">
+        <div><strong style="color: var(--cp-text-muted);">Email:</strong> {{ academy.email }}</div>
+        <div><strong style="color: var(--cp-text-muted);">Slug:</strong> /{{ academy.slug }}</div>
+        <div><strong style="color: var(--cp-text-muted);">Phone:</strong> {{ academy.phone|default:"Not specified" }}</div>
+        <div><strong style="color: var(--cp-text-muted);">Registered On:</strong> {{ academy.created_at|date:"M d, Y H:i" }}</div>
+        <div>
+          <strong style="color: var(--cp-text-muted);">Academy Admin:</strong>
+          {% if admin_user %}
+            <span style="color: var(--cp-text-primary); font-weight: 500;">{{ admin_user.full_name }} ({{ admin_user.email }})</span>
+          {% else %}
+            <span style="color: var(--cp-text-muted);">No primary admin assigned</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Panel: Credit Adjustment Control -->
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h3 class="cp-card-title">Manual Credit Adjustment</h3>
+      </div>
+      <form method="POST" action="{% url 'control_panel:academy_action' pk=academy.pk %}" style="display: flex; flex-direction: column; gap: 12px;">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="adjust_credits">
+
+        <div style="display: flex; gap: 10px;">
+          <div style="flex: 1;">
+            <label style="font-size: 11px; color: var(--cp-text-muted); display: block; margin-bottom: 4px;">Adjustment Type</label>
+            <select name="adjustment_type" class="cp-select">
+              <option value="ADD">Add Credits (+)</option>
+              <option value="DEDUCT">Deduct Credits (-)</option>
+            </select>
+          </div>
+          <div style="flex: 1;">
+            <label style="font-size: 11px; color: var(--cp-text-muted); display: block; margin-bottom: 4px;">Credit Amount</label>
+            <input type="number" step="1" name="amount" class="cp-input" value="100" required>
+          </div>
+        </div>
+
+        <div>
+          <label style="font-size: 11px; color: var(--cp-text-muted); display: block; margin-bottom: 4px;">Reason / Audit Note</label>
+          <input type="text" name="reason" class="cp-input" placeholder="e.g. Promotional grant or billing correction" required>
+        </div>
+
+        <button type="submit" class="cp-btn cp-btn-primary" style="height: 38px;">Apply Credit Adjustment</button>
+      </form>
+    </div>
+
+  </div>
+
+  <!-- Recent Audit Logs for Academy -->
+  <div class="cp-card">
+    <div class="cp-card-header">
+      <h3 class="cp-card-title">Academy Audit Trail</h3>
+    </div>
+    <div class="cp-table-container">
+      <table class="cp-table">
+        <thead>
+          <tr>
+            <th>Action</th>
+            <th>Description</th>
+            <th>Actor</th>
+            <th>Timestamp</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in recent_logs %}
+          <tr>
+            <td><span class="cp-badge cp-badge-neutral">{{ log.action }}</span></td>
+            <td>{{ log.description }}</td>
+            <td>{{ log.actor.email|default:"SYSTEM" }}</td>
+            <td style="font-size: 11px;">{{ log.occurred_at|date:"M d, H:i" }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" style="text-align: center; color: var(--cp-text-muted);">No audit log entries recorded for this academy.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

@@ -33,5 +33,17 @@ class CanAccessAcademyPermission(permissions.BasePermission):
     Enforces object-level tenant isolation across Academy domains.
     """
     def has_object_permission(self, request, view, obj):
-        academy = getattr(obj, 'academy', obj)
+        academy = getattr(obj, 'academy', None)
+        if academy is None and hasattr(obj, 'course'):
+            academy = getattr(obj.course, 'academy', None)
+        if academy is None and hasattr(obj, 'module'):
+            academy = getattr(getattr(obj.module, 'course', None), 'academy', None)
+        if academy is None and hasattr(obj, 'lesson'):
+            module = getattr(obj.lesson, 'module', None)
+            course = getattr(module, 'course', None) if module else None
+            academy = getattr(course, 'academy', None) if course else None
+
+        if academy is None and isinstance(obj, Academy):
+            academy = obj
+
         return can_access_academy(request.user, academy)

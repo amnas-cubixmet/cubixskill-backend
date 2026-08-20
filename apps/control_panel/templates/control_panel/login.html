@@ -1,0 +1,258 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Super Admin Login | CubixSkill Control</title>
+  <link rel="stylesheet" href="{% static 'control_panel/css/style.css' %}">
+  <style>
+    /* Dedicated login layout & Chrome autofill overrides */
+    .cp-login-page {
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background-color: var(--cp-bg);
+    }
+    
+    .cp-login-card {
+      width: min(100%, 470px);
+      background-color: var(--cp-card-bg);
+      border: 1px solid var(--cp-border);
+      border-radius: 18px;
+      padding: 32px;
+      box-shadow: var(--cp-shadow);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .cp-input-group {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .cp-input-icon-left {
+      position: absolute;
+      left: 16px;
+      color: var(--cp-text-muted);
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .cp-input-icon-right {
+      position: absolute;
+      right: 16px;
+      background: none;
+      border: none;
+      color: var(--cp-text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px;
+      border-radius: 4px;
+    }
+
+    .cp-input-icon-right:hover {
+      color: var(--cp-text-primary);
+    }
+
+    .cp-login-field {
+      width: 100%;
+      height: 54px;
+      padding-left: 48px;
+      padding-right: 48px;
+      background-color: var(--cp-input-bg);
+      border: 1px solid var(--cp-input-border);
+      border-radius: 10px;
+      color: var(--cp-text-primary);
+      font-size: 14px;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .cp-login-field:focus {
+      border-color: var(--cp-primary);
+    }
+
+    /* Fix browser autofill dark/light theme mismatch */
+    .cp-login-field:-webkit-autofill,
+    .cp-login-field:-webkit-autofill:hover,
+    .cp-login-field:-webkit-autofill:focus {
+      -webkit-text-fill-color: var(--cp-text-primary) !important;
+      -webkit-box-shadow: 0 0 0px 1000px var(--cp-input-bg) inset !important;
+      transition: background-color 5000s ease-in-out 0s;
+    }
+
+    @media (max-width: 480px) {
+      .cp-login-page {
+        padding: 16px;
+      }
+      .cp-login-card {
+        padding: 24px 20px;
+        border-radius: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="cp-login-page">
+    <div class="cp-login-card">
+
+      <!-- Top Header Branding -->
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div style="font-size: 26px; font-weight: 600; tracking-tight: -0.5px; color: var(--cp-text-primary); line-height: 1.2;">
+          Cubix<span style="color: var(--cp-primary);">Skill</span>
+        </div>
+        <div style="font-size: 13px; font-weight: 500; color: var(--cp-text-muted); margin-top: 2px;">
+          Control Panel
+        </div>
+      </div>
+
+      <!-- Authentication Separator Header -->
+      <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 24px;">
+        <div style="flex: 1; height: 1px; background-color: var(--cp-border);"></div>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--cp-primary); shrink: 0;">
+          <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>
+        </svg>
+        <div style="flex: 1; height: 1px; background-color: var(--cp-border);"></div>
+      </div>
+
+      <div style="text-align: center; font-size: 14px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 20px;">
+        Super Admin Authentication
+      </div>
+
+      <!-- Django Messages & Error Alert -->
+      {% if messages %}
+        {% for message in messages %}
+          <div style="padding: 12px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; margin-bottom: 18px; background: var(--cp-danger-bg); color: var(--cp-danger); border: 1px solid var(--cp-danger-border);">
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <!-- Login Form -->
+      <form method="POST" action="{% url 'control_panel:login' %}" style="display: flex; flex-direction: column; gap: 20px;">
+        {% csrf_token %}
+
+        <!-- Email Field -->
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--cp-text-muted); margin-bottom: 8px;">
+            SUPER ADMIN EMAIL
+          </label>
+          <div class="cp-input-group">
+            <span class="cp-input-icon-left">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+            </span>
+            <input 
+              type="email" 
+              name="email" 
+              class="cp-login-field" 
+              placeholder="admin@cubixskill.com" 
+              autocomplete="email"
+              required 
+              autoFocus
+            >
+          </div>
+        </div>
+
+        <!-- Password Field -->
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--cp-text-muted); margin-bottom: 8px;">
+            PASSWORD
+          </label>
+          <div class="cp-input-group">
+            <span class="cp-input-icon-left">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            </span>
+            <input 
+              type="password" 
+              id="password-input"
+              name="password" 
+              class="cp-login-field" 
+              placeholder="••••••••" 
+              autocomplete="current-password"
+              required
+            >
+            <button 
+              type="button" 
+              id="password-toggle"
+              class="cp-input-icon-right"
+              aria-label="Toggle password visibility"
+            >
+              <svg id="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <button 
+          type="submit" 
+          class="cp-btn cp-btn-primary" 
+          style="height: 54px; border-radius: 10px; font-size: 14px; font-weight: 500; margin-top: 4px;"
+        >
+          Sign In to Control Panel
+        </button>
+      </form>
+
+      <!-- Security Footer -->
+      <div style="margin-top: 24px; text-align: center; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--cp-text-muted);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        <span>Secure login for Super Admins only</span>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // Theme initialization matching global control panel theme
+    const savedTheme = localStorage.getItem('cp-theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+
+    // Password visibility toggle logic
+    const passwordInput = document.getElementById('password-input');
+    const passwordToggleBtn = document.getElementById('password-toggle');
+    const eyeIcon = document.getElementById('eye-icon');
+
+    if (passwordInput && passwordToggleBtn) {
+      passwordToggleBtn.addEventListener('click', function () {
+        const isPassword = passwordInput.getAttribute('type') === 'password';
+        if (isPassword) {
+          passwordInput.setAttribute('type', 'text');
+          eyeIcon.innerHTML = `
+            <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/>
+            <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/>
+            <path d="M17.479 17.499A10.75 10.75 0 0 1 2.062 12.348a1 1 0 0 1 0-.696 10.747 10.747 0 0 1 4.288-4.52"/>
+            <line x1="2" x2="22" y1="2" y2="22"/>
+          `;
+          passwordToggleBtn.setAttribute('aria-label', 'Hide password');
+        } else {
+          passwordInput.setAttribute('type', 'password');
+          eyeIcon.innerHTML = `
+            <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z"/>
+            <circle cx="12" cy="12" r="3"/>
+          `;
+          passwordToggleBtn.setAttribute('aria-label', 'Show password');
+        }
+      });
+    }
+  </script>
+</body>
+</html>

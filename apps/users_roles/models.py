@@ -186,3 +186,50 @@ def can_access_academy(user: User, academy) -> bool:
         return False
     target_id = str(academy.id) if hasattr(academy, 'id') else str(academy)
     return str(user.academy.id) == target_id
+
+def get_user_permissions(user: User) -> list:
+    """
+    Returns complete list of permission codes assigned to user.
+    """
+    if not user or not user.is_authenticated or not user.is_active:
+        return []
+
+    standard_codes = [
+        "courses.view", "courses.create", "courses.edit", "courses.delete", "courses.publish",
+        "students.view", "students.create", "students.edit", "students.delete",
+        "payments.view", "payments.manage",
+        "live_classes.view", "live_classes.manage",
+        "certificates.view", "certificates.issue",
+        "discussions.view", "discussions.manage",
+        "reports.view", "reports.export",
+        "staff.view", "staff.manage",
+        "settings.view", "settings.edit"
+    ]
+
+    if user.role_code in [SystemRoleCode.SUPER_ADMIN, SystemRoleCode.SUPER_ADMIN_STAFF, SystemRoleCode.ACADEMY_ADMIN]:
+        all_db_codes = list(Permission.objects.values_list('code', flat=True))
+        return sorted(list(set(all_db_codes + standard_codes)))
+
+    permissions = set()
+
+    if user.assigned_role:
+        role_perms = Permission.objects.filter(
+            permission_roles__role=user.assigned_role
+        ).values_list('code', flat=True)
+        permissions.update(role_perms)
+    else:
+        sys_perms = Permission.objects.filter(
+            permission_roles__role__code=user.role_code
+        ).values_list('code', flat=True)
+        permissions.update(sys_perms)
+
+    overrides = UserPermissionOverride.objects.filter(user=user).select_related('permission')
+    for ov in overrides:
+        if ov.permission:
+            if ov.is_granted:
+                permissions.add(ov.permission.code)
+            else:
+                permissions.discard(ov.permission.code)
+
+    return sorted(list(permissions))
+

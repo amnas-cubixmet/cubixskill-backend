@@ -1,0 +1,26 @@
+{% extends "emails/base.txt" %}
+
+{% block content %}
+Hi {{ student_name }},
+
+You’ve been added as a student to {{ academy_name }}.
+
+Your student account has been created using this email address:
+
+{{ student_email }}
+
+To activate your account and create your password, click the link below:
+
+Set Password & Activate Account:
+{{ activation_url }}
+
+This activation link is secure, can be used only once, and will expire after {{ expiry_time }}.
+
+Once your account is activated, you’ll be able to sign in and access the courses assigned to you.
+
+If you were not expecting this invitation, you can safely ignore this email.
+
+Regards,
+{{ academy_name }}
+{% if academy_support_email %}{{ academy_support_email }}{% endif %}
+{% endblock %}

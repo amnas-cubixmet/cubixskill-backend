@@ -58,11 +58,39 @@ class StudentViewSet(viewsets.ModelViewSet):
         StudentService.update_status(student, StudentStatus.INACTIVE)
         return api_response(message="Student deactivated.")
 
-    @action(detail=True, methods=['post'])
-    def archive(self, request, pk=None):
+    @action(detail=True, methods=['post'], url_path='send-email')
+    def send_email(self, request, pk=None):
         student = self.get_object()
-        StudentService.update_status(student, StudentStatus.ARCHIVED)
-        return api_response(message="Student archived.")
+        subject = request.data.get('subject', '').strip()
+        message = request.data.get('message', '').strip()
+
+        if not subject:
+            raise CubixSkillAPIException("Email subject is required.", code="SUBJECT_REQUIRED", status_code=400)
+        if not message:
+            raise CubixSkillAPIException("Email message is required.", code="MESSAGE_REQUIRED", status_code=400)
+
+        recipient_email = student.user.email if student.user else None
+        if not recipient_email:
+            raise CubixSkillAPIException("Student does not have a valid email address.", code="NO_EMAIL", status_code=400)
+
+        from emails.services import send_transactional_email
+        context = {
+            "user_name": student.display_name or student.user.full_name or "Student",
+            "body": message,
+            "academy_name": request.user.academy.name if (hasattr(request.user, 'academy') and request.user.academy) else "CubixSkill Academy"
+        }
+
+        success = send_transactional_email(
+            recipient=recipient_email,
+            template_name="custom_notification",
+            subject=subject,
+            context=context
+        )
+
+        if not success:
+            raise CubixSkillAPIException("Failed to deliver email via SMTP backend.", code="EMAIL_DELIVERY_FAILED", status_code=500)
+
+        return api_response(message=f"Email sent successfully to {recipient_email}.")
 
 #--------------------------------------------------------------
 # Student Self-Service ViewSet

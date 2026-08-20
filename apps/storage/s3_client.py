@@ -6,6 +6,9 @@ try:
     BOTO3_AVAILABLE = True
 except ImportError:
     BOTO3_AVAILABLE = False
+    class ClientError(Exception):
+        pass
+
 
 from django.conf import settings
 
@@ -78,19 +81,34 @@ class S3StorageClient:
 
     def upload_file(self, file_obj, object_key: str, content_type: str = 'application/octet-stream') -> str:
         """
-        Directly upload file bytes/stream to MinIO/S3.
+        Directly upload file bytes/stream to MinIO/S3 or local storage fallback.
         """
-        self.ensure_bucket_exists()
-        extra_args = {'ContentType': content_type}
-        
-        if hasattr(file_obj, 'read'):
-            self.client.upload_fileobj(file_obj, self.bucket_name, object_key, ExtraArgs=extra_args)
-        elif isinstance(file_obj, (bytes, bytearray)):
-            self.client.put_object(Bucket=self.bucket_name, Key=object_key, Body=file_obj, ContentType=content_type)
-        else:
-            raise ValueError("Unsupported file_obj type for upload.")
+        storage_backend = getattr(settings, 'STORAGE_BACKEND', 's3').lower()
+        if storage_backend == 's3' and self.client:
+            try:
+                self.ensure_bucket_exists()
+                extra_args = {'ContentType': content_type}
+                if hasattr(file_obj, 'read'):
+                    self.client.upload_fileobj(file_obj, self.bucket_name, object_key, ExtraArgs=extra_args)
+                elif isinstance(file_obj, (bytes, bytearray)):
+                    self.client.put_object(Bucket=self.bucket_name, Key=object_key, Body=file_obj, ContentType=content_type)
+                return object_key
+            except Exception as e:
+                logger.warning(f"S3/MinIO upload failed, using local disk fallback: {e}")
+
+        import os
+        media_root = getattr(settings, 'MEDIA_ROOT', 'media')
+        dest_path = os.path.join(media_root, object_key)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        with open(dest_path, 'wb') as f:
+            if hasattr(file_obj, 'read'):
+                file_obj.seek(0)
+                f.write(file_obj.read())
+            elif isinstance(file_obj, (bytes, bytearray)):
+                f.write(file_obj)
 
         return object_key
+
 
     def generate_presigned_upload_url(self, object_key: str, mime_type: str = 'application/octet-stream', expires_in: int = 900) -> str:
         """

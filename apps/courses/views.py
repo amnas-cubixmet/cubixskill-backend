@@ -5,7 +5,7 @@ from courses.selectors import CourseSelector
 from courses.services import CourseService
 from courses.serializers import (
     CourseListSerializer, CourseDetailSerializer, CourseWriteSerializer,
-    CourseCategorySerializer, CourseModuleSerializer
+    CourseCategorySerializer, CourseModuleSerializer, CourseLanguageSerializer
 )
 from core.permissions import CanAccessAcademyPermission
 from core.utils import api_response
@@ -67,6 +67,27 @@ class CourseViewSet(viewsets.ModelViewSet):
 
 #--------------------------------------------------------------
 # Category ViewSet
+import re
+import difflib
+from django.db import transaction, models
+from django.utils.text import slugify
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework import status
+from courses.models import CourseCategory, CourseLanguage, CategoryAlias, CategoryMergeAudit, Course
+from courses.serializers import (
+    CourseCategorySerializer,
+    CategoryMergeSerializer,
+    CategoryMergeAuditSerializer
+)
+
+def normalize_category_name(name: str) -> str:
+    if not name:
+        return ""
+    return re.sub(r'\s+', ' ', name.strip())
+
+#--------------------------------------------------------------
+# Category ViewSet
 #--------------------------------------------------------------
 
 class CourseCategoryViewSet(viewsets.ModelViewSet):
@@ -74,10 +95,148 @@ class CourseCategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CourseCategorySerializer
 
     def get_queryset(self):
-        return CourseCategory.objects.filter(academy=self.request.user.academy)
+        academy = getattr(self.request.user, 'academy', None)
+        qs = CourseCategory.objects.filter(academy=academy)
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                models.Q(name__icontains=search) |
+                models.Q(slug__icontains=search) |
+                models.Q(aliases__name__icontains=search) |
+                models.Q(aliases__slug__icontains=search)
+            ).distinct()
+        return qs
 
-    def perform_create(self, serializer):
-        serializer.save(academy=self.request.user.academy)
+    def create(self, request, *args, **kwargs):
+        academy = getattr(request.user, 'academy', None)
+        raw_name = request.data.get('name', '')
+        norm_name = normalize_category_name(raw_name)
+        if not norm_name:
+            return Response({'message': 'Category name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        norm_slug = slugify(norm_name)
+
+        # 1. Check exact canonical match
+        exact = CourseCategory.objects.filter(academy=academy, slug=norm_slug).first()
+        if not exact:
+            exact = CourseCategory.objects.filter(academy=academy, name__iexact=norm_name).first()
+        if exact:
+            serializer = self.get_serializer(exact)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        # 2. Check alias match
+        alias = CategoryAlias.objects.filter(academy=academy, slug=norm_slug).select_related('canonical_category').first()
+        if not alias:
+            alias = CategoryAlias.objects.filter(academy=academy, name__iexact=norm_name).select_related('canonical_category').first()
+        if alias and alias.canonical_category:
+            serializer = self.get_serializer(alias.canonical_category)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        # 3. Create new canonical category
+        description = request.data.get('description', '')
+        category = CourseCategory.objects.create(
+            academy=academy,
+            name=norm_name,
+            description=description
+        )
+        serializer = self.get_serializer(category)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], url_path='check-similar')
+    def check_similar(self, request):
+        academy = getattr(request.user, 'academy', None)
+        name = request.query_params.get('name', '').strip()
+        if not name:
+            return Response({'exact_match': None, 'alias_match': None, 'similar_categories': []})
+
+        norm_name = normalize_category_name(name)
+        norm_slug = slugify(norm_name)
+
+        # Exact match
+        exact = CourseCategory.objects.filter(academy=academy, slug=norm_slug).first()
+        if not exact:
+            exact = CourseCategory.objects.filter(academy=academy, name__iexact=norm_name).first()
+
+        # Alias match
+        alias = CategoryAlias.objects.filter(academy=academy, slug=norm_slug).select_related('canonical_category').first()
+        if not alias:
+            alias = CategoryAlias.objects.filter(academy=academy, name__iexact=norm_name).select_related('canonical_category').first()
+
+        # Similar categories search
+        all_cats = CourseCategory.objects.filter(academy=academy)
+        similar_cats = []
+
+        norm_lower = norm_name.lower()
+        for cat in all_cats:
+            if exact and cat.id == exact.id:
+                continue
+            cat_lower = cat.name.lower()
+            ratio = difflib.SequenceMatcher(None, norm_lower, cat_lower).ratio()
+            is_substring = norm_lower in cat_lower or cat_lower in norm_lower
+            if ratio >= 0.55 or is_substring:
+                similar_cats.append(cat)
+
+        return Response({
+            'exact_match': CourseCategorySerializer(exact).data if exact else None,
+            'alias_match': CourseCategorySerializer(alias.canonical_category).data if (alias and alias.canonical_category) else None,
+            'similar_categories': CourseCategorySerializer(similar_cats, many=True).data
+        })
+
+    @action(detail=False, methods=['post'], url_path='merge')
+    @transaction.atomic
+    def merge(self, request):
+        academy = getattr(request.user, 'academy', None)
+        serializer = CategoryMergeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        source_id = serializer.validated_data['source_category_id']
+        target_id = serializer.validated_data['target_category_id']
+
+        source_cat = CourseCategory.objects.filter(academy=academy, id=source_id).first()
+        target_cat = CourseCategory.objects.filter(academy=academy, id=target_id).first()
+
+        if not source_cat or not target_cat:
+            return Response({'message': 'Source or Target category not found in your academy.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 1. Reassign courses
+        reassigned_courses = Course.objects.filter(academy=academy, category=source_cat)
+        count = reassigned_courses.count()
+        reassigned_courses.update(category=target_cat)
+
+        # 2. Create CategoryAlias for old source name
+        if not CategoryAlias.objects.filter(academy=academy, name__iexact=source_cat.name).exists():
+            CategoryAlias.objects.create(
+                academy=academy,
+                canonical_category=target_cat,
+                name=source_cat.name,
+                created_by=request.user
+            )
+
+        # 3. Log audit trail
+        CategoryMergeAudit.objects.create(
+            academy=academy,
+            source_category_name=source_cat.name,
+            target_category=target_cat,
+            courses_reassigned_count=count,
+            merged_by=request.user
+        )
+
+        # 4. Delete source category
+        source_name = source_cat.name
+        source_cat.delete()
+
+        return Response({
+            'message': f"Category '{source_name}' successfully merged into '{target_cat.name}'. Reassigned {count} courses.",
+            'target_category': CourseCategorySerializer(target_cat).data
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='merge-audits')
+    def merge_audits(self, request):
+        academy = getattr(request.user, 'academy', None)
+        audits = CategoryMergeAudit.objects.filter(academy=academy)
+        serializer = CategoryMergeAuditSerializer(audits, many=True)
+        return Response(serializer.data)
+
 
 #--------------------------------------------------------------
 # Module ViewSet
@@ -89,3 +248,55 @@ class CourseModuleViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return CourseModule.objects.filter(course__academy=self.request.user.academy)
+
+
+#--------------------------------------------------------------
+# Course Language ViewSet
+#--------------------------------------------------------------
+
+def normalize_language_name(name: str) -> str:
+    if not name:
+        return ""
+    return re.sub(r'\s+', ' ', name.strip()).title()
+
+class CourseLanguageViewSet(viewsets.ModelViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CourseLanguageSerializer
+
+    def get_queryset(self):
+        academy = getattr(self.request.user, 'academy', None)
+        qs = CourseLanguage.objects.filter(models.Q(academy=academy) | models.Q(academy__isnull=True))
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                models.Q(name__icontains=search) |
+                models.Q(code__icontains=search) |
+                models.Q(slug__icontains=search)
+            ).distinct()
+        return qs.order_index_by() if hasattr(qs, 'order_index_by') else qs.order_by('name')
+
+    def create(self, request, *args, **kwargs):
+        academy = getattr(request.user, 'academy', None)
+        raw_name = request.data.get('name', '')
+        norm_name = normalize_language_name(raw_name)
+        if not norm_name:
+            return Response({'message': 'Language name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        norm_slug = slugify(norm_name)
+
+        # Exact match check to prevent duplicates
+        exact = CourseLanguage.objects.filter(models.Q(academy=academy) | models.Q(academy__isnull=True), slug=norm_slug).first()
+        if not exact:
+            exact = CourseLanguage.objects.filter(models.Q(academy=academy) | models.Q(academy__isnull=True), name__iexact=norm_name).first()
+        
+        if exact:
+            serializer = self.get_serializer(exact)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        lang = CourseLanguage.objects.create(
+            academy=academy,
+            name=norm_name,
+            code=request.data.get('code', '')
+        )
+        serializer = self.get_serializer(lang)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

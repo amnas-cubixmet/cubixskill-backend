@@ -6,8 +6,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
 
-    initial = True
-
     dependencies = [
         ('lessons', '0001_initial'),
         ('modules', '0001_initial'),

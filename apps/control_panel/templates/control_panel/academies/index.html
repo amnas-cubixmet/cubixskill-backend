@@ -1,0 +1,96 @@
+{% extends 'control_panel/base.html' %}
+
+{% block title %}Academy Management{% endblock %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 20px;">
+
+  <!-- Header -->
+  <div class="cp-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h2 class="cp-card-title">Academy Management</h2>
+      <p style="color: var(--cp-text-muted); font-size: 12px; margin-top: 2px;">Manage registered academies, subscriptions, operational status, and credit wallets.</p>
+    </div>
+  </div>
+
+  <!-- Search & Filter Bar -->
+  <div class="cp-card" style="padding: 12px 16px;">
+    <form method="GET" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <input type="text" name="q" value="{{ search_q }}" class="cp-input" placeholder="Search academy by name or email..." style="max-width: 300px;">
+      
+      <select name="status" class="cp-select" style="max-width: 160px;" onchange="this.form.submit()">
+        <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Statuses</option>
+        <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option>
+        <option value="suspended" {% if status_filter == 'suspended' %}selected{% endif %}>Suspended</option>
+        <option value="demo" {% if status_filter == 'demo' %}selected{% endif %}>Demo Academies</option>
+        <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>Inactive</option>
+      </select>
+
+      <button type="submit" class="cp-btn cp-btn-primary">Filter</button>
+      {% if search_q or status_filter != 'all' %}
+        <a href="{% url 'control_panel:academies_list' %}" class="cp-btn cp-btn-secondary">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Table -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    <div class="cp-table-container">
+      <table class="cp-table">
+        <thead>
+          <tr>
+            <th>Academy Name</th>
+            <th>Email / Slug</th>
+            <th>Status</th>
+            <th>Demo</th>
+            <th>Registered</th>
+            <th style="text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ac in academies %}
+          <tr>
+            <td>
+              <strong style="color: var(--cp-text-primary); font-weight: 600;">
+                <a href="{% url 'control_panel:academy_detail' pk=ac.pk %}" style="color: var(--cp-primary); text-decoration: none;">{{ ac.name }}</a>
+              </strong>
+            </td>
+            <td>
+              <div>{{ ac.email }}</div>
+              <div style="font-size: 10px; color: var(--cp-text-muted);">/{{ ac.slug }}</div>
+            </td>
+            <td>
+              {% if ac.status == 'ACTIVE' %}
+                <span class="cp-badge cp-badge-success">ACTIVE</span>
+              {% elif ac.status == 'SUSPENDED' %}
+                <span class="cp-badge cp-badge-danger">SUSPENDED</span>
+              {% else %}
+                <span class="cp-badge cp-badge-neutral">{{ ac.status }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if ac.is_demo %}
+                <span class="cp-badge cp-badge-warning">DEMO</span>
+              {% else %}
+                <span style="color: var(--cp-text-muted);">-</span>
+              {% endif %}
+            </td>
+            <td style="font-size: 11px;">{{ ac.created_at|date:"M d, Y" }}</td>
+            <td style="text-align: right;">
+              <a href="{% url 'control_panel:academy_detail' pk=ac.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; font-size: 11px;">Manage</a>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="6" style="text-align: center; color: var(--cp-text-muted); padding: 24px;">
+              No academies match your filter criteria.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

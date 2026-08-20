@@ -25,6 +25,36 @@ class CourseStatus(models.TextChoices):
     ARCHIVED = 'ARCHIVED', 'Archived'
 
 #--------------------------------------------------------------
+# Course Language Model
+#--------------------------------------------------------------
+
+class CourseLanguage(BaseModel, SlugMixin, ActiveMixin, OrderMixin):
+    academy = models.ForeignKey('academy.Academy', on_delete=models.CASCADE, related_name='course_languages', null=True, blank=True)
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=10, blank=True, default='')
+
+    class Meta:
+        db_table = 'course_languages'
+        unique_together = ('academy', 'slug')
+        ordering = ['order_index', 'name']
+
+    def __str__(self):
+        return f"{self.name} ({self.academy.name if self.academy else 'Global'})"
+
+    def save(self, *args, **kwargs):
+        if self.name:
+            self.name = self.name.strip().title()
+        if not self.slug and self.name:
+            base_slug = slugify(self.name)
+            slug = base_slug
+            count = 1
+            while CourseLanguage.objects.filter(academy=self.academy, slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base_slug}-{count}"
+                count += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+#--------------------------------------------------------------
 # Course Category Model
 #--------------------------------------------------------------
 
@@ -39,7 +69,7 @@ class CourseCategory(BaseModel, SlugMixin, ActiveMixin, OrderMixin):
         ordering = ['order_index', 'name']
 
     def __str__(self):
-        return f"{self.name} ({self.academy.name})"
+        return f"{self.name} ({self.academy.name if self.academy else 'Global'})"
 
     def save(self, *args, **kwargs):
         if not self.slug and self.name:
@@ -51,6 +81,54 @@ class CourseCategory(BaseModel, SlugMixin, ActiveMixin, OrderMixin):
                 count += 1
             self.slug = slug
         super().save(*args, **kwargs)
+
+#--------------------------------------------------------------
+# Category Alias System
+#--------------------------------------------------------------
+
+class CategoryAlias(BaseModel, SlugMixin):
+    academy = models.ForeignKey('academy.Academy', on_delete=models.CASCADE, related_name='category_aliases', null=True, blank=True)
+    canonical_category = models.ForeignKey(CourseCategory, on_delete=models.CASCADE, related_name='aliases')
+    name = models.CharField(max_length=100)
+    created_by = models.ForeignKey('users_roles.User', on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        db_table = 'category_aliases'
+        unique_together = ('academy', 'slug')
+
+    def __str__(self):
+        return f"{self.name} -> {self.canonical_category.name}"
+
+    def save(self, *args, **kwargs):
+        if not self.slug and self.name:
+            base_slug = slugify(self.name)
+            slug = base_slug
+            count = 1
+            while CategoryAlias.objects.filter(academy=self.academy, slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base_slug}-{count}"
+                count += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+#--------------------------------------------------------------
+# Category Merge Audit Log
+#--------------------------------------------------------------
+
+class CategoryMergeAudit(BaseModel):
+    academy = models.ForeignKey('academy.Academy', on_delete=models.CASCADE, related_name='category_merges', null=True, blank=True)
+    source_category_name = models.CharField(max_length=100)
+    target_category = models.ForeignKey(CourseCategory, on_delete=models.CASCADE, related_name='merge_audits')
+    courses_reassigned_count = models.IntegerField(default=0)
+    merged_by = models.ForeignKey('users_roles.User', on_delete=models.SET_NULL, null=True, blank=True)
+    merged_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'category_merge_audits'
+        ordering = ['-merged_at']
+
+    def __str__(self):
+        return f"Merged '{self.source_category_name}' -> '{self.target_category.name}'"
+
 
 #--------------------------------------------------------------
 # Primary Course Model
@@ -66,7 +144,10 @@ class Course(BaseModel, SlugMixin, ActiveMixin, PublishMixin):
     description = models.TextField(blank=True, default='')
 
     thumbnail = models.ForeignKey(MediaFile, on_delete=models.SET_NULL, null=True, blank=True, related_name='course_thumbnails')
+    thumbnail_url = models.URLField(max_length=500, blank=True, default='')
     promo_video = models.ForeignKey(MediaFile, on_delete=models.SET_NULL, null=True, blank=True, related_name='course_promo_videos')
+    promo_video_url = models.URLField(max_length=500, blank=True, default='')
+
 
     level = models.CharField(max_length=20, choices=CourseLevel.choices, default=CourseLevel.ALL_LEVELS)
     language = models.CharField(max_length=50, default='English')

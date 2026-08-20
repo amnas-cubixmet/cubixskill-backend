@@ -27,12 +27,12 @@ class RequestUploadUrlView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        if not request.user.academy:
-            raise CubixSkillAPIException("User has no associated academy.", code="NO_ACADEMY")
+        acad_uuid = request.user.academy.id if request.user.academy else None
+        user_uuid = request.user.id if request.user else None
 
         res = StorageService.create_upload_session(
-            academy=request.user.academy,
-            user=request.user,
+            academy_uuid=acad_uuid,
+            user_uuid=user_uuid,
             original_name=data['file_name'],
             mime_type=data['mime_type'],
             file_size_bytes=data['file_size_bytes'],
@@ -50,6 +50,59 @@ class RequestUploadUrlView(APIView):
         )
 
 #--------------------------------------------------------------
+# Pre-Upload Cost Estimation View
+#--------------------------------------------------------------
+
+class EstimateUploadCostView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        size_bytes = int(request.data.get('size_bytes', 0))
+        category = request.data.get('category', 'GENERAL')
+
+        acad_uuid = request.user.academy.id if (hasattr(request.user, 'academy') and request.user.academy) else None
+        account = StorageService.get_or_create_account(acad_uuid)
+
+        from control_panel.models import StorageBillingConfig
+        config = StorageBillingConfig.objects.first()
+        if not config:
+            config = StorageBillingConfig.objects.create()
+
+        price_per_unit = float(config.price_per_unit)
+        unit = config.storage_unit.upper()
+
+        if unit == 'MB':
+            unit_bytes = 1024 * 1024
+        elif unit == 'TB':
+            unit_bytes = 1024 * 1024 * 1024 * 1024
+        else:
+            unit_bytes = 1024 * 1024 * 1024
+
+        additional_units = size_bytes / unit_bytes
+        estimated_additional_cost = round(additional_units * price_per_unit, 2)
+
+        curr_bytes = account.current_usage_bytes
+        new_bytes = curr_bytes + size_bytes
+
+        curr_gb = round(curr_bytes / (1024 * 1024 * 1024), 2)
+        new_gb = round(new_bytes / (1024 * 1024 * 1024), 2)
+        file_mb = round(size_bytes / (1024 * 1024), 2)
+
+        return api_response(
+            data={
+                "file_size_bytes": size_bytes,
+                "file_size_display": f"{file_mb} MB" if file_mb < 1024 else f"{round(file_mb / 1024, 2)} GB",
+                "price_per_unit": price_per_unit,
+                "storage_unit": unit,
+                "additional_monthly_cost": estimated_additional_cost,
+                "current_storage_usage": f"{curr_gb} GB",
+                "estimated_new_usage": f"{new_gb} GB",
+                "currency": "INR",
+                "category": category
+            }
+        )
+
+#--------------------------------------------------------------
 # Direct Upload View
 #--------------------------------------------------------------
 
@@ -58,16 +111,16 @@ class DirectUploadView(APIView):
     parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request):
-        if not request.user.academy:
-            raise CubixSkillAPIException("User has no associated academy.", code="NO_ACADEMY")
-
         uploaded_file = request.FILES.get('file')
         if not uploaded_file:
             raise CubixSkillAPIException("No file provided.", code="NO_FILE", status_code=400)
 
+        acad_uuid = request.user.academy.id if (hasattr(request.user, 'academy') and request.user.academy) else None
+        user_uuid = request.user.id if request.user else None
+
         media_file = StorageService.upload_media_direct(
-            academy=request.user.academy,
-            user=request.user,
+            academy_uuid=acad_uuid,
+            user_uuid=user_uuid,
             file_obj=uploaded_file,
             original_filename=uploaded_file.name,
             mime_type=uploaded_file.content_type or 'application/octet-stream',
@@ -76,7 +129,7 @@ class DirectUploadView(APIView):
 
         return api_response(
             data=MediaFileSerializer(media_file).data,
-            message="Media uploaded successfully to MinIO and metadata saved to PostgreSQL.",
+            message="Media uploaded successfully and metadata saved to media database.",
             status_code=status.HTTP_201_CREATED
         )
 
@@ -88,8 +141,9 @@ class ConfirmUploadView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, upload_id):
+        acad_uuid = request.user.academy.id if request.user.academy else None
         try:
-            session = UploadSession.objects.get(id=upload_id, academy=request.user.academy)
+            session = UploadSession.objects.get(id=upload_id, academy_uuid=acad_uuid)
         except UploadSession.DoesNotExist:
             raise CubixSkillAPIException("Upload session not found.", code="NOT_FOUND", status_code=404)
 
@@ -109,7 +163,8 @@ class MediaFileViewSet(viewsets.ModelViewSet):
     parser_classes = (MultiPartParser, FormParser)
 
     def get_queryset(self):
-        return MediaFile.objects.filter(academy=self.request.user.academy).exclude(status='DELETED')
+        acad_uuid = self.request.user.academy.id if self.request.user.academy else None
+        return MediaFile.objects.filter(academy_uuid=acad_uuid).exclude(status='DELETED')
 
     def update(self, request, *args, **kwargs):
         media_file = self.get_object()
@@ -146,8 +201,9 @@ class StorageUsageView(APIView):
         if not request.user.academy:
             raise CubixSkillAPIException("No academy linked.", code="NO_ACADEMY")
 
-        account = StorageService.get_or_create_account(request.user.academy)
-        snapshots = StorageUsageSnapshot.objects.filter(academy=request.user.academy)[:10]
+        acad_uuid = request.user.academy.id if request.user.academy else None
+        account = StorageService.get_or_create_account(acad_uuid)
+        snapshots = StorageUsageSnapshot.objects.filter(academy_uuid=acad_uuid)[:10]
 
         return api_response(
             data={

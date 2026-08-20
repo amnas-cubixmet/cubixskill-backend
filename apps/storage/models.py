@@ -46,16 +46,25 @@ class UsageEventType(models.TextChoices):
 # --------------------------------------------------------------
 
 class MediaFile(BaseModel):
-    academy = models.ForeignKey('academy.Academy', on_delete=models.CASCADE, related_name='media_files', null=True, blank=True)
-    uploaded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='uploaded_media_files')
+    academy_uuid = models.UUIDField(null=True, blank=True, db_index=True)
+    uploaded_by_uuid = models.UUIDField(null=True, blank=True, db_index=True)
+    course_uuid = models.UUIDField(null=True, blank=True, db_index=True)
+    lesson_uuid = models.UUIDField(null=True, blank=True, db_index=True)
 
     original_filename = models.CharField(max_length=255)
     stored_filename = models.CharField(max_length=255)
     storage_key = models.CharField(max_length=512, unique=True, db_index=True, default='')
     relative_path = models.CharField(max_length=512)
 
+    file_type = models.CharField(max_length=50, blank=True, default='')
     mime_type = models.CharField(max_length=100)
+    file_extension = models.CharField(max_length=20, blank=True, default='')
     size_bytes = models.BigIntegerField(default=0)
+    storage_provider = models.CharField(max_length=50, default='local')
+    storage_path = models.CharField(max_length=512, blank=True, default='')
+    file_url = models.CharField(max_length=1024, blank=True, default='')
+    checksum = models.CharField(max_length=128, blank=True, default='')
+
     media_type = models.CharField(max_length=20, choices=MediaType.choices, default=MediaType.OTHER)
     status = models.CharField(max_length=20, choices=MediaStatus.choices, default=MediaStatus.PENDING, db_index=True)
 
@@ -74,8 +83,8 @@ class MediaFile(BaseModel):
 #--------------------------------------------------------------
 
 class UploadSession(BaseModel):
-    academy = models.ForeignKey('academy.Academy', on_delete=models.CASCADE, related_name='upload_sessions', null=True, blank=True)
-    requested_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='upload_sessions', null=True, blank=True)
+    academy_uuid = models.UUIDField(null=True, blank=True, db_index=True)
+    requested_by_uuid = models.UUIDField(null=True, blank=True, db_index=True)
 
     storage_key = models.CharField(max_length=512, db_index=True)
     original_name = models.CharField(max_length=255)
@@ -98,7 +107,7 @@ class UploadSession(BaseModel):
 #--------------------------------------------------------------
 
 class AcademyStorageAccount(BaseModel):
-    academy = models.OneToOneField('academy.Academy', on_delete=models.CASCADE, related_name='storage_account')
+    academy_uuid = models.UUIDField(null=True, blank=True, unique=True, db_index=True)
     current_usage_bytes = models.BigIntegerField(default=0)
     storage_limit_bytes = models.BigIntegerField(null=True, blank=True)
     billing_enabled = models.BooleanField(default=True)
@@ -108,14 +117,14 @@ class AcademyStorageAccount(BaseModel):
         db_table = 'storage_academy_accounts'
 
     def __str__(self):
-        return f"Storage Account: {self.academy.name} ({self.current_usage_bytes} bytes)"
+        return f"Storage Account: {self.academy_uuid} ({self.current_usage_bytes} bytes)"
 
 #--------------------------------------------------------------
 # 4. StorageUsageEvent Model
 #--------------------------------------------------------------
 
 class StorageUsageEvent(BaseModel):
-    academy = models.ForeignKey('academy.Academy', on_delete=models.CASCADE, related_name='storage_events', null=True, blank=True)
+    academy_uuid = models.UUIDField(null=True, blank=True, db_index=True)
     media_file = models.ForeignKey(MediaFile, on_delete=models.SET_NULL, null=True, blank=True, related_name='storage_events')
 
     event_type = models.CharField(max_length=30, choices=UsageEventType.choices, default=UsageEventType.FILE_ADDED)
@@ -129,14 +138,14 @@ class StorageUsageEvent(BaseModel):
         ordering = ['occurred_at']
 
     def __str__(self):
-        return f"{self.event_type}: {self.delta_bytes} bytes for {self.academy.name}"
+        return f"{self.event_type}: {self.delta_bytes} bytes"
 
 #--------------------------------------------------------------
 # 5. StorageUsageSnapshot Model
 #--------------------------------------------------------------
 
 class StorageUsageSnapshot(BaseModel):
-    academy = models.ForeignKey('academy.Academy', on_delete=models.CASCADE, related_name='storage_snapshots', null=True, blank=True)
+    academy_uuid = models.UUIDField(null=True, blank=True, db_index=True)
     period_start = models.DateTimeField(default=timezone.now, db_index=True)
     period_end = models.DateTimeField(default=timezone.now, db_index=True)
 
@@ -152,11 +161,11 @@ class StorageUsageSnapshot(BaseModel):
 
     class Meta:
         db_table = 'storage_usage_snapshots'
-        unique_together = ('academy', 'period_start', 'period_end')
+        unique_together = ('academy_uuid', 'period_start', 'period_end')
         ordering = ['-period_start']
 
     def __str__(self):
-        return f"Snapshot: {self.academy.name} ({self.period_start} to {self.period_end})"
+        return f"Snapshot: {self.academy_uuid} ({self.period_start} to {self.period_end})"
 
 #--------------------------------------------------------------
 # 6. StoragePricingRule Model

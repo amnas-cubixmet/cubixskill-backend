@@ -1,6 +1,45 @@
 from rest_framework import serializers
-from lessons.models import Lesson, LessonMedia, LessonRichText, Quiz, Question, QuestionOption, Assignment, AssignmentAsset
+from lessons.models import (
+    Lesson, LessonMedia, LessonRichText, Quiz, Question, QuestionOption,
+    Assignment, AssignmentAsset, LessonResource
+)
+from storage.models import MediaFile
 from storage.serializers import MediaFileSerializer
+
+#--------------------------------------------------------------
+# Lesson Resource Serializer
+#--------------------------------------------------------------
+
+class LessonResourceSerializer(serializers.ModelSerializer):
+    media_file = MediaFileSerializer(read_only=True)
+    media_file_id = serializers.PrimaryKeyRelatedField(
+        queryset=MediaFile.objects.all(), source='media_file', write_only=True, required=False, allow_null=True
+    )
+
+    class Meta:
+        model = LessonResource
+        fields = ['id', 'lesson', 'media_file', 'media_file_id', 'title', 'url', 'description', 'resource_type', 'allow_download', 'order_index', 'created_at']
+        read_only_fields = ['id', 'created_at']
+        extra_kwargs = {
+            'lesson': {'required': False, 'allow_null': True},
+            'url': {'required': False, 'allow_blank': True},
+        }
+
+    def validate(self, attrs):
+        media_file = attrs.get('media_file')
+        url = attrs.get('url')
+        
+        # If updating, pull existing values for omitted fields
+        if self.instance:
+            if media_file is None and 'media_file' not in attrs:
+                media_file = self.instance.media_file
+            if url is None and 'url' not in attrs:
+                url = self.instance.url
+
+        if not media_file and not (url and url.strip()):
+            raise serializers.ValidationError("Either a valid file upload (media_file_id) or an external URL is required.")
+
+        return attrs
 
 #--------------------------------------------------------------
 # Lesson Media Serializer
@@ -84,13 +123,14 @@ class LessonSerializer(serializers.ModelSerializer):
     rich_text = LessonRichTextSerializer(read_only=True)
     quiz = QuizSerializer(read_only=True)
     assignment = AssignmentSerializer(read_only=True)
+    resources = LessonResourceSerializer(many=True, read_only=True)
 
     class Meta:
         model = Lesson
         fields = [
             'id', 'module', 'title', 'lesson_type', 'description', 'duration_minutes',
             'is_demo', 'allow_download', 'external_url', 'order_index', 'is_active',
-            'media_files', 'rich_text', 'quiz', 'assignment', 'created_at'
+            'media_files', 'rich_text', 'quiz', 'assignment', 'resources', 'created_at'
         ]
         read_only_fields = ['id', 'module', 'created_at']
 

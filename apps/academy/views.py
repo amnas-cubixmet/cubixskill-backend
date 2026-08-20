@@ -123,3 +123,17 @@ class AcademyProvisionView(APIView):
                 "features": academy.get_enabled_features()
             }, message="Academy and users provisioned successfully.", status_code=status.HTTP_201_CREATED)
 
+class AcademyProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        academy = request.user.academy
+        if not academy:
+            raise CubixSkillAPIException("No academy linked to current user.", code="ACADEMY_NOT_FOUND")
+        serializer = AcademySerializer(academy)
+        data = dict(serializer.data)
+        data['features'] = academy.get_enabled_features()
+        data['demo_status'] = academy.get_demo_status()
+        return api_response(data=data)
+
+

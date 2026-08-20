@@ -57,6 +57,13 @@ class LessonService:
         return rich_text
 
     @staticmethod
+    def detach_media(lesson: Lesson, media_id: str = None) -> None:
+        qs = LessonMedia.objects.filter(lesson=lesson)
+        if media_id:
+            qs = qs.filter(id=media_id)
+        qs.delete()
+
+    @staticmethod
     def create_quiz(lesson: Lesson, title: str, instructions: str = '', passing_score: int = 70, time_limit_minutes: int = None) -> Quiz:
         if lesson.lesson_type != LessonType.QUIZ:
             raise CubixSkillAPIException("Lesson type must be QUIZ to create a quiz.", code="INVALID_TYPE")
@@ -71,8 +78,8 @@ class LessonService:
 
     @staticmethod
     def create_assignment(lesson: Lesson, title: str, instructions: str, due_date=None, max_marks: int = 100) -> Assignment:
-        if lesson.lesson_type != LessonType.ASSIGNMENT:
-            raise CubixSkillAPIException("Lesson type must be ASSIGNMENT to create an assignment.", code="INVALID_TYPE")
+        if lesson.lesson_type not in [LessonType.ASSIGNMENT, LessonType.PROJECT]:
+            raise CubixSkillAPIException("Lesson type must be ASSIGNMENT or PROJECT to create an assignment/project.", code="INVALID_TYPE")
 
         return Assignment.objects.create(
             lesson=lesson,

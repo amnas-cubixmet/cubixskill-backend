@@ -1,0 +1,24 @@
+{% extends 'control_panel/base.html' %}
+{% block title %}Usage & Metering Snapshots{% endblock %}
+{% block content %}
+<div class="cp-card">
+  <div class="cp-card-header"><h3 class="cp-card-title">Usage & Metering Snapshots</h3></div>
+  <div class="cp-table-container">
+    <table class="cp-table">
+      <thead><tr><th>Academy UUID</th><th>Metric</th><th>Quantity</th><th>Recorded At</th></tr></thead>
+      <tbody>
+        {% for sn in snapshots %}
+        <tr>
+          <td><code>{{ sn.academy_uuid }}</code></td>
+          <td><span class="cp-badge cp-badge-neutral">{{ sn.metric }}</span></td>
+          <td><strong>{{ sn.quantity }} {{ sn.unit }}</strong></td>
+          <td>{{ sn.recorded_at|date:"M d, H:i" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" style="text-align: center; color: var(--cp-text-muted);">No usage snapshots recorded.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -5,6 +5,7 @@ urlpatterns = [
     path('users/', include('users_roles.urls')),
     path('academy/', include('academy.urls')),
     path('courses/', include('courses.urls')),
+    path('course-categories/', include('courses.urls')),
     path('modules/', include('modules.urls')),
     path('lessons/', include('lessons.urls')),
     path('storage/', include('storage.urls')),

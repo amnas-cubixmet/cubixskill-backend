@@ -1,0 +1,24 @@
+{% extends 'control_panel/base.html' %}
+{% block title %}Plans & Entitlements{% endblock %}
+{% block content %}
+<div class="cp-card">
+  <div class="cp-card-header"><h3 class="cp-card-title">Platform Plans</h3></div>
+  <div class="cp-table-container">
+    <table class="cp-table">
+      <thead><tr><th>Plan Name</th><th>Code</th><th>Monthly Price</th><th>Yearly Price</th></tr></thead>
+      <tbody>
+        {% for p in plans %}
+        <tr>
+          <td><strong>{{ p.name }}</strong></td>
+          <td><code>{{ p.code }}</code></td>
+          <td>₹{{ p.price_monthly }}</td>
+          <td>₹{{ p.price_yearly }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" style="text-align: center; color: var(--cp-text-muted);">No plans configured.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends 'control_panel/base.html' %}
+{% block title %}Enrollments List{% endblock %}
+{% block content %}
+<div class="cp-card">
+  <div class="cp-card-header"><h3 class="cp-card-title">Enrollments Directory</h3></div>
+  <div class="cp-table-container">
+    <table class="cp-table">
+      <thead><tr><th>Student</th><th>Course</th><th>Enrolled Date</th></tr></thead>
+      <tbody>
+        {% for en in enrollments %}
+        <tr>
+          <td><strong>{{ en.student.user.full_name }}</strong></td>
+          <td>{{ en.course.title }}</td>
+          <td>{{ en.created_at|date:"M d, Y" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="3" style="text-align: center; color: var(--cp-text-muted);">No enrollments found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

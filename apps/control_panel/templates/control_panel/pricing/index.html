@@ -1,0 +1,67 @@
+{% extends 'control_panel/base.html' %}
+
+{% block title %}Centralized Pricing Engine{% endblock %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 20px;">
+
+  <div class="cp-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h2 class="cp-card-title">Centralized Pricing Engine</h2>
+      <p style="color: var(--cp-text-muted); font-size: 12px; margin-top: 2px;">Configure base prices, billable units, and overage rates for all platform features.</p>
+    </div>
+  </div>
+
+  <form method="POST">
+    {% csrf_token %}
+    <div class="cp-card" style="padding: 0; overflow: hidden;">
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Feature Name</th>
+              <th>Code</th>
+              <th>Billable</th>
+              <th>Unit</th>
+              <th>Base Price (₹)</th>
+              <th>Overage Price (₹)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for feat in features %}
+            <tr>
+              <td>
+                <strong style="color: var(--cp-text-primary);">{{ feat.name }}</strong>
+                <div style="font-size: 10px; color: var(--cp-text-muted);">{{ feat.description|truncatewords:6 }}</div>
+              </td>
+              <td><code>{{ feat.code }}</code></td>
+              <td>
+                {% if feat.is_billable %}
+                  <span class="cp-badge cp-badge-success">BILLABLE</span>
+                {% else %}
+                  <span class="cp-badge cp-badge-neutral">FREE / INCLUDED</span>
+                {% endif %}
+              </td>
+              <td><span class="cp-badge cp-badge-neutral">{{ feat.billing_unit }}</span></td>
+              <td>
+                <input type="number" step="0.01" name="base_price_{{ feat.id }}" value="{{ feat.base_price }}" class="cp-input" style="width: 110px; height: 32px;">
+              </td>
+              <td>
+                <input type="number" step="0.01" name="overage_price_{{ feat.id }}" value="{{ feat.overage_price }}" class="cp-input" style="width: 110px; height: 32px;">
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" style="text-align: center; color: var(--cp-text-muted); padding: 24px;">No features defined in pricing engine.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+      <button type="submit" class="cp-btn cp-btn-primary" style="height: 40px; padding: 0 20px; font-size: 13px;">Save Pricing Engine Rates</button>
+    </div>
+  </form>
+
+</div>
+{% endblock %}

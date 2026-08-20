@@ -43,14 +43,13 @@ class StudentService:
             status=StudentStatus.ACTIVE
         )
 
-        # 4. Async email verification & password setup task
-        raw_token = AuthTokenService.generate_token(user, TokenType.EMAIL_VERIFICATION)
-        verify_url = f"https://{academy.slug}.cubixskill.com/verify-email?token={raw_token}"
-        send_email_task.delay(
-            subject="Welcome to CubixSkill - Verify Email",
-            recipient=user.email,
-            message_body=f"Hello {full_name},\n\nYour student account has been created. Click to verify: {verify_url}"
-        )
+        # 4. Generate token & send activation email
+        try:
+            raw_token = AuthTokenService.generate_token(user, TokenType.EMAIL_VERIFICATION)
+            from emails.services import send_student_activation_email
+            send_student_activation_email(user=user, academy=academy, raw_token=raw_token)
+        except Exception:
+            pass
 
         return profile
 

@@ -15,6 +15,7 @@ class LessonType(models.TextChoices):
     QUIZ = 'QUIZ', 'Quiz'
     ASSIGNMENT = 'ASSIGNMENT', 'Assignment'
     URL = 'URL', 'External URL'
+    PROJECT = 'PROJECT', 'Project'
 
 class MediaRole(models.TextChoices):
     PRIMARY = 'PRIMARY', 'Primary Media'
@@ -185,3 +186,23 @@ class AssignmentAsset(BaseModel, OrderMixin):
 
     def __str__(self):
         return f"Asset: {self.title or self.media_file.original_filename}"
+
+#--------------------------------------------------------------
+# 9. Lesson Resource Link Model
+#--------------------------------------------------------------
+
+class LessonResource(BaseModel, OrderMixin):
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='resources')
+    media_file = models.ForeignKey(MediaFile, on_delete=models.SET_NULL, related_name='lesson_resources', null=True, blank=True)
+    title = models.CharField(max_length=255)
+    url = models.URLField(max_length=500, blank=True, default='')
+    description = models.TextField(blank=True, default='')
+    resource_type = models.CharField(max_length=50, blank=True, default='link')
+    allow_download = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'lesson_resources'
+        ordering = ['order_index', 'created_at']
+
+    def __str__(self):
+        return f"Resource ({self.title}): {self.url}"

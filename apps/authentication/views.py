@@ -6,8 +6,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 from django.contrib.auth import authenticate
 from django.utils import timezone
-from users_roles.models import User, SystemRoleCode
+from users_roles.models import User, SystemRoleCode, get_user_permissions
 from academy.models import Academy
+
 from students.models import StudentProfile
 from authentication.models import AuthTokenService, TokenType
 from django.db import transaction
@@ -147,12 +148,37 @@ class LoginView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        user = authenticate(username=data['email'], password=data['password'])
-        if not user or not user.is_active:
-            raise CubixSkillAPIException("Invalid credentials or deactivated account.", code="INVALID_CREDENTIALS")
+        email = data['email'].strip().lower()
+        password = data['password']
+
+        user = User.objects.filter(email__iexact=email).first()
+        if not user or not user.check_password(password):
+            raise CubixSkillAPIException(
+                "Invalid email or password. Please try again.",
+                code="INVALID_CREDENTIALS",
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
+
+        if not user.is_active:
+            raise CubixSkillAPIException(
+                "Your account is disabled. Please contact your academy administrator.",
+                code="ACCOUNT_DISABLED",
+                status_code=status.HTTP_403_FORBIDDEN
+            )
+
+        if user.academy and not user.academy.is_active:
+            raise CubixSkillAPIException(
+                "Your academy account is inactive. Please contact support.",
+                code="ACADEMY_INACTIVE",
+                status_code=status.HTTP_403_FORBIDDEN
+            )
 
         if not user.is_email_verified or not user.password_setup_completed:
-            raise CubixSkillAPIException("Account setup or email verification pending.", code="ACCOUNT_SETUP_PENDING")
+            raise CubixSkillAPIException(
+                "Account setup or email verification is pending. Please check your activation email.",
+                code="ACCOUNT_SETUP_PENDING",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         refresh = RefreshToken.for_user(user)
         user.last_login = timezone.now()
@@ -218,7 +244,8 @@ class ResendVerificationView(APIView):
 
         cache.set(cache_key, resend_count + 1, timeout=300)
 
-        user = User.objects.filter(email=email).first()
+        email = email.strip().lower()
+        user = User.objects.filter(email__iexact=email).first()
         if user and (not user.is_email_verified or not user.password_setup_completed):
             if user.role_code in [SystemRoleCode.ACADEMY_ADMIN, SystemRoleCode.ACADEMY_STAFF]:
                 raw_token = AuthTokenService.generate_token(user, TokenType.PASSWORD_SETUP)
@@ -227,7 +254,7 @@ class ResendVerificationView(APIView):
                 raw_token = AuthTokenService.generate_token(user, TokenType.EMAIL_VERIFICATION)
                 send_verification_email(user=user, raw_token=raw_token)
 
-        return api_response(message="If account exists and is unverified, an activation email has been sent.")
+        return api_response(message="An activation email has been sent if an unverified account exists for that address.")
 
 
 class TokenValidateView(APIView):
@@ -296,6 +323,9 @@ class SetupPasswordView(APIView):
         user.last_login = timezone.now()
         user.save()
 
+        if not user.check_password(data['new_password']):
+            raise CubixSkillAPIException("Password setup failed. Please try again.", code="PASSWORD_UPDATE_FAILED")
+
         send_password_changed_email(user=user)
 
         refresh = RefreshToken.for_user(user)
@@ -315,19 +345,18 @@ class SetupPasswordView(APIView):
 class ForgotPasswordView(APIView):
     """
     Triggers password reset flow.
-    Sends reset link if account exists without revealing account existence.
     """
     permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = ForgotPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data['email']
+        email = serializer.validated_data['email'].strip().lower()
 
-        user = User.objects.filter(email=email, is_active=True).first()
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
         if not user:
             raise CubixSkillAPIException(
-                {"email": ["This email is not registered."]},
+                {"email": ["This email address is not registered."]},
                 code="EMAIL_NOT_FOUND",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
@@ -335,7 +364,7 @@ class ForgotPasswordView(APIView):
         raw_token = AuthTokenService.generate_token(user, TokenType.PASSWORD_RESET)
         send_password_reset_email(user=user, raw_token=raw_token)
 
-        return api_response(message="If an account with that email exists, a password reset link has been sent.")
+        return api_response(message="Password reset instructions sent to your email address.")
 
 
 class ResetPasswordView(APIView):
@@ -346,17 +375,36 @@ class ResetPasswordView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        user = AuthTokenService.validate_and_consume(
-            raw_token=data['token'],
-            expected_type=TokenType.PASSWORD_RESET
-        )
-        if not user:
-            raise CubixSkillAPIException("Invalid or expired reset token.", code="TOKEN_INVALID")
+        auth_token, user, error_msg, error_code = AuthTokenService.validate_reset_token(data['token'])
+        if not auth_token or not user:
+            raise CubixSkillAPIException(error_msg, code=error_code)
 
-        user.set_password(data['new_password'])
-        user.save()
+        with transaction.atomic():
+            user.set_password(data['new_password'])
+            user.save()
 
-        return api_response(message="Password reset successfully. You can now login with your new password.")
+            if not user.check_password(data['new_password']):
+                raise CubixSkillAPIException("Password update failed. Please try again.", code="PASSWORD_UPDATE_FAILED")
+
+            AuthTokenService.mark_token_used(auth_token)
+            AuthTokenService.revoke_existing_tokens(user, TokenType.PASSWORD_RESET)
+
+            user.last_login = timezone.now()
+            user.save(update_fields=['last_login'])
+
+        refresh = RefreshToken.for_user(user)
+
+        return api_response({
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'user': {
+                'id': str(user.id),
+                'email': user.email,
+                'full_name': user.full_name,
+                'role': user.role_code,
+                'academy_id': str(user.academy.id) if user.academy else None
+            }
+        }, message="Password reset successfully.")
 
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
@@ -368,10 +416,17 @@ class ChangePasswordView(APIView):
 
         user = request.user
         if not user.check_password(data['current_password']):
-            raise CubixSkillAPIException("Incorrect current password.", code="INVALID_CURRENT_PASSWORD")
+            raise CubixSkillAPIException(
+                {"current_password": ["Incorrect current password."]},
+                code="INVALID_CURRENT_PASSWORD",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         user.set_password(data['new_password'])
         user.save()
+
+        if not user.check_password(data['new_password']):
+            raise CubixSkillAPIException("Password update failed. Please try again.", code="PASSWORD_UPDATE_FAILED")
 
         send_password_changed_email(user=user)
 
@@ -389,8 +444,9 @@ class LogoutView(APIView):
         if refresh_token:
             try:
                 token = RefreshToken(refresh_token)
-                token.blacklist()
-            except TokenError:
+                if hasattr(token, 'blacklist'):
+                    token.blacklist()
+            except Exception:
                 pass
         return api_response(message="Successfully logged out.")
 
@@ -399,11 +455,50 @@ class CurrentUserView(APIView):
 
     def get(self, request):
         user = request.user
-        return api_response({
+        academy = user.academy
+
+        academy_data = None
+        features = {}
+        demo_status = None
+
+        if academy:
+            academy_data = {
+                "id": str(academy.id),
+                "name": academy.name,
+                "slug": academy.slug,
+                "email": academy.email,
+                "phone": academy.phone,
+                "theme": academy.theme,
+                "theme_color": academy.theme_color,
+                "status": academy.status,
+                "is_active": academy.is_active,
+                "logo_url": academy.logo.file.url if academy.logo and hasattr(academy.logo, 'file') and academy.logo.file else None,
+                "favicon_url": academy.favicon.file.url if academy.favicon and hasattr(academy.favicon, 'file') and academy.favicon.file else None,
+            }
+            features = academy.get_enabled_features()
+            demo_status = academy.get_demo_status()
+
+        permissions = get_user_permissions(user)
+
+        user_data = {
             "id": str(user.id),
             "email": user.email,
             "full_name": user.full_name,
+            "phone": user.phone,
             "role": user.role_code,
-            "academy_id": str(user.academy.id) if user.academy else None,
-            "is_email_verified": user.is_email_verified
+            "assigned_role_name": user.assigned_role.name if user.assigned_role else None,
+            "academy_id": str(academy.id) if academy else None,
+            "is_email_verified": user.is_email_verified,
+            "is_active": user.is_active,
+            "password_setup_completed": user.password_setup_completed,
+            "last_login": user.last_login.isoformat() if user.last_login else None
+        }
+
+        return api_response({
+            "user": user_data,
+            "academy": academy_data,
+            "permissions": permissions,
+            "features": features,
+            "demo_status": demo_status
         })
+

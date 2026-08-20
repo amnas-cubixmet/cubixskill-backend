@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 #--------------------------------------------------------------
 # Registration Serializer
@@ -58,13 +60,23 @@ class ForgotPasswordSerializer(serializers.Serializer):
 #--------------------------------------------------------------
 
 class PasswordResetSerializer(serializers.Serializer):
-    token = serializers.CharField()
-    new_password = serializers.CharField(min_length=8)
-    confirm_password = serializers.CharField(min_length=8)
+    token = serializers.CharField(required=True, error_messages={'required': 'Reset token is required.'})
+    new_password = serializers.CharField(required=True, min_length=8, error_messages={'required': 'New password is required.', 'min_length': 'Password must be at least 8 characters long.'})
+    confirm_password = serializers.CharField(required=True, min_length=8, error_messages={'required': 'Confirm password is required.', 'min_length': 'Password must be at least 8 characters long.'})
 
     def validate(self, data):
-        if data['new_password'] != data['confirm_password']:
+        new_pass = data.get('new_password')
+        confirm_pass = data.get('confirm_password')
+
+        if new_pass != confirm_pass:
             raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
+
+        if new_pass:
+            try:
+                validate_password(new_pass)
+            except DjangoValidationError as e:
+                raise serializers.ValidationError({"new_password": list(e.messages)})
+
         return data
 
 #--------------------------------------------------------------

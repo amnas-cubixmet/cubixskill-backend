@@ -1,0 +1,164 @@
+{% comment %}
+Reusable Sidebar component for CubixSkill Control Panel with clean Lucide-style SVG icons.
+{% endcomment %}
+<aside class="cp-sidebar" id="cp-sidebar">
+  <div class="cp-nav-section">
+    <div class="cp-nav-title">OVERVIEW</div>
+    <a href="{% url 'control_panel:dashboard' %}" class="cp-nav-item {% if active_nav == 'dashboard' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect width="7" height="9" x="3" y="3" rx="1"/>
+        <rect width="7" height="5" x="14" y="3" rx="1"/>
+        <rect width="7" height="9" x="14" y="12" rx="1"/>
+        <rect width="7" height="5" x="3" y="16" rx="1"/>
+      </svg>
+      <span>Dashboard</span>
+    </a>
+  </div>
+
+  <div class="cp-nav-section">
+    <div class="cp-nav-title">PLATFORM ENTITIES</div>
+    <a href="{% url 'control_panel:academies_list' %}" class="cp-nav-item {% if active_nav == 'academies' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/>
+        <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/>
+        <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/>
+        <path d="M10 6h4"/>
+        <path d="M10 10h4"/>
+        <path d="M10 14h4"/>
+        <path d="M10 18h4"/>
+      </svg>
+      <span>Academies</span>
+    </a>
+    <a href="{% url 'control_panel:users_list' %}" class="cp-nav-item {% if active_nav == 'users' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+        <circle cx="9" cy="7" r="4"/>
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+      <span>Users & Staff</span>
+    </a>
+    <a href="{% url 'control_panel:students_list' %}" class="cp-nav-item {% if active_nav == 'students' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/>
+        <path d="M22 10v6"/>
+        <path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>
+      </svg>
+      <span>Students</span>
+    </a>
+    <a href="{% url 'control_panel:courses_list' %}" class="cp-nav-item {% if active_nav == 'courses' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+      </svg>
+      <span>Courses</span>
+    </a>
+    <a href="{% url 'control_panel:enrollments_list' %}" class="cp-nav-item {% if active_nav == 'enrollments' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect width="8" height="4" x="8" y="2" rx="1" ry="1"/>
+        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+        <path d="m9 14 2 2 4-4"/>
+      </svg>
+      <span>Enrollments</span>
+    </a>
+  </div>
+
+  <div class="cp-nav-section">
+    <div class="cp-nav-title">MONETIZATION</div>
+    <a href="{% url 'control_panel:plans_list' %}" class="cp-nav-item {% if active_nav == 'plans' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m7.5 4.27 9 5.15"/>
+        <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
+        <path d="m3.3 7 8.7 5 8.7-5"/>
+        <path d="M12 22V12"/>
+      </svg>
+      <span>Plans & Subscriptions</span>
+    </a>
+    <a href="{% url 'control_panel:features_list' %}" class="cp-nav-item {% if active_nav == 'features' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+      </svg>
+      <span>Feature Registry</span>
+    </a>
+    <a href="{% url 'control_panel:pricing_engine' %}" class="cp-nav-item {% if active_nav == 'pricing' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 5H2v7l8.5 8.5a2.12 2.12 0 0 0 3 0l5.5-5.5a2.12 2.12 0 0 0 0-3L10.5 3.5z"/>
+        <circle cx="6" cy="9" r="1.5"/>
+      </svg>
+      <span>Pricing Engine</span>
+    </a>
+    <a href="{% url 'control_panel:credits_overview' %}" class="cp-nav-item {% if active_nav == 'credits' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect width="20" height="14" x="2" y="5" rx="2"/>
+        <line x1="2" x2="22" y1="10" y2="10"/>
+      </svg>
+      <span>Credit Engine</span>
+    </a>
+  </div>
+
+  <div class="cp-nav-section">
+    <div class="cp-nav-title">INFRASTRUCTURE</div>
+    <a href="{% url 'control_panel:storage_control' %}" class="cp-nav-item {% if active_nav == 'storage' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="22" x2="2" y1="12" y2="12"/>
+        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+        <line x1="6" x2="6.01" y1="16" y2="16"/>
+        <line x1="10" x2="10.01" y1="16" y2="16"/>
+      </svg>
+      <span>Storage & Billing</span>
+    </a>
+    <a href="{% url 'control_panel:usage_metering' %}" class="cp-nav-item {% if active_nav == 'usage' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 3v16a2 2 0 0 0 2 2h16"/>
+        <path d="M18 17V9"/>
+        <path d="M13 17V5"/>
+        <path d="M8 17v-3"/>
+      </svg>
+      <span>Usage Metering</span>
+    </a>
+    <a href="{% url 'control_panel:payments_list' %}" class="cp-nav-item {% if active_nav == 'payments' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect width="18" height="18" x="3" y="3" rx="2"/>
+        <path d="M3 9h18"/>
+        <path d="M9 21V9"/>
+      </svg>
+      <span>Payments & Revenue</span>
+    </a>
+  </div>
+
+  <div class="cp-nav-section">
+    <div class="cp-nav-title">SYSTEM & SECURITY</div>
+    <a href="{% url 'control_panel:system_health' %}" class="cp-nav-item {% if active_nav == 'system' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+      </svg>
+      <span>System Health</span>
+    </a>
+    <a href="{% url 'control_panel:background_jobs' %}" class="cp-nav-item {% if active_nav == 'jobs' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+        <path d="M3 3v5h5"/>
+        <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+        <path d="M16 16h5v5"/>
+      </svg>
+      <span>Background Jobs</span>
+    </a>
+    <a href="{% url 'control_panel:audit_logs' %}" class="cp-nav-item {% if active_nav == 'audit' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
+        <path d="M14 2v4a1 1 0 0 0 1 1h4"/>
+        <path d="M10 9H8"/>
+        <path d="M16 13H8"/>
+        <path d="M16 17H8"/>
+      </svg>
+      <span>Audit Logs</span>
+    </a>
+    <a href="{% url 'control_panel:global_settings' %}" class="cp-nav-item {% if active_nav == 'settings' %}active{% endif %}">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+      <span>Settings</span>
+    </a>
+  </div>
+</aside>

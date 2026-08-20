@@ -1,0 +1,174 @@
+{% extends 'control_panel/base.html' %}
+
+{% block title %}System Dashboard{% endblock %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 20px;">
+
+  <!-- Header Banner -->
+  <div class="cp-card" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h2 class="cp-card-title" style="font-size: 18px;">Super Admin Control Center</h2>
+      <p style="color: var(--cp-text-muted); font-size: 12px; margin-top: 2px;">Real-time system telemetry and platform infrastructure monitoring.</p>
+    </div>
+    <div class="cp-badge cp-badge-success" style="font-size: 12px; padding: 6px 12px;">
+      ● System Operational
+    </div>
+  </div>
+
+  <!-- KPI Grid -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Total Academies</div>
+      <div class="cp-kpi-value">{{ total_academies }}</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">{{ active_academies }} Active • {{ demo_academies }} Demo</div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Platform Users</div>
+      <div class="cp-kpi-value">{{ total_users }}</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">{{ total_students }} Enrolled Students</div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Courses & Enrollments</div>
+      <div class="cp-kpi-value">{{ total_courses }}</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">{{ total_enrollments }} Total Enrollments</div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Global Storage</div>
+      <div class="cp-kpi-value">{{ total_storage_gb }} GB</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">{{ total_media_files }} Media Files</div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Credit System</div>
+      <div class="cp-kpi-value">{{ total_credits_consumed }}</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">Consumed / {{ total_credits_issued }} Issued</div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Platform Revenue</div>
+      <div class="cp-kpi-value">₹{{ total_revenue }}</div>
+      <div style="font-size: 11px; color: var(--cp-danger);">{{ failed_payments }} Failed Payments</div>
+    </div>
+  </div>
+
+  <!-- Middle Section: Recent Academies & Storage Config -->
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+    
+    <!-- Recent Academies -->
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h3 class="cp-card-title">Recent Academy Registrations</h3>
+        <a href="{% url 'control_panel:academies_list' %}" class="cp-btn cp-btn-secondary" style="height: 28px;">View All</a>
+      </div>
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Academy</th>
+              <th>Status</th>
+              <th>Demo</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ac in recent_academies %}
+            <tr>
+              <td>
+                <a href="{% url 'control_panel:academy_detail' pk=ac.pk %}" style="color: var(--cp-primary); text-decoration: none; font-weight: 500;">{{ ac.name }}</a>
+                <div style="font-size: 10px; color: var(--cp-text-muted);">{{ ac.email }}</div>
+              </td>
+              <td>
+                {% if ac.status == 'ACTIVE' %}
+                  <span class="cp-badge cp-badge-success">ACTIVE</span>
+                {% elif ac.status == 'SUSPENDED' %}
+                  <span class="cp-badge cp-badge-danger">SUSPENDED</span>
+                {% else %}
+                  <span class="cp-badge cp-badge-neutral">{{ ac.status }}</span>
+                {% endif %}
+              </td>
+              <td>{% if ac.is_demo %}<span class="cp-badge cp-badge-warning">DEMO</span>{% else %}-{% endif %}</td>
+              <td style="font-size: 11px;">{{ ac.created_at|date:"M d, Y" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" style="text-align: center; color: var(--cp-text-muted);">No academies registered yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Configured Storage Billing Metering -->
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h3 class="cp-card-title">Storage Billing Engine Config</h3>
+        <a href="{% url 'control_panel:storage_control' %}" class="cp-btn cp-btn-secondary" style="height: 28px;">Configure</a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 12px; font-size: 13px;">
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--cp-border-subtle); padding-bottom: 8px;">
+          <span style="color: var(--cp-text-muted);">Metering Interval:</span>
+          <strong style="color: var(--cp-text-primary);">Every {{ storage_config.metering_interval_hours }} Hours</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--cp-border-subtle); padding-bottom: 8px;">
+          <span style="color: var(--cp-text-muted);">Billing Unit:</span>
+          <strong style="color: var(--cp-text-primary);">Per {{ storage_config.storage_unit }}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--cp-border-subtle); padding-bottom: 8px;">
+          <span style="color: var(--cp-text-muted);">Rate per Interval:</span>
+          <strong style="color: var(--cp-primary);">₹{{ storage_config.price_per_unit }} / {{ storage_config.storage_unit }}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--cp-border-subtle); padding-bottom: 8px;">
+          <span style="color: var(--cp-text-muted);">Billing Status:</span>
+          {% if storage_config.billing_enabled %}
+            <span class="cp-badge cp-badge-success">ENABLED</span>
+          {% else %}
+            <span class="cp-badge cp-badge-danger">DISABLED</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Recent System Audit Activity -->
+  <div class="cp-card">
+    <div class="cp-card-header">
+      <h3 class="cp-card-title">Recent Audit Logs</h3>
+      <a href="{% url 'control_panel:audit_logs' %}" class="cp-btn cp-btn-secondary" style="height: 28px;">View All Logs</a>
+    </div>
+    <div class="cp-table-container">
+      <table class="cp-table">
+        <thead>
+          <tr>
+            <th>Actor</th>
+            <th>Category</th>
+            <th>Action</th>
+            <th>Description</th>
+            <th>Timestamp</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in recent_audits %}
+          <tr>
+            <td>
+              <strong style="color: var(--cp-text-primary);">{{ log.actor_display|default:log.actor.email|default:"SYSTEM" }}</strong>
+              <div style="font-size: 10px; color: var(--cp-text-muted);">{{ log.actor_type }}</div>
+            </td>
+            <td><span class="cp-badge cp-badge-neutral">{{ log.category }}</span></td>
+            <td><strong style="font-size: 11px;">{{ log.action }}</strong></td>
+            <td>{{ log.description }}</td>
+            <td style="font-size: 11px;">{{ log.occurred_at|date:"M d, H:i" }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" style="text-align: center; color: var(--cp-text-muted);">No recent audit logs found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

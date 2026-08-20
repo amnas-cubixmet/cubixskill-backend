@@ -134,3 +134,28 @@ def send_verification_email(user, raw_token: str) -> bool:
         subject=subject,
         context=context
     )
+
+
+def send_student_activation_email(user, academy, raw_token: str, expiry_time: str = "24 hours") -> bool:
+    """
+    Sends Student Account Activation email.
+    """
+    action_url = build_setup_password_url(raw_token)
+    academy_name = academy.name if academy else "CubixSkill Academy"
+    subject = f"Activate Your Student Account – {academy_name}"
+    support_email = getattr(academy, 'support_email', None) or getattr(settings, 'SUPPORT_EMAIL', 'support@cubixskill.com')
+    context = {
+        "student_name": user.full_name or "Student",
+        "student_email": user.email,
+        "academy_name": academy_name,
+        "activation_url": action_url,
+        "expiry_time": expiry_time,
+        "academy_support_email": support_email,
+    }
+    return send_transactional_email(
+        recipient=user.email,
+        template_name="student_activation",
+        subject=subject,
+        context=context
+    )
+

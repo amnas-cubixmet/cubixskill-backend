@@ -14,28 +14,28 @@ from storage.models import (
 
 @admin.register(MediaFile)
 class MediaFileAdmin(admin.ModelAdmin):
-    list_display = ('original_filename', 'media_type', 'size_bytes', 'status', 'academy', 'uploaded_at')
-    list_filter = ('media_type', 'status', 'academy')
+    list_display = ('original_filename', 'media_type', 'size_bytes', 'status', 'academy_uuid', 'uploaded_at')
+    list_filter = ('media_type', 'status')
     search_fields = ('original_filename', 'storage_key', 'mime_type')
 
 @admin.register(UploadSession)
 class UploadSessionAdmin(admin.ModelAdmin):
-    list_display = ('original_name', 'purpose', 'status', 'academy', 'expires_at')
-    list_filter = ('status', 'academy')
+    list_display = ('original_name', 'purpose', 'status', 'academy_uuid', 'expires_at')
+    list_filter = ('status',)
 
 @admin.register(AcademyStorageAccount)
 class AcademyStorageAccountAdmin(admin.ModelAdmin):
-    list_display = ('academy', 'current_usage_bytes', 'billing_enabled', 'last_reconciled_at')
+    list_display = ('academy_uuid', 'current_usage_bytes', 'billing_enabled', 'last_reconciled_at')
 
 @admin.register(StorageUsageEvent)
 class StorageUsageEventAdmin(admin.ModelAdmin):
-    list_display = ('event_type', 'delta_bytes', 'usage_after_bytes', 'academy', 'occurred_at')
-    list_filter = ('event_type', 'academy')
+    list_display = ('event_type', 'delta_bytes', 'usage_after_bytes', 'academy_uuid', 'occurred_at')
+    list_filter = ('event_type',)
 
 @admin.register(StorageUsageSnapshot)
 class StorageUsageSnapshotAdmin(admin.ModelAdmin):
-    list_display = ('academy', 'period_start', 'period_end', 'gb_hours', 'status', 'calculated_at')
-    list_filter = ('status', 'academy')
+    list_display = ('academy_uuid', 'period_start', 'period_end', 'gb_hours', 'status', 'calculated_at')
+    list_filter = ('status',)
 
 @admin.register(StoragePricingRule)
 class StoragePricingRuleAdmin(admin.ModelAdmin):
