@@ -1,0 +1,113 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Staff Detail: {{ target_user.full_name }} | Control Panel{% endblock %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 20px;">
+
+  {% url 'control_panel:super_admin_staff_list' as super_admin_staff_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=super_admin_staff_list_url back_label="Back to Super Admin Staff" %}
+
+  <!-- Header -->
+  <div class="cp-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h2 class="cp-card-title" style="font-size: 20px;">{{ target_user.full_name|default:target_user.email }}</h2>
+    </div>
+
+    <div style="display: flex; gap: 8px;">
+      <a href="{% url 'control_panel:super_admin_staff_edit' pk=target_user.pk %}" class="cp-btn cp-btn-secondary" style="height: 32px; padding: 0 12px; font-size: 11px;">Edit Profile</a>
+      {% if target_user.role_code != 'SUPER_ADMIN' %}
+        <a href="{% url 'control_panel:super_admin_staff_delete' pk=target_user.pk %}" class="cp-btn cp-btn-secondary" style="height: 32px; padding: 0 12px; font-size: 11px; color: var(--cp-danger);">Delete Account</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Summary KPI Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Account Status</div>
+      <div style="margin-top: 4px;">
+        {% if target_user.is_active %}
+          <span class="cp-badge cp-badge-success" style="font-size: 13px;">ACTIVE</span>
+        {% else %}
+          <span class="cp-badge cp-badge-danger" style="font-size: 13px;">DISABLED</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Base Role Code</div>
+      <div class="cp-kpi-value" style="font-size: 14px;">{{ target_user.role_code }}</div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Assigned Custom Role</div>
+      <div class="cp-kpi-value" style="font-size: 15px; color: var(--cp-primary);">
+        {% if target_user.assigned_role %}
+          <a href="{% url 'control_panel:role_detail' pk=target_user.assigned_role.pk %}" style="color: var(--cp-primary); text-decoration: none;">{{ target_user.assigned_role.name }}</a>
+        {% else %}
+          <span style="color: var(--cp-text-muted);">None</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Effective Permissions</div>
+      <div class="cp-kpi-value" style="color: var(--cp-primary);">{{ user_perms|length }}</div>
+    </div>
+  </div>
+
+  <!-- Granted Permissions -->
+  <div class="cp-card">
+    <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 16px;">Effective Role Permissions</h3>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px;">
+      {% for code in user_perms %}
+        <div style="padding: 8px 12px; border: 1px solid var(--cp-border); border-radius: 6px; background-color: var(--cp-input-bg); font-size: 12px;">
+          <span style="color: var(--cp-success); font-weight: bold; margin-right: 6px;">✓</span>
+          <code style="color: var(--cp-text-primary);">{{ code }}</code>
+        </div>
+      {% empty %}
+        <div style="grid-column: 1 / -1; color: var(--cp-text-muted); font-size: 12px; text-align: center; padding: 20px;">
+          No permissions currently active for this staff account.
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Recent Audit Logs -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    <div style="padding: 16px 20px; border-bottom: 1px solid var(--cp-border);">
+      <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary);">Recent Audit Activity</h3>
+    </div>
+    <div class="cp-table-container">
+      <table class="cp-table">
+        <thead>
+          <tr>
+            <th>Occurred At</th>
+            <th>Action</th>
+            <th>Category</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in recent_logs %}
+          <tr>
+            <td style="font-size: 11px;">{{ log.occurred_at|date:"d M Y, H:i" }}</td>
+            <td><span class="cp-badge cp-badge-demo">{{ log.action }}</span></td>
+            <td>{{ log.category }}</td>
+            <td style="font-size: 12px;">{{ log.description }}</td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="4" style="text-align: center; color: var(--cp-text-muted); padding: 24px;">
+              No audit logs recorded for this staff user.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

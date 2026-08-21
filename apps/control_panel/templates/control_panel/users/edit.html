@@ -1,0 +1,102 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Edit User — {{ target_user.full_name|default:target_user.email }} | Control Panel{% endblock %}
+
+{% block content %}
+<div style="max-width: 700px; margin: 0 auto;">
+
+  {% url 'control_panel:users_list' as users_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=users_list_url back_label="Back to Users" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Edit User Profile</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Update account information for {{ target_user.email }}.</p>
+    </div>
+    <a href="{% url 'control_panel:users_list' %}" class="cp-btn cp-btn-secondary">
+      {% include "control_panel/components/icon.html" with name="x" size="14" %}
+      <span>Cancel</span>
+    </a>
+  </div>
+
+  <form method="POST" action="">
+    {% csrf_token %}
+
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h2 class="cp-card-title">User Account Details</h2>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Full Name *
+          </label>
+          <input type="text" name="full_name" class="cp-input" value="{{ target_user.full_name }}" required>
+          {% if errors.full_name %}
+            <p style="font-size: 11px; color: var(--cp-danger); margin-top: 4px;">{{ errors.full_name }}</p>
+          {% endif %}
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Email Address (Read-only)
+          </label>
+          <input type="email" class="cp-input" value="{{ target_user.email }}" disabled style="opacity: 0.7; cursor: not-allowed;">
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Phone Number
+          </label>
+          <input type="text" name="phone" class="cp-input" value="{{ target_user.phone|default:'' }}">
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+              System Role
+            </label>
+            <select name="role_code" class="cp-select" {% if target_user.role_code == 'SUPER_ADMIN' %}disabled{% endif %}>
+              {% for code, label in roles %}
+                <option value="{{ code }}" {% if target_user.role_code == code %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+              Academy Association
+            </label>
+            <select name="academy_id" class="cp-select">
+              <option value="">-- Global Platform --</option>
+              {% for a in academies %}
+                <option value="{{ a.id }}" {% if target_user.academy and target_user.academy.id == a.id %}selected{% endif %}>{{ a.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Account Status
+          </label>
+          <select name="is_active" class="cp-select" {% if target_user.role_code == 'SUPER_ADMIN' %}disabled{% endif %}>
+            <option value="true" {% if target_user.is_active %}selected{% endif %}>Active</option>
+            <option value="false" {% if not target_user.is_active %}selected{% endif %}>Inactive</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Submit Buttons -->
+    <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+      <a href="{% url 'control_panel:user_detail' pk=target_user.pk %}" class="cp-btn cp-btn-secondary">Cancel</a>
+      <button type="submit" class="cp-btn cp-btn-primary" style="padding: 0 20px;">
+        {% include "control_panel/components/icon.html" with name="check" size="15" %}
+        <span>Save Changes</span>
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -5,29 +5,31 @@
 {% block content %}
 <div style="display: flex; flex-direction: column; gap: 20px;">
 
-  <!-- Breadcrumb & Header -->
+  {% url 'control_panel:academies_list' as academies_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=academies_list_url back_label="Back to Academies" %}
+
+  <!-- Header -->
   <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
     <div>
-      <div style="font-size: 11px; color: var(--cp-text-muted); margin-bottom: 4px;">
-        <a href="{% url 'control_panel:academies_list' %}" style="color: var(--cp-primary); text-decoration: none;">Academies</a> / {{ academy.name }}
-      </div>
       <h2 class="cp-card-title" style="font-size: 20px;">{{ academy.name }}</h2>
     </div>
 
-    <!-- Status Change Quick Buttons -->
-    <div style="display: flex; gap: 8px;">
+    <!-- Status Change & Action Quick Buttons -->
+    <div style="display: flex; gap: 8px; align-items: center;">
+      <a href="{% url 'control_panel:academy_edit' pk=academy.pk %}" class="cp-btn cp-btn-secondary" style="height: 32px; padding: 0 12px; font-size: 11px;">Edit Academy</a>
+      <a href="{% url 'control_panel:academy_delete' pk=academy.pk %}" class="cp-btn cp-btn-secondary" style="height: 32px; padding: 0 12px; font-size: 11px; color: var(--cp-danger);">Delete / Deactivate</a>
       {% if academy.status == 'ACTIVE' %}
         <form method="POST" action="{% url 'control_panel:academy_action' pk=academy.pk %}">
           {% csrf_token %}
           <input type="hidden" name="action" value="suspend">
           <input type="hidden" name="reason" value="Manual Super Admin suspension">
-          <button type="submit" class="cp-btn cp-btn-danger" onclick="return confirm('Suspend this academy?')">Suspend Academy</button>
+          <button type="submit" class="cp-btn cp-btn-danger" style="height: 32px; padding: 0 12px; font-size: 11px;" data-confirm-title="Suspend Academy" data-confirm-message="Are you sure you want to suspend '{{ academy.name }}'?" data-confirm-btn="Suspend Academy">Suspend</button>
         </form>
       {% else %}
         <form method="POST" action="{% url 'control_panel:academy_action' pk=academy.pk %}">
           {% csrf_token %}
           <input type="hidden" name="action" value="activate">
-          <button type="submit" class="cp-btn cp-btn-primary">Activate Academy</button>
+          <button type="submit" class="cp-btn cp-btn-primary" style="height: 32px; padding: 0 12px; font-size: 11px;">Activate</button>
         </form>
       {% endif %}
     </div>

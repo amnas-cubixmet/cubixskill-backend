@@ -1,0 +1,79 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Permissions — {{ target_user.full_name }} | Control Panel{% endblock %}
+
+{% block content %}
+<div style="max-width: 850px; margin: 0 auto;">
+
+  {% url 'control_panel:super_admin_staff_list' as super_admin_staff_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=super_admin_staff_list_url back_label="Back to Super Admin Staff" %}
+
+  <div class="cp-card" style="margin-bottom: 20px;">
+    <div>
+      <h2 class="cp-card-title">Permissions — {{ target_user.full_name|default:target_user.email }}</h2>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Assign or revoke individual module permissions for this staff account.</p>
+    </div>
+  </div>
+
+  <form method="POST" action="">
+    {% csrf_token %}
+
+    <div class="cp-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; pb: 12px; border-bottom: 1px solid var(--cp-border);">
+        <div>
+          <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary);">Granted Module Permissions</h3>
+          <p style="font-size: 11px; color: var(--cp-text-muted);">Select allowed permissions grouped by module.</p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="cp-btn cp-btn-secondary" style="font-size: 11px; height: 32px;" onclick="selectAllPerms(true)">Select All</button>
+          <button type="button" class="cp-btn cp-btn-secondary" style="font-size: 11px; height: 32px;" onclick="selectAllPerms(false)">Clear All</button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+        {% for mod_name, items in modules_dict.items %}
+          <div style="border: 1px solid var(--cp-border); border-radius: 8px; padding: 16px; background-color: var(--cp-input-bg);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <strong style="font-size: 12px; font-weight: 600; color: var(--cp-primary); text-transform: uppercase;">{{ mod_name }}</strong>
+              <label style="font-size: 11px; color: var(--cp-text-muted); cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                <input type="checkbox" onchange="toggleModulePerms(this, 'mod-{{ forloop.counter }}')"> Select Module
+              </label>
+            </div>
+
+            <div class="mod-{{ forloop.counter }}" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px;">
+              {% for item in items %}
+                <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--cp-text-primary); cursor: pointer;">
+                  <input type="checkbox" name="permissions" value="{{ item.permission.id }}" {% if item.is_assigned %}checked{% endif %} style="margin-top: 2px;">
+                  <div>
+                    <div style="font-weight: 500;">{{ item.permission.name }}</div>
+                    <div style="font-size: 10px; color: var(--cp-text-muted);"><code>{{ item.permission.code }}</code></div>
+                  </div>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; pt: 16px; border-top: 1px solid var(--cp-border);">
+        <a href="{% url 'control_panel:super_admin_staff_detail' pk=target_user.pk %}" class="cp-btn cp-btn-secondary" style="height: 42px; padding: 0 16px; font-size: 12px; display: inline-flex; align-items: center;">Cancel</a>
+        <button type="submit" class="cp-btn cp-btn-primary" style="height: 42px; padding: 0 20px; font-size: 12px;">Save Permissions</button>
+      </div>
+
+    </div>
+
+  </form>
+
+</div>
+
+<script>
+  function toggleModulePerms(master, classGroup) {
+    const checkboxes = document.querySelectorAll('.' + classGroup + ' input[type="checkbox"]');
+    checkboxes.forEach(cb => cb.checked = master.checked);
+  }
+
+  function selectAllPerms(checkState) {
+    const checkboxes = document.querySelectorAll('input[name="permissions"]');
+    checkboxes.forEach(cb => cb.checked = checkState);
+  }
+</script>
+{% endblock %}

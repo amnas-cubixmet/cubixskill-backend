@@ -1,0 +1,248 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Edit Student — {{ target_user.full_name }} | Control Panel{% endblock %}
+
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto;">
+
+  {% url 'control_panel:students_list' as students_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=students_list_url back_label="Back to Students" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Edit Student Profile</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Update student information and manage course enrollments for {{ target_user.email }}.</p>
+    </div>
+    <a href="{% url 'control_panel:students_list' %}" class="cp-btn cp-btn-secondary">
+      {% include "control_panel/components/icon.html" with name="x" size="14" %}
+      <span>Cancel</span>
+    </a>
+  </div>
+
+  <form method="POST" action="">
+    {% csrf_token %}
+
+    <!-- Student Profile -->
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h2 class="cp-card-title">Student Information</h2>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Full Name *
+          </label>
+          <input type="text" name="full_name" class="cp-input" value="{{ target_user.full_name }}" required>
+          {% if errors.full_name %}
+            <p style="font-size: 11px; color: var(--cp-danger); margin-top: 4px;">{{ errors.full_name }}</p>
+          {% endif %}
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Email Address (Read-only)
+          </label>
+          <input type="email" class="cp-input" value="{{ target_user.email }}" disabled style="opacity: 0.7; cursor: not-allowed;">
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Phone Number
+          </label>
+          <input type="text" name="phone" class="cp-input" value="{{ target_user.phone|default:'' }}">
+        </div>
+      </div>
+    </div>
+
+    <!-- Academy Selection -->
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h2 class="cp-card-title">Academy Association</h2>
+      </div>
+
+      <div>
+        <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+          Academy *
+        </label>
+        <select name="academy_id" id="academy-select" class="cp-select" required>
+          <option value="">-- Select Academy --</option>
+          {% for a in academies %}
+            <option value="{{ a.id }}" {% if target_user.academy and target_user.academy.id == a.id %}selected{% endif %}>{{ a.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <!-- Courses Selection Section -->
+    <div class="cp-card">
+      <div class="cp-card-header" style="display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <h2 class="cp-card-title">Course Enrollments</h2>
+          <p style="font-size: 11px; color: var(--cp-text-muted); margin-top: 2px;">Manage enrolled courses for this student.</p>
+        </div>
+        <div style="font-size: 11px; font-weight: 600; color: var(--cp-primary); background: var(--cp-primary-light); border: 1px solid var(--cp-primary-border); padding: 4px 10px; border-radius: 6px;" id="selected-courses-counter">
+          0 courses selected
+        </div>
+      </div>
+
+      <div id="courses-wrapper">
+        <div style="margin-bottom: 12px; display: flex; gap: 10px;">
+          <div style="position: relative; flex: 1;">
+            <input type="text" id="course-search-input" class="cp-input" placeholder="Search courses by title or category..." style="padding-left: 32px;">
+            <span style="position: absolute; left: 10px; top: 10px; color: var(--cp-text-muted); display: inline-flex;">
+              {% include "control_panel/components/icon.html" with name="search" size="14" %}
+            </span>
+          </div>
+        </div>
+
+        <div id="courses-container" style="display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; padding-right: 4px;">
+        </div>
+      </div>
+    </div>
+
+    <!-- Account Status -->
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h2 class="cp-card-title">Account Status</h2>
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <label style="font-weight: 600; color: var(--cp-text-primary); font-size: 13px;">Active Status</label>
+          <p style="font-size: 11px; color: var(--cp-text-muted);">Disabled students will lose login privileges.</p>
+        </div>
+        <select name="is_active" class="cp-select" style="width: 140px;">
+          <option value="true" {% if target_user.is_active %}selected{% endif %}>Active</option>
+          <option value="false" {% if not target_user.is_active %}selected{% endif %}>Inactive</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Submit Buttons -->
+    <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+      <a href="{% url 'control_panel:student_detail' pk=target_user.pk %}" class="cp-btn cp-btn-secondary">Cancel</a>
+      <button type="submit" class="cp-btn cp-btn-primary" style="padding: 0 20px;">
+        {% include "control_panel/components/icon.html" with name="check" size="15" %}
+        <span>Save Changes</span>
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  const parsedCoursesMap = {{ academy_courses_map|json_script:"academy-courses-data" }};
+  const coursesMap = JSON.parse(document.getElementById('academy-courses-data').textContent);
+
+  const academySelect = document.getElementById('academy-select');
+  const coursesContainer = document.getElementById('courses-container');
+  const courseSearchInput = document.getElementById('course-search-input');
+  const selectedCounter = document.getElementById('selected-courses-counter');
+
+  let currentAcademyId = academySelect.value;
+  let selectedCourseIds = new Set({{ enrolled_course_ids|json_script:"enrolled-courses-data" }});
+  selectedCourseIds = new Set(JSON.parse(document.getElementById('enrolled-courses-data').textContent));
+
+  function updateSelectedCounter() {
+    const count = selectedCourseIds.size;
+    selectedCounter.textContent = `${count} course${count === 1 ? '' : 's'} selected`;
+  }
+
+  function renderCoursesList() {
+    const academyId = academySelect.value;
+    coursesContainer.innerHTML = '';
+
+    if (!academyId) {
+      courseSearchInput.disabled = true;
+      coursesContainer.innerHTML = `
+        <div style="padding: 24px; text-align: center; color: var(--cp-text-muted); border: 1px dashed var(--cp-border); border-radius: 8px; font-size: 12px;">
+          Select an academy to view available courses.
+        </div>`;
+      return;
+    }
+
+    const courses = coursesMap[academyId] || [];
+    courseSearchInput.disabled = false;
+
+    if (courses.length === 0) {
+      coursesContainer.innerHTML = `
+        <div style="padding: 24px; text-align: center; color: var(--cp-text-muted); border: 1px dashed var(--cp-border); border-radius: 8px; font-size: 12px;">
+          No courses available for this academy.
+        </div>`;
+      return;
+    }
+
+    const query = courseSearchInput.value.toLowerCase().trim();
+
+    courses.forEach(c => {
+      const matchesSearch = !query || c.title.toLowerCase().includes(query) || c.category.toLowerCase().includes(query);
+      const isChecked = selectedCourseIds.has(c.id);
+
+      const card = document.createElement('label');
+      card.style.cssText = `
+        display: ${matchesSearch ? 'flex' : 'none'};
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        background: var(--cp-input-bg);
+        border: 1px solid ${isChecked ? 'var(--cp-primary)' : 'var(--cp-border)'};
+        border-radius: 8px;
+        cursor: pointer;
+      `;
+
+      card.innerHTML = `
+        <input type="checkbox" name="course_ids" value="${c.id}" ${isChecked ? 'checked' : ''} style="width: 16px; height: 16px; accent-color: var(--cp-primary); cursor: pointer;">
+        <div style="flex: 1;">
+          <div style="font-weight: 600; font-size: 13px; color: var(--cp-text-primary);">${c.title}</div>
+          <div style="font-size: 11px; color: var(--cp-text-muted); display: flex; gap: 10px; margin-top: 2px;">
+            <span>Category: ${c.category}</span>
+            <span>Level: ${c.level}</span>
+            <span style="font-weight: 600; color: var(--cp-primary);">${c.price}</span>
+          </div>
+        </div>
+        <span class="cp-badge ${c.status === 'Published' ? 'cp-badge-success' : 'cp-badge-neutral'}">${c.status}</span>
+      `;
+
+      const checkbox = card.querySelector('input[type="checkbox"]');
+      checkbox.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          selectedCourseIds.add(c.id);
+          card.style.borderColor = 'var(--cp-primary)';
+        } else {
+          selectedCourseIds.delete(c.id);
+          card.style.borderColor = 'var(--cp-border)';
+        }
+        updateSelectedCounter();
+      });
+
+      coursesContainer.appendChild(card);
+    });
+  }
+
+  academySelect.addEventListener('change', function () {
+    const newAcademyId = academySelect.value;
+    if (selectedCourseIds.size > 0 && newAcademyId !== currentAcademyId) {
+      window.openConfirmModal({
+        title: 'Change Academy?',
+        message: 'Changing the academy will clear currently selected course enrollments.',
+        confirmText: 'Change Academy',
+        confirmClass: 'cp-btn-danger',
+        onConfirm: function () {
+          selectedCourseIds.clear();
+          currentAcademyId = newAcademyId;
+          updateSelectedCounter();
+          renderCoursesList();
+        }
+      });
+    } else {
+      currentAcademyId = newAcademyId;
+      renderCoursesList();
+    }
+  });
+
+  courseSearchInput.addEventListener('input', renderCoursesList);
+
+  updateSelectedCounter();
+  renderCoursesList();
+</script>
+{% endblock %}

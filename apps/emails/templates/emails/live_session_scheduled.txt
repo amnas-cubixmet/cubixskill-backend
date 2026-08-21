@@ -1,0 +1,29 @@
+Hi {{ student_name }},
+
+A new live session has been scheduled for your course {{ course_title }} at {{ academy_name }}.
+
+Session:
+{{ session_title }}
+
+Course:
+{{ course_title }}
+
+Date:
+{{ session_date }}
+
+Time:
+{{ session_time }} {% if timezone %}({{ timezone }}){% endif %}
+
+Duration:
+{{ duration }}
+
+{% if session_description %}{{ session_description }}{% endif %}
+
+You can join the session using the link below when it is time:
+{{ live_session_url }}
+
+You will also receive a reminder before the session starts.
+
+Regards,
+{{ academy_name }}
+{% if academy_support_email %}{{ academy_support_email }}{% endif %}

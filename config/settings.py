@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'discussions_chat',
     'leads',
     'payments',
+    'fees',
     'credits',
     'website',
     'notifications',
@@ -86,6 +87,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'control_panel.context_processors.control_panel_permissions',
             ],
         },
     },
@@ -182,8 +184,8 @@ CORS_ALLOW_CREDENTIALS = True
 FRONTEND_ACADEMY_URL = os.getenv('FRONTEND_ACADEMY_URL', 'http://localhost:5173')
 
 # Authentication Settings
-LOGIN_URL = '/control/login/'
-LOGIN_REDIRECT_URL = '/control/dashboard/'
+LOGIN_URL = '/login/'
+LOGIN_REDIRECT_URL = '/'
 
 
 

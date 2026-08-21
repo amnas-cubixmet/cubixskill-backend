@@ -188,14 +188,14 @@ class FeaturesSystemTestCase(TestCase):
 
         # 3. Student features API
         self.client.force_authenticate(user=self.student)
-        student_url = f"/api/v1/student/courses/{self.course_python.id}/features/"
+        student_url = f"/api/v1/features/student/courses/{self.course_python.id}/features/"
         response = self.client.get(student_url)
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data['features']['chat'])
 
         # 4. Academy feature summary API
         self.client.force_authenticate(user=self.super_admin)
-        academy_url = f"/api/v1/academy/features/?academy_id={self.academy.id}"
+        academy_url = f"/api/v1/features/academy/features/?academy_id={self.academy.id}"
         response = self.client.get(academy_url)
         self.assertEqual(response.status_code, 200)
         codes = [item['code'] for item in response.data['features']]

@@ -1,0 +1,114 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Add Pricing Rule | Control Panel{% endblock %}
+
+{% block content %}
+<div style="max-width: 600px; margin: 0 auto;">
+
+  {% url 'control_panel:pricing_rules_list' as pricing_rules_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=pricing_rules_list_url back_label="Back to Pricing" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Add Pricing Rule</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Configure credit consumption rate for a platform service or action.</p>
+    </div>
+    <a href="{% url 'control_panel:pricing_rules_list' %}" class="cp-btn cp-btn-secondary">
+      {% include "control_panel/components/icon.html" with name="x" size="14" %}
+      <span>Cancel</span>
+    </a>
+  </div>
+
+  <form method="POST" action="">
+    {% csrf_token %}
+
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h2 class="cp-card-title">Pricing Rule Details</h2>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Service / Feature Name *
+          </label>
+          <input type="text" name="name" id="rule-name-input" class="cp-input" placeholder="e.g. Email Delivery" value="{{ form_data.name|default:'' }}" required>
+          {% if errors.name %}
+            <p style="font-size: 11px; color: var(--cp-danger); margin-top: 4px;">{{ errors.name }}</p>
+          {% endif %}
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Service Code (Auto-generated)
+          </label>
+          <input type="text" name="code" id="rule-code-input" class="cp-input" placeholder="EMAIL_DELIVERY" value="{{ form_data.code|default:'' }}" readonly style="opacity: 0.85; background: var(--cp-input-disabled-bg, var(--cp-bg-tertiary));">
+          <span style="font-size: 11px; color: var(--cp-text-muted); display: block; margin-top: 2px;">Automatically generated from service name.</span>
+          {% if errors.code %}
+            <p style="font-size: 11px; color: var(--cp-danger); margin-top: 4px;">{{ errors.code }}</p>
+          {% endif %}
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Description
+          </label>
+          <textarea name="description" class="cp-input" style="height: 80px; padding: 8px 12px; resize: vertical;" placeholder="Credit charge applied when a billable email is sent...">{{ form_data.description|default:'' }}</textarea>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+              Billing Unit *
+            </label>
+            <input type="text" name="billing_unit" class="cp-input" placeholder="Per Email, Per GB, Per Request" value="{{ form_data.billing_unit|default:'Per Email' }}" required>
+          </div>
+
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+              Credit Cost *
+            </label>
+            <input type="number" name="credit_cost" class="cp-input" placeholder="1" value="{{ form_data.credit_cost|default:'1' }}" required>
+            {% if errors.credit_cost %}
+              <p style="font-size: 11px; color: var(--cp-danger); margin-top: 4px;">{{ errors.credit_cost }}</p>
+            {% endif %}
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Status
+          </label>
+          <select name="is_active" class="cp-select" style="width: 180px;">
+            <option value="true" selected>Active</option>
+            <option value="false">Inactive</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Submit Buttons -->
+    <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+      <a href="{% url 'control_panel:pricing_rules_list' %}" class="cp-btn cp-btn-secondary">Cancel</a>
+      <button type="submit" class="cp-btn cp-btn-primary" style="padding: 0 20px;">
+        {% include "control_panel/components/icon.html" with name="check" size="15" %}
+        <span>Create Rule</span>
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  const nameInput = document.getElementById('rule-name-input');
+  const codeInput = document.getElementById('rule-code-input');
+
+  nameInput.addEventListener('input', function() {
+    const val = nameInput.value.trim();
+    if (val) {
+      codeInput.value = val.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    } else {
+      codeInput.value = '';
+    }
+  });
+</script>
+{% endblock %}

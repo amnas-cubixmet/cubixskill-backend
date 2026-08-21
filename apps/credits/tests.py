@@ -94,7 +94,8 @@ class CreditsAppTestCase(TestCase):
             idempotency_key="key_init_50"
         )
 
-        with self.assertRaises(ValidationError):
+        from core.exceptions import CubixSkillAPIException
+        with self.assertRaises(CubixSkillAPIException):
             CreditsService.debit(
                 academy=self.academy,
                 amount=Decimal('100.000000'),

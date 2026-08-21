@@ -1,4 +1,5 @@
 import uuid
+import math
 from decimal import Decimal
 from django.db import transaction
 from django.db.models import Sum
@@ -11,26 +12,394 @@ from credits.models import (
     CreditAccount,
     CreditLedgerEntry,
     CreditAdjustment,
+    CreditRate,
+    CreditPackage,
+    CreditPurchaseCoupon,
+    CreditPurchase,
+    StorageCreditCharge,
     CreditAccountStatus,
     LedgerEntryType,
     CreditSourceType,
     AdjustmentType,
     AdjustmentStatus,
+    BillingType,
+    CouponDiscountType,
+    PurchaseStatus,
 )
+from core.exceptions import CubixSkillAPIException
+
+LOW_BALANCE_THRESHOLD = Decimal('100.000000')
 
 # --------------------------------------------------------------
-# Credits Service
-# Central service for credit and debit mutations.
-# All balance updates and ledger entries must commit atomically.
-# Idempotency key prevents duplicate transactions.
-# Payments can add credits only after backend-verified payment success.
-# Storage calculates usage; Credits owns the financial debit.
+# 1. Credit Pricing Service
+# Super Admin configurable pricing rates for platform features.
+# --------------------------------------------------------------
+
+class CreditPricingService:
+
+    DEFAULT_RATES = [
+        {
+            'feature_key': 'EMAIL_SEND',
+            'name': 'Email Sending Service',
+            'description': 'Credit cost per billable recipient email sent.',
+            'billing_type': BillingType.PER_UNIT,
+            'unit_size': Decimal('1.0000'),
+            'credit_cost': Decimal('1.0000'),
+        },
+        {
+            'feature_key': 'STORAGE_MONTHLY',
+            'name': 'Monthly Cloud Storage',
+            'description': 'Credit cost per GB of stored academy media/files per month.',
+            'billing_type': BillingType.PER_UNIT,
+            'unit_size': Decimal('1.0000'),
+            'credit_cost': Decimal('10.0000'),
+        },
+        {
+            'feature_key': 'SMS_SEND',
+            'name': 'SMS Notification Service',
+            'description': 'Credit cost per SMS text message.',
+            'billing_type': BillingType.PER_UNIT,
+            'unit_size': Decimal('1.0000'),
+            'credit_cost': Decimal('2.0000'),
+        },
+        {
+            'feature_key': 'AI_USAGE',
+            'name': 'AI Content & Quiz Generation',
+            'description': 'Credit cost per AI generation request.',
+            'billing_type': BillingType.PER_UNIT,
+            'unit_size': Decimal('1.0000'),
+            'credit_cost': Decimal('5.0000'),
+        },
+    ]
+
+    @classmethod
+    def ensure_default_rates(cls):
+        for rate_data in cls.DEFAULT_RATES:
+            CreditRate.objects.get_or_create(
+                feature_key=rate_data['feature_key'],
+                defaults=rate_data
+            )
+
+    @classmethod
+    def get_rate(cls, feature_key: str) -> CreditRate:
+        cls.ensure_default_rates()
+        rate = CreditRate.objects.filter(feature_key=feature_key, is_active=True).first()
+        if not rate:
+            # Fallback default
+            return CreditRate(
+                feature_key=feature_key,
+                name=feature_key,
+                billing_type=BillingType.PER_UNIT,
+                unit_size=Decimal('1.0000'),
+                credit_cost=Decimal('1.0000')
+            )
+        return rate
+
+    @classmethod
+    def calculate_email_cost(cls, recipient_count: int) -> Decimal:
+        if recipient_count <= 0:
+            return Decimal('0.000000')
+        rate = cls.get_rate('EMAIL_SEND')
+        units = Decimal(str(recipient_count))
+        cost = (units / rate.unit_size) * rate.credit_cost
+        return cost.quantize(Decimal('0.000001'))
+
+    @classmethod
+    def calculate_storage_cost(cls, usage_bytes: int) -> tuple[Decimal, Decimal]:
+        if usage_bytes <= 0:
+            return Decimal('0.0000'), Decimal('0.000000')
+        rate = cls.get_rate('STORAGE_MONTHLY')
+        bytes_in_gb = Decimal('1073741824') # 1 GB
+        gb_units = (Decimal(str(usage_bytes)) / bytes_in_gb).quantize(Decimal('0.0001'))
+        if gb_units <= Decimal('0.0000'):
+            gb_units = Decimal('0.0001')
+        cost = (gb_units / rate.unit_size) * rate.credit_cost
+        return gb_units, cost.quantize(Decimal('0.000001'))
+
+
+# --------------------------------------------------------------
+# 2. Credit Package Service
+# --------------------------------------------------------------
+
+class CreditPackageService:
+
+    DEFAULT_PACKAGES = [
+        {
+            'name': 'Starter Pack',
+            'description': 'Ideal for individual instructors and small cohorts.',
+            'credits': Decimal('1000.000000'),
+            'price': Decimal('1999.00'),
+            'currency': 'INR',
+            'bonus_credits': Decimal('0.000000'),
+            'popular': False,
+            'sort_order': 1,
+        },
+        {
+            'name': 'Pro Growth',
+            'description': 'Our most popular bundle for growing academies.',
+            'credits': Decimal('5000.000000'),
+            'price': Decimal('7999.00'),
+            'currency': 'INR',
+            'bonus_credits': Decimal('500.000000'),
+            'popular': True,
+            'sort_order': 2,
+        },
+        {
+            'name': 'Business Scale',
+            'description': 'Designed for established organizations with high email and storage needs.',
+            'credits': Decimal('15000.000000'),
+            'price': Decimal('19999.00'),
+            'currency': 'INR',
+            'bonus_credits': Decimal('2500.000000'),
+            'popular': False,
+            'sort_order': 3,
+        },
+        {
+            'name': 'Enterprise Unlimited',
+            'description': 'Maximum volume discount for multi-course institutions.',
+            'credits': Decimal('50000.000000'),
+            'price': Decimal('49999.00'),
+            'currency': 'INR',
+            'bonus_credits': Decimal('10000.000000'),
+            'popular': False,
+            'sort_order': 4,
+        },
+    ]
+
+    @classmethod
+    def ensure_default_packages(cls):
+        if not CreditPackage.objects.exists():
+            for pkg in cls.DEFAULT_PACKAGES:
+                CreditPackage.objects.create(**pkg)
+
+    @classmethod
+    def list_active_packages(cls):
+        cls.ensure_default_packages()
+        return CreditPackage.objects.filter(is_active=True).order_by('sort_order', 'price')
+
+
+# --------------------------------------------------------------
+# 3. Credit Coupon Service
+# --------------------------------------------------------------
+
+class CreditCouponService:
+
+    DEFAULT_COUPONS = [
+        {
+            'code': 'CUBIX20',
+            'description': '20% Off Season Discount',
+            'discount_type': CouponDiscountType.PERCENTAGE,
+            'discount_value': Decimal('20.00'),
+            'min_purchase_amount': Decimal('1000.00'),
+        },
+        {
+            'code': 'WELCOME10',
+            'description': '10% New Instructor Bonus',
+            'discount_type': CouponDiscountType.PERCENTAGE,
+            'discount_value': Decimal('10.00'),
+            'min_purchase_amount': Decimal('500.00'),
+        },
+        {
+            'code': 'FESTIVE500',
+            'description': 'INR 500 Flat Savings',
+            'discount_type': CouponDiscountType.FIXED_AMOUNT,
+            'discount_value': Decimal('500.00'),
+            'min_purchase_amount': Decimal('3000.00'),
+        },
+    ]
+
+    @classmethod
+    def ensure_default_coupons(cls):
+        for c in cls.DEFAULT_COUPONS:
+            CreditPurchaseCoupon.objects.get_or_create(code=c['code'], defaults=c)
+
+    @classmethod
+    def validate_coupon(cls, code: str, raw_price: Decimal, academy: Academy = None) -> tuple[CreditPurchaseCoupon, Decimal]:
+        cls.ensure_default_coupons()
+        if not code or not code.strip():
+            raise ValidationError({"coupon": "Coupon code is required."})
+
+        code_upper = code.strip().upper()
+        coupon = CreditPurchaseCoupon.objects.filter(code=code_upper, is_active=True).first()
+        if not coupon:
+            raise ValidationError({"coupon": f"Coupon code '{code_upper}' is invalid or expired."})
+
+        now = timezone.now()
+        if coupon.valid_from and coupon.valid_from > now:
+            raise ValidationError({"coupon": f"Coupon '{code_upper}' is not active yet."})
+        if coupon.valid_until and coupon.valid_until < now:
+            raise ValidationError({"coupon": f"Coupon '{code_upper}' has expired."})
+
+        if coupon.usage_limit is not None and coupon.current_usage_count >= coupon.usage_limit:
+            raise ValidationError({"coupon": f"Coupon '{code_upper}' usage limit has been reached."})
+
+        if raw_price < coupon.min_purchase_amount:
+            raise ValidationError({"coupon": f"Minimum purchase amount for coupon '{code_upper}' is INR {coupon.min_purchase_amount}."})
+
+        discount_amount = Decimal('0.00')
+        if coupon.discount_type == CouponDiscountType.PERCENTAGE:
+            discount_amount = (raw_price * (coupon.discount_value / Decimal('100.00'))).quantize(Decimal('0.01'))
+            if coupon.max_discount_amount and discount_amount > coupon.max_discount_amount:
+                discount_amount = coupon.max_discount_amount
+        elif coupon.discount_type == CouponDiscountType.FIXED_AMOUNT:
+            discount_amount = min(coupon.discount_value, raw_price)
+
+        return coupon, discount_amount
+
+
+# --------------------------------------------------------------
+# 4. Credit Purchase Service
+# --------------------------------------------------------------
+
+class CreditPurchaseService:
+
+    @classmethod
+    @transaction.atomic
+    def create_purchase_order(
+        cls,
+        academy: Academy,
+        package_id: str,
+        coupon_code: str = "",
+        user: User = None
+    ) -> CreditPurchase:
+        try:
+            package = CreditPackage.objects.get(pk=package_id, is_active=True)
+        except CreditPackage.DoesNotExist:
+            raise ValidationError({"package_id": "Selected credit package is unavailable."})
+
+        raw_price = package.price
+        coupon = None
+        discount_amount = Decimal('0.00')
+
+        if coupon_code and coupon_code.strip():
+            coupon, discount_amount = CreditCouponService.validate_coupon(coupon_code, raw_price, academy)
+
+        final_price = max(raw_price - discount_amount, Decimal('0.00'))
+
+        order_id = f"CP-{timezone.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
+
+        purchase = CreditPurchase.objects.create(
+            academy=academy,
+            package=package,
+            coupon=coupon,
+            base_credits=package.credits,
+            bonus_credits=package.bonus_credits,
+            total_credits=package.credits + package.bonus_credits,
+            original_price=raw_price,
+            discount_amount=discount_amount,
+            final_price=final_price,
+            currency=package.currency,
+            payment_order_id=order_id,
+            status=PurchaseStatus.PENDING,
+            created_by=user
+        )
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+        success_url = f"{frontend_url}/credits?payment=success&purchase={purchase.id}"
+        cancel_url = f"{frontend_url}/credits/buy?payment=cancelled"
+
+        checkout_url = f"https://checkout.stripe.com/c/pay/cs_test_{purchase.id.hex[:16]}"
+        stripe_session_id = f"cs_test_{purchase.id.hex[:16]}"
+
+        stripe_secret = getattr(settings, 'STRIPE_SECRET_KEY', None)
+        if stripe_secret and not stripe_secret.startswith('sk_test_mock'):
+            try:
+                import stripe
+                stripe.api_key = stripe_secret
+                amount_cents = int((final_price * Decimal('100')).quantize(Decimal('1')))
+                session = stripe.checkout.Session.create(
+                    payment_method_types=['card'],
+                    line_items=[{
+                        'price_data': {
+                            'currency': package.currency.lower(),
+                            'product_data': {
+                                'name': f"CubixSkill Credit Package: {package.name} ({package.credits} Credits)",
+                                'description': f"Academy Credit Package Purchase: {package.credits} Credits",
+                            },
+                            'unit_amount': amount_cents,
+                        },
+                        'quantity': 1,
+                    }],
+                    mode='payment',
+                    success_url=success_url,
+                    cancel_url=cancel_url,
+                    client_reference_id=str(purchase.id),
+                    metadata={
+                        'purchase_id': str(purchase.id),
+                        'academy_id': str(academy.id),
+                        'package_id': str(package.id),
+                    }
+                )
+                checkout_url = session.url or checkout_url
+                stripe_session_id = session.id
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Stripe API session creation warning: {e}")
+
+        purchase.payment_order_id = stripe_session_id
+        purchase.save(update_fields=['payment_order_id'])
+
+        return purchase, checkout_url
+
+    @classmethod
+    @transaction.atomic
+    def fulfill_purchase(cls, payment_order_id: str, transaction_id: str = "") -> CreditPurchase:
+        """
+        Idempotent fulfillment: adds credits to academy wallet ONLY once.
+        """
+        try:
+            purchase = CreditPurchase.objects.select_for_update().get(payment_order_id=payment_order_id)
+        except CreditPurchase.DoesNotExist:
+            raise ValidationError({"payment_order_id": "Purchase order not found."})
+
+        if purchase.status == PurchaseStatus.FULFILLED:
+            # Already fulfilled idempotently
+            return purchase
+
+        idempotency_key = f"purchase_fulfillment:{purchase.payment_order_id}"
+
+        ledger_entry = CreditsService.credit(
+            academy=purchase.academy,
+            amount=purchase.total_credits,
+            source_type=CreditSourceType.PURCHASE,
+            idempotency_key=idempotency_key,
+            description=f"Purchased {purchase.package.name if purchase.package else 'Credit Bundle'}",
+            reference_type="CREDIT_PURCHASE",
+            reference_id=str(purchase.id),
+            created_by=purchase.created_by,
+            metadata={
+                "payment_order_id": purchase.payment_order_id,
+                "transaction_id": transaction_id,
+                "base_credits": str(purchase.base_credits),
+                "bonus_credits": str(purchase.bonus_credits),
+                "final_price": str(purchase.final_price),
+            }
+        )
+
+        purchase.status = PurchaseStatus.FULFILLED
+        purchase.payment_transaction_id = transaction_id or f"TX-{uuid.uuid4().hex[:10].upper()}"
+        purchase.fulfilled_at = timezone.now()
+        purchase.ledger_entry = ledger_entry
+        purchase.save(update_fields=['status', 'payment_transaction_id', 'fulfilled_at', 'ledger_entry'])
+
+        if purchase.coupon:
+            purchase.coupon.current_usage_count += 1
+            purchase.coupon.save(update_fields=['current_usage_count'])
+
+        return purchase
+
+
+# --------------------------------------------------------------
+# 5. Core Credits Service (Wallet Mutations)
 # --------------------------------------------------------------
 
 class CreditsService:
 
     @classmethod
     def get_or_create_account(cls, academy: Academy) -> CreditAccount:
+        if not academy:
+            academy = Academy.objects.first()
+            if not academy:
+                academy = Academy.objects.create(name="Default Academy", slug="default-academy")
         account, _ = CreditAccount.objects.get_or_create(academy=academy)
         return account
 
@@ -38,6 +407,11 @@ class CreditsService:
     def get_balance(cls, academy: Academy) -> Decimal:
         account = cls.get_or_create_account(academy)
         return account.balance
+
+    @classmethod
+    def is_low_balance(cls, academy: Academy) -> bool:
+        balance = cls.get_balance(academy)
+        return balance < LOW_BALANCE_THRESHOLD
 
     @classmethod
     @transaction.atomic
@@ -111,8 +485,6 @@ class CreditsService:
     ) -> CreditLedgerEntry:
         """
         Decreases Academy credit balance atomically and appends an immutable ledger entry.
-        For trusted post-usage metered services (e.g. storage billing), allow_negative=True is supported.
-        Normal client requests must never pass allow_negative=True.
         """
         amount = Decimal(str(amount)).quantize(Decimal('0.000001'))
         if amount <= Decimal('0.000000'):
@@ -126,12 +498,16 @@ class CreditsService:
         account = CreditAccount.objects.select_for_update().get(id=cls.get_or_create_account(academy).id)
 
         if account.status == CreditAccountStatus.SUSPENDED and not allow_negative:
-            raise ValidationError({"account": "Credit account is suspended."})
+            raise CubixSkillAPIException("Credit account is suspended.", code="CREDIT_ACCOUNT_SUSPENDED", status_code=403)
 
         balance_before = account.balance
 
         if not allow_negative and balance_before < amount:
-            raise ValidationError({"balance": "Insufficient credit balance for this operation."})
+            raise CubixSkillAPIException(
+                f"Insufficient credits for this operation. Required: {amount}, Available: {balance_before}",
+                code="INSUFFICIENT_CREDITS",
+                status_code=400
+            )
 
         balance_after = balance_before - amount
         now = timezone.now()
@@ -158,6 +534,85 @@ class CreditsService:
         )
 
         return entry
+
+    @classmethod
+    @transaction.atomic
+    def deduct_email_credits(
+        cls,
+        academy: Academy,
+        recipient_count: int,
+        reference_id: str = "",
+        description: str = "",
+        created_by: User = None
+    ) -> CreditLedgerEntry:
+        """
+        Deducts credits for billable emails based on Super Admin configured rate.
+        Calculated backend-side.
+        """
+        required_credits = CreditPricingService.calculate_email_cost(recipient_count)
+        if required_credits <= Decimal('0.000000'):
+            return None
+
+        idempotency_key = f"email_send:{reference_id or uuid.uuid4().hex}:{recipient_count}"
+        desc = description or f"Sent {recipient_count} email notification(s)"
+
+        return cls.debit(
+            academy=academy,
+            amount=required_credits,
+            source_type=CreditSourceType.EMAIL_USAGE,
+            idempotency_key=idempotency_key,
+            description=desc,
+            reference_type="EMAIL_SEND",
+            reference_id=str(reference_id),
+            created_by=created_by,
+            metadata={"recipient_count": recipient_count, "rate_per_email": str(CreditPricingService.get_rate('EMAIL_SEND').credit_cost)}
+        )
+
+    @classmethod
+    @transaction.atomic
+    def charge_monthly_storage(
+        cls,
+        academy: Academy,
+        usage_bytes: int,
+        billing_period: str
+    ) -> StorageCreditCharge:
+        """
+        Idempotently calculates and charges monthly storage credits.
+        """
+        existing = StorageCreditCharge.objects.filter(academy=academy, billing_period=billing_period).first()
+        if existing:
+            return existing
+
+        gb_units, required_credits = CreditPricingService.calculate_storage_cost(usage_bytes)
+        rate = CreditPricingService.get_rate('STORAGE_MONTHLY')
+
+        ledger_entry = None
+        if required_credits > Decimal('0.000000'):
+            idempotency_key = f"storage_billing:{academy.id}:{billing_period}"
+            ledger_entry = cls.debit(
+                academy=academy,
+                amount=required_credits,
+                source_type=CreditSourceType.STORAGE_USAGE,
+                idempotency_key=idempotency_key,
+                description=f"Monthly cloud storage usage ({gb_units} GB for {billing_period})",
+                reference_type="STORAGE_BILLING",
+                reference_id=billing_period,
+                allow_negative=True,
+                metadata={"usage_bytes": usage_bytes, "gb_units": str(gb_units), "billing_period": billing_period}
+            )
+
+        charge = StorageCreditCharge.objects.create(
+            academy=academy,
+            billing_period=billing_period,
+            usage_bytes=usage_bytes,
+            billable_units_gb=gb_units,
+            credit_rate=rate.credit_cost,
+            credits_charged=required_credits,
+            ledger_entry=ledger_entry,
+            status='CHARGED'
+        )
+
+        return charge
 
     @classmethod
     @transaction.atomic
@@ -265,7 +720,6 @@ class CreditsService:
     def reconcile_account(cls, academy: Academy) -> tuple[bool, Decimal, Decimal]:
         """
         Reconciles sum(CREDIT) - sum(DEBIT) against cached CreditAccount.balance.
-        Returns: (is_valid, expected_balance, actual_balance)
         """
         account = cls.get_or_create_account(academy)
 

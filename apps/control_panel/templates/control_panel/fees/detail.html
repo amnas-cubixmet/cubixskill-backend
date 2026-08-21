@@ -1,0 +1,37 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Fee Account Detail | Control Panel{% endblock %}
+{% block content %}
+<div class="cp-page-header">
+  <h1 class="cp-page-title">Fee Account: {{ account.student.full_name }}</h1>
+  <p class="cp-page-subtitle">{{ account.academy.name }} &bull; {{ account.course.title }}</p>
+</div>
+
+<div class="cp-grid-3" style="margin-bottom: 24px;">
+  <div class="cp-card">
+    <div style="font-size: 11px; color: var(--cp-text-muted);">Total Fee</div>
+    <div style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary);">₹{{ account.total_fee_amount }}</div>
+  </div>
+  <div class="cp-card">
+    <div style="font-size: 11px; color: var(--cp-text-muted);">Plan Type</div>
+    <div style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary);">{{ account.plan_type }}</div>
+  </div>
+  <div class="cp-card">
+    <div style="font-size: 11px; color: var(--cp-text-muted);">Status</div>
+    <div style="font-size: 20px; font-weight: 600; color: var(--cp-primary);">{{ account.status }}</div>
+  </div>
+</div>
+
+<div class="cp-card" style="margin-bottom: 24px;">
+  <h3>Record Fee Payment</h3>
+  <form method="POST" action="{% url 'control_panel:fee_pay' account.id %}" style="display: flex; gap: 12px; margin-top: 12px;">
+    {% csrf_token %}
+    <input type="number" step="0.01" name="amount" placeholder="Amount (INR)" class="cp-login-field" style="width: 200px; height: 38px; padding-left: 12px;" required>
+    <select name="method" class="cp-login-field" style="width: 150px; height: 38px; padding-left: 12px;">
+      <option value="CASH">Cash</option>
+      <option value="BANK_TRANSFER">Bank Transfer</option>
+      <option value="ONLINE">Online Gateway</option>
+    </select>
+    <button type="submit" class="cp-btn cp-btn-primary" style="height: 38px;">Record Payment</button>
+  </form>
+</div>
+{% endblock %}

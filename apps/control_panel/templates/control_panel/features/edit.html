@@ -1,0 +1,95 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Edit Feature — {{ feature.name }} | Control Panel{% endblock %}
+
+{% block content %}
+<div style="max-width: 700px; margin: 0 auto;">
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Edit Feature Details</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Update feature capability settings for {{ feature.name }}.</p>
+    </div>
+    <a href="{% url 'control_panel:feature_detail' pk=feature.pk %}" class="cp-btn cp-btn-secondary">
+      {% include "control_panel/components/icon.html" with name="x" size="14" %}
+      <span>Cancel</span>
+    </a>
+  </div>
+
+  <form method="POST" action="">
+    {% csrf_token %}
+
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h2 class="cp-card-title">Feature Definition Details</h2>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+              Feature Name *
+            </label>
+            <input type="text" name="name" class="cp-input" value="{{ feature.name }}" required>
+            {% if errors.name %}
+              <p style="font-size: 11px; color: var(--cp-danger); margin-top: 4px;">{{ errors.name }}</p>
+            {% endif %}
+          </div>
+
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+              Feature Code (Immutable)
+            </label>
+            <input type="text" class="cp-input" value="{{ feature.code }}" disabled style="opacity: 0.7; cursor: not-allowed;">
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Category
+          </label>
+          <input type="text" name="category" class="cp-input" value="{{ feature.category }}">
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Description
+          </label>
+          <textarea name="description" class="cp-input" style="height: 80px; padding: 8px 12px; resize: vertical;">{{ feature.description|default:'' }}</textarea>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+              Status
+            </label>
+            <select name="is_active" class="cp-select">
+              <option value="true" {% if feature.is_active %}selected{% endif %}>Active &amp; Available</option>
+              <option value="false" {% if not feature.is_active %}selected{% endif %}>Inactive / Hidden</option>
+            </select>
+          </div>
+
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+              Enabled Globally
+            </label>
+            <select name="enabled_globally" class="cp-select">
+              <option value="true" {% if feature.enabled_globally %}selected{% endif %}>Yes (Enabled for all plans)</option>
+              <option value="false" {% if not feature.enabled_globally %}selected{% endif %}>No (Plan entitlement required)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Submit Buttons -->
+    <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+      <a href="{% url 'control_panel:feature_detail' pk=feature.pk %}" class="cp-btn cp-btn-secondary">Cancel</a>
+      <button type="submit" class="cp-btn cp-btn-primary" style="padding: 0 20px;">
+        {% include "control_panel/components/icon.html" with name="check" size="15" %}
+        <span>Save Changes</span>
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

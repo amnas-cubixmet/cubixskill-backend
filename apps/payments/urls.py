@@ -11,6 +11,21 @@ from payments.views import (
     AdminPaymentHistoryViewSet,
     AcademyCouponViewSet,
     AdminPlatformCouponViewSet,
+    CourseCouponListCreateView,
+    CourseCouponDetailView,
+    CourseCouponToggleView,
+    CourseCouponRedemptionsView,
+    CourseCouponGenerateCodeView,
+)
+from fees.views import (
+    CourseFeeSummaryView,
+    CourseDefaultFeePlanView,
+    StudentFeeAccountListCreateView,
+    StudentFeeAccountDetailView,
+    CollectFeePaymentView,
+    WaiveFeeView,
+    SendFeeReminderView,
+    CourseFeePaymentsLedgerView,
 )
 
 # --------------------------------------------------------------
@@ -31,5 +46,24 @@ urlpatterns = [
     path('coupons/validate/', ValidateCouponView.as_view(), name='validate-coupon'),
     path('platform/checkout/', PlatformCheckoutView.as_view(), name='platform-checkout'),
     path('payments/webhooks/<str:gateway>/', PaymentWebhookView.as_view(), name='payment-webhook'),
+
+    # Course Coupon Routes
+    path('courses/<uuid:course_id>/coupons/', CourseCouponListCreateView.as_view(), name='course-coupons'),
+    path('courses/<uuid:course_id>/coupons/generate-code/', CourseCouponGenerateCodeView.as_view(), name='course-coupons-generate-code'),
+    path('courses/<uuid:course_id>/coupons/validate/', ValidateCouponView.as_view(), name='course-coupons-validate'),
+    path('courses/<uuid:course_id>/coupons/<uuid:coupon_id>/', CourseCouponDetailView.as_view(), name='course-coupon-detail'),
+    path('courses/<uuid:course_id>/coupons/<uuid:coupon_id>/deactivate/', CourseCouponToggleView.as_view(), name='course-coupon-deactivate'),
+    path('courses/<uuid:course_id>/coupons/<uuid:coupon_id>/redemptions/', CourseCouponRedemptionsView.as_view(), name='course-coupon-redemptions'),
+
+    # Fee Collection Routes (forwarded to fees app views for backward compatibility)
+    path('courses/<uuid:course_id>/fee-summary/', CourseFeeSummaryView.as_view(), name='course-fee-summary'),
+    path('courses/<uuid:course_id>/fee-configuration/', CourseDefaultFeePlanView.as_view(), name='course-fee-configuration'),
+    path('courses/<uuid:course_id>/fee-accounts/', StudentFeeAccountListCreateView.as_view(), name='course-fee-accounts'),
+    path('courses/<uuid:course_id>/fee-accounts/<uuid:account_id>/', StudentFeeAccountDetailView.as_view(), name='student-fee-account-detail'),
+    path('courses/<uuid:course_id>/fee-accounts/<uuid:account_id>/payments/', CollectFeePaymentView.as_view(), name='collect-fee-payment'),
+    path('courses/<uuid:course_id>/fee-accounts/<uuid:account_id>/waive/', WaiveFeeView.as_view(), name='waive-fee'),
+    path('courses/<uuid:course_id>/fee-accounts/<uuid:account_id>/reminder/', SendFeeReminderView.as_view(), name='send-fee-reminder'),
+    path('courses/<uuid:course_id>/fee-payments/', CourseFeePaymentsLedgerView.as_view(), name='course-fee-payments-ledger'),
+
     path('', include(router.urls)),
 ]

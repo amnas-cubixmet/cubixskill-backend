@@ -1,0 +1,173 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Edit Course — {{ course.title }} | Control Panel{% endblock %}
+
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto;">
+
+  {% url 'control_panel:courses_list' as courses_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=courses_list_url back_label="Back to Courses" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Edit Course</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Update course content and publishing details for {{ course.title }}.</p>
+    </div>
+    <a href="{% url 'control_panel:courses_list' %}" class="cp-btn cp-btn-secondary">
+      {% include "control_panel/components/icon.html" with name="x" size="14" %}
+      <span>Cancel</span>
+    </a>
+  </div>
+
+  <form method="POST" action="">
+    {% csrf_token %}
+
+    <!-- Basic Information -->
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h2 class="cp-card-title">Basic Information</h2>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Course Title *
+          </label>
+          <input type="text" name="title" class="cp-input" value="{{ course.title }}" required>
+          {% if errors.title %}
+            <p style="font-size: 11px; color: var(--cp-danger); margin-top: 4px;">{{ errors.title }}</p>
+          {% endif %}
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Subtitle
+          </label>
+          <input type="text" name="subtitle" class="cp-input" value="{{ course.subtitle|default:'' }}">
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Short Description
+          </label>
+          <textarea name="short_description" class="cp-input" style="height: 64px; padding: 8px 12px; resize: vertical;">{{ course.short_description|default:'' }}</textarea>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Full Description
+          </label>
+          <textarea name="description" class="cp-input" style="height: 120px; padding: 8px 12px; resize: vertical;">{{ course.description|default:'' }}</textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Academy & Category -->
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h2 class="cp-card-title">Academy &amp; Categorization</h2>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Academy *
+          </label>
+          <select name="academy_id" class="cp-select" required>
+            <option value="">-- Select Academy --</option>
+            {% for a in academies %}
+              <option value="{{ a.id }}" {% if course.academy and course.academy.id == a.id %}selected{% endif %}>{{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Category
+          </label>
+          <select name="category_id" class="cp-select">
+            <option value="">-- Select Category --</option>
+            {% for cat in categories %}
+              <option value="{{ cat.id }}" {% if course.category and course.category.id == cat.id %}selected{% endif %}>{{ cat.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Course Level
+          </label>
+          <select name="level" class="cp-select">
+            {% for code, label in levels %}
+              <option value="{{ code }}" {% if course.level == code %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pricing & Status -->
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h2 class="cp-card-title">Pricing &amp; Publishing Status</h2>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Course Price (₹)
+          </label>
+          <input type="number" step="0.01" name="price" id="course-price-input" class="cp-input" value="{{ course.price }}" {% if course.is_free %}disabled{% endif %}>
+          {% if errors.price %}
+            <p style="font-size: 11px; color: var(--cp-danger); margin-top: 4px;">{{ errors.price }}</p>
+          {% endif %}
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Free Course Toggle
+          </label>
+          <select name="is_free" id="is-free-select" class="cp-select">
+            <option value="false" {% if not course.is_free %}selected{% endif %}>Paid Course</option>
+            <option value="true" {% if course.is_free %}selected{% endif %}>Free Course</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Status
+          </label>
+          <select name="status" class="cp-select">
+            {% for code, label in statuses %}
+              <option value="{{ code }}" {% if course.status == code %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Submit Buttons -->
+    <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+      <a href="{% url 'control_panel:course_detail' pk=course.pk %}" class="cp-btn cp-btn-secondary">Cancel</a>
+      <button type="submit" class="cp-btn cp-btn-primary" style="padding: 0 20px;">
+        {% include "control_panel/components/icon.html" with name="check" size="15" %}
+        <span>Save Changes</span>
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  const isFreeSelect = document.getElementById('is-free-select');
+  const priceInput = document.getElementById('course-price-input');
+
+  isFreeSelect.addEventListener('change', () => {
+    if (isFreeSelect.value === 'true') {
+      priceInput.value = '0.00';
+      priceInput.disabled = true;
+    } else {
+      priceInput.disabled = false;
+    }
+  });
+</script>
+{% endblock %}

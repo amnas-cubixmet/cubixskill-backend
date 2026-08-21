@@ -1,0 +1,31 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Credit Ledger Transactions | Control Panel{% endblock %}
+{% block content %}
+<div class="cp-page-header">
+  <h1 class="cp-page-title">Global Credit Ledger Transactions</h1>
+</div>
+<div class="cp-card" style="padding: 0;">
+  <div class="cp-table-container">
+    <table class="cp-table">
+      <thead>
+        <tr><th>Date</th><th>Academy</th><th>Type</th><th>Source</th><th>Amount</th><th>Balance After</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          <td>{{ entry.occurred_at|date:"d M Y, H:i" }}</td>
+          <td>{{ entry.account.academy.name }}</td>
+          <td><span class="cp-badge {% if entry.entry_type == 'CREDIT' %}cp-badge-active{% else %}cp-badge-suspended{% endif %}">{{ entry.entry_type }}</span></td>
+          <td>{{ entry.source_type }}</td>
+          <td>{% if entry.entry_type == 'CREDIT' %}+{% else %}-{% endif %}{{ entry.amount }}</td>
+          <td>{{ entry.balance_after }}</td>
+          <td>{{ entry.description }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" style="text-align: center; color: var(--cp-text-muted);">No credit transactions logged.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

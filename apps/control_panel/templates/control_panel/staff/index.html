@@ -1,0 +1,46 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Staff Directory | Control Panel{% endblock %}
+{% block content %}
+<div class="cp-page-header" style="display: flex; justify-space-between: space-between; align-items: center;">
+  <div>
+    <h1 class="cp-page-title">Staff Directory</h1>
+    <p class="cp-page-subtitle">Super Admin staff, Academy owners, and Instructors across academies.</p>
+  </div>
+  <a href="{% url 'control_panel:staff_create' %}" class="cp-btn cp-btn-primary">+ Add Staff Member</a>
+</div>
+
+<div class="cp-card" style="padding: 0;">
+  <div class="cp-table-container">
+    <table class="cp-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Academy</th>
+          <th>Status</th>
+          <th>Joined</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in staff_users %}
+        <tr>
+          <td style="font-weight: 500;">{{ u.full_name|default:u.email }}</td>
+          <td>{{ u.email }}</td>
+          <td><span class="cp-badge cp-badge-demo">{{ u.role_code }}</span></td>
+          <td>{{ u.academy.name|default:"Global Platform" }}</td>
+          <td>
+            <span class="cp-badge {% if u.is_active %}cp-badge-active{% else %}cp-badge-suspended{% endif %}">
+              {% if u.is_active %}Active{% else %}Inactive{% endif %}
+            </span>
+          </td>
+          <td>{{ u.created_at|date:"d M Y" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" style="text-align: center; color: var(--cp-text-muted);">No staff members found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

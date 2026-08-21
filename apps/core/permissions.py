@@ -1,9 +1,24 @@
 from rest_framework import permissions
-from users_roles.models import has_permission, can_access_academy
+from users_roles.models import has_permission, can_access_academy, SystemRoleCode
 
 # --------------------------------------------------------------
 # Core Platform & Tenant Permission Classes
 # --------------------------------------------------------------
+
+class IsSuperAdminOrStaff(permissions.BasePermission):
+    """
+    Allows access to Super Admin or authenticated Academy staff.
+    """
+    def has_permission(self, request, view):
+        return bool(
+            request.user and
+            request.user.is_authenticated and
+            (request.user.is_staff or getattr(request.user, 'role_code', '') in [
+                SystemRoleCode.SUPER_ADMIN,
+                SystemRoleCode.ACADEMY_ADMIN,
+                SystemRoleCode.INSTRUCTOR
+            ])
+        )
 
 class IsAcademyMember(permissions.BasePermission):
     """

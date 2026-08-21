@@ -1,6 +1,6 @@
 {% extends 'control_panel/base.html' %}
 
-{% block title %}Academy Management{% endblock %}
+{% block title %}Academy Management | Control Panel{% endblock %}
 
 {% block content %}
 <div style="display: flex; flex-direction: column; gap: 20px;">
@@ -9,14 +9,15 @@
   <div class="cp-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
     <div>
       <h2 class="cp-card-title">Academy Management</h2>
-      <p style="color: var(--cp-text-muted); font-size: 12px; margin-top: 2px;">Manage registered academies, subscriptions, operational status, and credit wallets.</p>
+      <p style="color: var(--cp-text-muted); font-size: 12px; margin-top: 2px;">Manage registered academies, provisioning, operational status, and credit wallets.</p>
     </div>
+    <a href="{% url 'control_panel:academy_create' %}" class="cp-btn cp-btn-primary">+ Create Academy</a>
   </div>
 
   <!-- Search & Filter Bar -->
   <div class="cp-card" style="padding: 12px 16px;">
     <form method="GET" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
-      <input type="text" name="q" value="{{ search_q }}" class="cp-input" placeholder="Search academy by name or email..." style="max-width: 300px;">
+      <input type="text" name="q" value="{{ search_q }}" class="cp-input" placeholder="Search by name, email, slug, phone..." style="max-width: 300px;">
       
       <select name="status" class="cp-select" style="max-width: 160px;" onchange="this.form.submit()">
         <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Statuses</option>
@@ -41,6 +42,7 @@
           <tr>
             <th>Academy Name</th>
             <th>Email / Slug</th>
+            <th>Phone</th>
             <th>Status</th>
             <th>Demo</th>
             <th>Registered</th>
@@ -59,6 +61,7 @@
               <div>{{ ac.email }}</div>
               <div style="font-size: 10px; color: var(--cp-text-muted);">/{{ ac.slug }}</div>
             </td>
+            <td style="font-size: 12px; color: var(--cp-text-muted);">{{ ac.phone|default:"-" }}</td>
             <td>
               {% if ac.status == 'ACTIVE' %}
                 <span class="cp-badge cp-badge-success">ACTIVE</span>
@@ -77,19 +80,42 @@
             </td>
             <td style="font-size: 11px;">{{ ac.created_at|date:"M d, Y" }}</td>
             <td style="text-align: right;">
-              <a href="{% url 'control_panel:academy_detail' pk=ac.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; font-size: 11px;">Manage</a>
+              <div style="display: inline-flex; gap: 6px; align-items: center;">
+                <a href="{% url 'control_panel:academy_detail' pk=ac.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;" title="View Detail">View</a>
+                <a href="{% url 'control_panel:academy_edit' pk=ac.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;" title="Edit Academy">Edit</a>
+                <a href="{% url 'control_panel:academy_delete' pk=ac.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-danger);" title="Delete Academy">Delete</a>
+              </div>
             </td>
           </tr>
           {% empty %}
           <tr>
-            <td colspan="6" style="text-align: center; color: var(--cp-text-muted); padding: 24px;">
-              No academies match your filter criteria.
+            <td colspan="7" style="text-align: center; color: var(--cp-text-muted); padding: 32px;">
+              <div>No academies match your filter criteria.</div>
+              <a href="{% url 'control_panel:academy_create' %}" class="cp-btn cp-btn-primary" style="margin-top: 12px; display: inline-block;">+ Create Academy</a>
             </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+
+    <!-- Server-Side Pagination -->
+    {% if academies.has_other_pages %}
+    <div style="padding: 12px 16px; border-top: 1px solid var(--cp-border); display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--cp-text-muted);">
+      <div>
+        Showing page {{ academies.number }} of {{ academies.paginator.num_pages }} ({{ academies.paginator.count }} Total Academies)
+      </div>
+      <div style="display: flex; gap: 6px;">
+        {% if academies.has_previous %}
+          <a href="?page={{ academies.previous_page_number }}{% if search_q %}&q={{ search_q }}{% endif %}{% if status_filter != 'all' %}&status={{ status_filter }}{% endif %}" class="cp-btn cp-btn-secondary" style="height: 28px; font-size: 11px;">&laquo; Previous</a>
+        {% endif %}
+        {% if academies.has_next %}
+          <a href="?page={{ academies.next_page_number }}{% if search_q %}&q={{ search_q }}{% endif %}{% if status_filter != 'all' %}&status={{ status_filter }}{% endif %}" class="cp-btn cp-btn-secondary" style="height: 28px; font-size: 11px;">Next &raquo;</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
   </div>
 
 </div>

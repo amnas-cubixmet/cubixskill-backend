@@ -154,6 +154,7 @@ class Course(BaseModel, SlugMixin, ActiveMixin, PublishMixin):
     duration_minutes = models.PositiveIntegerField(default=0)
 
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    sale_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     currency = models.CharField(max_length=10, default='INR')
     is_free = models.BooleanField(default=False)
 
@@ -170,7 +171,7 @@ class Course(BaseModel, SlugMixin, ActiveMixin, PublishMixin):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"{self.title} ({self.academy.name})"
+        return f"{self.title} ({self.academy.name if self.academy else 'Global'})"
 
     def save(self, *args, **kwargs):
         if not self.slug and self.title:
@@ -184,6 +185,12 @@ class Course(BaseModel, SlugMixin, ActiveMixin, PublishMixin):
 
         if self.is_free:
             self.price = 0.00
+            self.sale_price = None
+        else:
+            if self.sale_price is not None and self.price is not None:
+                if self.sale_price >= self.price:
+                    from rest_framework.exceptions import ValidationError
+                    raise ValidationError({"sale_price": ["Sale price must be lower than the regular price."]})
 
         # Sync PublishMixin is_published with status
         if self.status == CourseStatus.PUBLISHED:

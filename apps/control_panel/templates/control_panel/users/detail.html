@@ -1,0 +1,108 @@
+{% extends "control_panel/base.html" %}
+{% block title %}User — {{ target_user.full_name|default:target_user.email }} | Control Panel{% endblock %}
+
+{% block content %}
+<div>
+
+  {% url 'control_panel:users_list' as users_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=users_list_url back_label="Back to Users" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">{{ target_user.full_name|default:target_user.email }}</h1>
+        <span class="cp-badge {% if target_user.is_active %}cp-badge-success{% else %}cp-badge-danger{% endif %}">
+          {% if target_user.is_active %}Active{% else %}Inactive{% endif %}
+        </span>
+      </div>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">
+        {{ target_user.email }} &bull; Role: {{ role_label }} &bull; Academy: {{ target_user.academy.name|default:"Global Platform" }}
+      </p>
+    </div>
+
+    <div style="display: flex; gap: 8px;">
+      <a href="{% url 'control_panel:user_edit' pk=target_user.pk %}" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="edit" size="14" %}
+        <span>Edit Account</span>
+      </a>
+      {% if target_user.role_code != 'SUPER_ADMIN' %}
+        <a href="{% url 'control_panel:user_delete' pk=target_user.pk %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">
+          {% include "control_panel/components/icon.html" with name="trash" size="14" %}
+          <span>Delete User</span>
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- User Profile Card -->
+  <div class="cp-card">
+    <div class="cp-card-header">
+      <h2 class="cp-card-title">User Account Overview</h2>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; font-size: 13px;">
+      <div>
+        <div style="font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase;">Full Name</div>
+        <div style="font-weight: 600; color: var(--cp-text-primary); margin-top: 2px;">{{ target_user.full_name }}</div>
+      </div>
+
+      <div>
+        <div style="font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase;">Email Address</div>
+        <div style="font-weight: 500; color: var(--cp-text-primary); margin-top: 2px;">{{ target_user.email }}</div>
+      </div>
+
+      <div>
+        <div style="font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase;">Phone Number</div>
+        <div style="font-weight: 500; color: var(--cp-text-primary); margin-top: 2px;">{{ target_user.phone|default:"—" }}</div>
+      </div>
+
+      <div>
+        <div style="font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase;">Platform Role</div>
+        <div style="margin-top: 2px;"><span class="cp-badge cp-badge-neutral">{{ role_label }}</span></div>
+      </div>
+
+      <div>
+        <div style="font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase;">Assigned Custom Role</div>
+        <div style="font-weight: 500; color: var(--cp-text-primary); margin-top: 2px;">{{ target_user.assigned_role.name|default:"Default System Policy" }}</div>
+      </div>
+
+      <div>
+        <div style="font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase;">Academy Association</div>
+        <div style="font-weight: 500; color: var(--cp-text-primary); margin-top: 2px;">{{ target_user.academy.name|default:"Global Platform" }}</div>
+      </div>
+
+      <div>
+        <div style="font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase;">Created Date</div>
+        <div style="font-weight: 500; color: var(--cp-text-primary); margin-top: 2px;">{{ target_user.created_at|date:"d M Y, H:i" }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audit Activity History -->
+  <div class="cp-card">
+    <div class="cp-card-header">
+      <h2 class="cp-card-title">Recent Audit Log Activity</h2>
+    </div>
+
+    {% if recent_logs %}
+      <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px;">
+        {% for log in recent_logs %}
+          <div style="padding: 10px 12px; background: var(--cp-input-bg); border: 1px solid var(--cp-border); border-radius: 8px; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <span style="font-weight: 600; color: var(--cp-text-primary);">{{ log.get_action_display }}</span>
+              <span style="color: var(--cp-text-muted); margin-left: 8px;">{{ log.description }}</span>
+            </div>
+            <span style="color: var(--cp-text-muted); font-size: 11px;">{{ log.occurred_at|date:"d M Y, H:i" }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div style="padding: 24px; text-align: center; color: var(--cp-text-muted); border: 1px dashed var(--cp-border); border-radius: 8px; font-size: 12px;">
+        No recent audit log history recorded for this user.
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

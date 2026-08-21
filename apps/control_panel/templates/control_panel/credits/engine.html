@@ -1,0 +1,28 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Credit Engine | Control Panel{% endblock %}
+{% block content %}
+<div class="cp-page-header" style="display: flex; justify-content: space-between; align-items: center;">
+  <div>
+    <h1 class="cp-page-title">Platform Credit Engine</h1>
+    <p class="cp-page-subtitle">Super Admin credit rate cards, purchasable packages, and credit coupon configurations.</p>
+  </div>
+</div>
+
+<div class="cp-grid-3" style="margin-bottom: 24px;">
+  <div class="cp-card">
+    <div style="font-size: 11px; color: var(--cp-text-muted);">Active Credit Rates</div>
+    <div style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary);">{{ rates.count }} Configured</div>
+    <a href="{% url 'control_panel:credit_rates' %}" class="cp-btn cp-btn-secondary" style="font-size: 11px; margin-top: 8px; display: inline-block;">Manage Rates &rarr;</a>
+  </div>
+  <div class="cp-card">
+    <div style="font-size: 11px; color: var(--cp-text-muted);">Active Packages</div>
+    <div style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary);">{{ packages.count }} Packages</div>
+    <a href="{% url 'control_panel:credit_packages' %}" class="cp-btn cp-btn-secondary" style="font-size: 11px; margin-top: 8px; display: inline-block;">Manage Packages &rarr;</a>
+  </div>
+  <div class="cp-card">
+    <div style="font-size: 11px; color: var(--cp-text-muted);">Credit Purchase Coupons</div>
+    <div style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary);">{{ coupons.count }} Coupons</div>
+    <a href="{% url 'control_panel:credit_coupons' %}" class="cp-btn cp-btn-secondary" style="font-size: 11px; margin-top: 8px; display: inline-block;">Manage Coupons &rarr;</a>
+  </div>
+</div>
+{% endblock %}

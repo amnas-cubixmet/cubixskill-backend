@@ -1,0 +1,357 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Create Academy | Control Panel{% endblock %}
+
+{% block content %}
+<style>
+  .cp-create-container {
+    max-width: 720px;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .cp-create-header-card {
+    background-color: var(--cp-card-bg);
+    border: 1px solid var(--cp-border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    box-shadow: var(--cp-shadow);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .cp-create-page-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--cp-text-primary);
+  }
+
+  .cp-create-page-subtitle {
+    font-size: 12px;
+    color: var(--cp-text-muted);
+    margin-top: 3px;
+  }
+
+  .cp-create-form-card {
+    background-color: var(--cp-card-bg);
+    border: 1px solid var(--cp-border);
+    border-radius: 12px;
+    padding: 28px;
+    box-shadow: var(--cp-shadow);
+  }
+
+  .cp-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 18px;
+  }
+
+  .cp-form-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--cp-text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .cp-required-star {
+    color: var(--cp-danger);
+    font-weight: 600;
+  }
+
+  .cp-form-input, .cp-form-select, .cp-form-textarea {
+    width: 100%;
+    min-height: 42px;
+    padding: 0 14px;
+    background-color: var(--cp-input-bg);
+    border: 1px solid var(--cp-input-border);
+    border-radius: 8px;
+    color: var(--cp-text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    box-sizing: border-box;
+  }
+
+  .cp-form-textarea {
+    min-height: 80px;
+    padding: 10px 14px;
+    resize: vertical;
+  }
+
+  .cp-form-input::placeholder, .cp-form-textarea::placeholder {
+    color: var(--cp-text-muted);
+  }
+
+  .cp-form-input:focus, .cp-form-select:focus, .cp-form-textarea:focus {
+    border-color: #3B82F6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  }
+
+  .cp-form-input.has-error, .cp-form-select.has-error {
+    border-color: #EF4444;
+  }
+
+  .cp-field-error {
+    color: var(--cp-danger);
+    font-size: 11px;
+    margin-top: 4px;
+    font-weight: 400;
+  }
+
+  .cp-form-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  @media (min-width: 640px) {
+    .cp-form-grid-2 {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  .cp-section-divider {
+    border-top: 1px solid var(--cp-border);
+    margin: 24px 0 20px 0;
+    padding-top: 20px;
+  }
+
+  .cp-section-heading {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--cp-text-primary);
+    margin-bottom: 4px;
+  }
+
+  .cp-section-desc {
+    font-size: 12px;
+    color: var(--cp-text-muted);
+    margin-bottom: 16px;
+  }
+
+  .cp-action-row {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--cp-border);
+  }
+
+  @media (min-width: 640px) {
+    .cp-action-row {
+      flex-direction: row;
+      justify-content: flex-end;
+    }
+  }
+
+  .cp-btn-create {
+    background-color: #2563EB;
+    color: #FFFFFF;
+    font-weight: 500;
+    height: 42px;
+    padding: 0 22px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.14);
+    transition: background-color 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+  }
+
+  @media (min-width: 640px) {
+    .cp-btn-create {
+      width: auto;
+    }
+  }
+
+  .cp-btn-create:hover {
+    background-color: #1D4ED8;
+  }
+
+  .cp-btn-cancel {
+    background-color: var(--cp-card-bg);
+    border: 1px solid var(--cp-input-border);
+    color: var(--cp-text-secondary);
+    font-weight: 500;
+    height: 42px;
+    padding: 0 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease, color 0.15s ease;
+    width: 100%;
+  }
+
+  @media (min-width: 640px) {
+    .cp-btn-cancel {
+      width: auto;
+    }
+  }
+
+  .cp-btn-cancel:hover {
+    background-color: var(--cp-border-subtle);
+    color: var(--cp-text-primary);
+  }
+
+  .cp-error-banner {
+    background: var(--cp-danger-bg);
+    border: 1px solid var(--cp-danger-border);
+    color: var(--cp-danger);
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 12px;
+  }
+</style>
+
+<div class="cp-create-container">
+
+  {% url 'control_panel:academies_list' as academies_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=academies_list_url back_label="Back to Academies" %}
+
+  <!-- Page Header Card -->
+  <div class="cp-create-header-card">
+    <div>
+      <h1 class="cp-create-page-title">Create Academy</h1>
+      <p class="cp-create-page-subtitle">Provision a new Academy tenant with initial admin ownership and default wallet controls.</p>
+    </div>
+  </div>
+
+  <!-- Form Card -->
+  <div class="cp-create-form-card">
+
+    {% if errors.general %}
+      <div class="cp-error-banner">
+        {{ errors.general }}
+      </div>
+    {% endif %}
+
+    <form method="POST" action="" novalidate>
+      {% csrf_token %}
+
+      <!-- Section: Basic Information -->
+      <div class="cp-section-heading">Basic Information</div>
+      <div class="cp-section-desc">Core identifiers and brand contact details for the academy.</div>
+
+      <div class="cp-form-group">
+        <label class="cp-form-label">
+          Academy Name <span class="cp-required-star">*</span>
+        </label>
+        <input type="text" name="name" value="{{ form_data.name|default:'' }}" class="cp-form-input {% if errors.name %}has-error{% endif %}" placeholder="e.g. Apex Technology Academy" required>
+        {% if errors.name %}
+          <div class="cp-field-error">{{ errors.name }}</div>
+        {% endif %}
+      </div>
+
+      <div class="cp-form-grid-2">
+        <div class="cp-form-group">
+          <label class="cp-form-label">
+            Academy Email <span class="cp-required-star">*</span>
+          </label>
+          <input type="email" name="email" value="{{ form_data.email|default:'' }}" class="cp-form-input {% if errors.email %}has-error{% endif %}" placeholder="info@apextech.com" required>
+          {% if errors.email %}
+            <div class="cp-field-error">{{ errors.email }}</div>
+          {% endif %}
+        </div>
+
+        <div class="cp-form-group">
+          <label class="cp-form-label">
+            Phone Number
+          </label>
+          <input type="text" name="phone" value="{{ form_data.phone|default:'' }}" class="cp-form-input" placeholder="+91 98765 43210">
+        </div>
+      </div>
+
+      <div class="cp-form-group">
+        <label class="cp-form-label">
+          URL Slug
+        </label>
+        <input type="text" name="slug" value="{{ form_data.slug|default:'' }}" class="cp-form-input {% if errors.slug %}has-error{% endif %}" placeholder="apex-technology (leave empty to autogenerate)">
+        {% if errors.slug %}
+          <div class="cp-field-error">{{ errors.slug }}</div>
+        {% endif %}
+      </div>
+
+      <!-- Section: Admin Ownership -->
+      <div class="cp-section-divider">
+        <div class="cp-section-heading">Academy Admin Ownership</div>
+        <div class="cp-section-desc">Primary owner account created automatically during academy setup.</div>
+
+        <div class="cp-form-grid-2">
+          <div class="cp-form-group">
+            <label class="cp-form-label">
+              Admin Full Name
+            </label>
+            <input type="text" name="admin_name" value="{{ form_data.admin_name|default:'' }}" class="cp-form-input" placeholder="Sarah Connor">
+          </div>
+
+          <div class="cp-form-group">
+            <label class="cp-form-label">
+              Admin Email Address <span class="cp-required-star">*</span>
+            </label>
+            <input type="email" name="admin_email" value="{{ form_data.admin_email|default:'' }}" class="cp-form-input {% if errors.admin_email %}has-error{% endif %}" placeholder="sarah@apextech.com" required>
+            {% if errors.admin_email %}
+              <div class="cp-field-error">{{ errors.admin_email }}</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Section: Operational Settings -->
+      <div class="cp-section-divider">
+        <div class="cp-section-heading">Operational Settings</div>
+        <div class="cp-section-desc">Initial status and account mode configuration.</div>
+
+        <div class="cp-form-grid-2">
+          <div class="cp-form-group">
+            <label class="cp-form-label">
+              Operational Status
+            </label>
+            <select name="status" class="cp-form-select">
+              <option value="ACTIVE" selected>ACTIVE</option>
+              <option value="SUSPENDED">SUSPENDED</option>
+              <option value="INACTIVE">INACTIVE</option>
+            </select>
+          </div>
+
+          <div class="cp-form-group">
+            <label class="cp-form-label">
+              Account Type / Mode
+            </label>
+            <select name="is_demo" class="cp-form-select">
+              <option value="false" selected>Standard Production Academy</option>
+              <option value="true">Demo / Trial Academy</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="cp-action-row">
+        <a href="{% url 'control_panel:academies_list' %}" class="cp-btn-cancel">Cancel</a>
+        <button type="submit" class="cp-btn-create">Create Academy</button>
+      </div>
+
+    </form>
+
+  </div>
+
+</div>
+{% endblock %}

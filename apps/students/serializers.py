@@ -49,16 +49,17 @@ class StudentNoteSerializer(serializers.ModelSerializer):
 
 class StudentProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
+    user_id = serializers.UUIDField(source='user.id', read_only=True)
     tags = StudentTagSerializer(many=True, read_only=True)
     profile_photo = MediaFileSerializer(read_only=True)
 
     class Meta:
         model = StudentProfile
         fields = [
-            'id', 'user', 'student_code', 'display_name', 'date_of_birth', 'bio',
+            'id', 'user_id', 'user', 'student_code', 'display_name', 'date_of_birth', 'bio',
             'profile_photo', 'status', 'joined_at', 'tags'
         ]
-        read_only_fields = ['id', 'student_code', 'joined_at']
+        read_only_fields = ['id', 'user_id', 'student_code', 'joined_at']
 
 class StudentCreateSerializer(serializers.Serializer):
     email = serializers.EmailField()

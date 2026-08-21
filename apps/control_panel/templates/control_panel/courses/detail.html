@@ -1,0 +1,146 @@
+{% extends "control_panel/base.html" %}
+{% block title %}{{ course.title }} | Control Panel{% endblock %}
+
+{% block content %}
+<div>
+
+  {% url 'control_panel:courses_list' as courses_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=courses_list_url back_label="Back to Courses" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">{{ course.title }}</h1>
+        <span class="cp-badge {% if course.status == 'PUBLISHED' %}cp-badge-success{% elif course.status == 'DRAFT' %}cp-badge-warning{% else %}cp-badge-neutral{% endif %}">
+          {{ course.get_status_display }}
+        </span>
+      </div>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">
+        Academy: {{ course.academy.name|default:"Global Platform" }} &bull; Category: {{ course.category.name|default:"General" }}
+      </p>
+    </div>
+
+    <div style="display: flex; gap: 8px;">
+      <a href="{% url 'control_panel:course_edit' pk=course.pk %}" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="edit" size="14" %}
+        <span>Edit Course</span>
+      </a>
+      <a href="{% url 'control_panel:course_delete' pk=course.pk %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">
+        {% include "control_panel/components/icon.html" with name="trash" size="14" %}
+        <span>Archive Course</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- Summary Metrics Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Enrolled Students</span>
+      <span class="cp-kpi-value" style="color: var(--cp-primary);">{{ enrollments_count }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Curriculum Modules</span>
+      <span class="cp-kpi-value">{{ modules_count }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Course Price</span>
+      <span class="cp-kpi-value" style="color: var(--cp-success);">
+        {% if course.is_free %}Free{% else %}₹{{ course.price }}{% endif %}
+      </span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Difficulty Level</span>
+      <span class="cp-kpi-value" style="font-size: 16px; margin-top: 4px;">{{ course.get_level_display }}</span>
+    </div>
+  </div>
+
+  <!-- Course Details & Description -->
+  <div class="cp-card">
+    <div class="cp-card-header">
+      <h2 class="cp-card-title">Course Description &amp; Overview</h2>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--cp-text-secondary);">
+      {% if course.subtitle %}
+        <div style="font-weight: 600; color: var(--cp-text-primary);">{{ course.subtitle }}</div>
+      {% endif %}
+
+      <div>{{ course.description|default:course.short_description|default:"No description provided for this course."|linebreaks }}</div>
+    </div>
+  </div>
+
+  <!-- Modules List Section -->
+  <div class="cp-card">
+    <div class="cp-card-header" style="display: flex; align-items: center; justify-content: space-between;">
+      <h2 class="cp-card-title">Curriculum Modules</h2>
+      <span class="cp-badge cp-badge-neutral">{{ modules_count }} Modules</span>
+    </div>
+
+    {% if modules %}
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        {% for m in modules %}
+          <div style="padding: 12px; background: var(--cp-input-bg); border: 1px solid var(--cp-border); border-radius: 8px; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <div style="font-weight: 600; color: var(--cp-text-primary); font-size: 13px;">Module {{ forloop.counter }}: {{ m.title }}</div>
+              <div style="font-size: 11px; color: var(--cp-text-muted); margin-top: 2px;">{{ m.description|default:"No description" }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div style="padding: 24px; text-align: center; color: var(--cp-text-muted); border: 1px dashed var(--cp-border); border-radius: 8px; font-size: 12px;">
+        No modules created for this course curriculum yet.
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Enrolled Students Table Section -->
+  <div class="cp-card">
+    <div class="cp-card-header" style="display: flex; align-items: center; justify-content: space-between;">
+      <h2 class="cp-card-title">Enrolled Students</h2>
+      <span class="cp-badge cp-badge-neutral">{{ enrollments_count }} Students</span>
+    </div>
+
+    {% if enrollments %}
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Student Name</th>
+              <th>Email</th>
+              <th>Enrolled Date</th>
+              <th>Access Type</th>
+              <th>Status</th>
+              <th style="text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in enrollments %}
+              <tr>
+                <td style="font-weight: 600; color: var(--cp-text-primary);">{{ e.student.full_name|default:e.student.email }}</td>
+                <td>{{ e.student.email }}</td>
+                <td>{{ e.enrolled_at|date:"d M Y" }}</td>
+                <td>{{ e.get_access_type_display|default:e.access_type }}</td>
+                <td>
+                  <span class="cp-badge {% if e.status == 'ACTIVE' %}cp-badge-success{% else %}cp-badge-neutral{% endif %}">
+                    {{ e.get_status_display|default:e.status }}
+                  </span>
+                </td>
+                <td style="text-align: right;">
+                  <a href="{% url 'control_panel:student_detail' pk=e.student.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">View Student</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div style="padding: 24px; text-align: center; color: var(--cp-text-muted); border: 1px dashed var(--cp-border); border-radius: 8px; font-size: 12px;">
+        No students currently enrolled in this course.
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

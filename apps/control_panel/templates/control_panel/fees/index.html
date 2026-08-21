@@ -1,0 +1,47 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Fees Collection | Control Panel{% endblock %}
+{% block content %}
+<div class="cp-page-header">
+  <h1 class="cp-page-title">Fees Collection Ledger</h1>
+  <p class="cp-page-subtitle">Cross-academy student fee accounts, installment tracking, and collections.</p>
+</div>
+
+<div class="cp-card" style="padding: 0;">
+  <div class="cp-table-container">
+    <table class="cp-table">
+      <thead>
+        <tr>
+          <th>Student</th>
+          <th>Academy</th>
+          <th>Course</th>
+          <th>Plan Type</th>
+          <th>Total Fee</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for acc in accounts %}
+        <tr>
+          <td style="font-weight: 500;">{{ acc.student.full_name|default:acc.student.email }}</td>
+          <td>{{ acc.academy.name }}</td>
+          <td>{{ acc.course.title }}</td>
+          <td>{{ acc.plan_type }}</td>
+          <td>₹{{ acc.total_fee_amount }}</td>
+          <td>
+            <span class="cp-badge {% if acc.status == 'PAID' %}cp-badge-active{% elif acc.status == 'OVERDUE' %}cp-badge-suspended{% else %}cp-badge-demo{% endif %}">
+              {{ acc.status }}
+            </span>
+          </td>
+          <td>
+            <a href="{% url 'control_panel:fee_detail' acc.id %}" class="cp-btn cp-btn-secondary" style="padding: 2px 8px; font-size: 11px;">View</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" style="text-align: center; color: var(--cp-text-muted);">No fee collection accounts found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

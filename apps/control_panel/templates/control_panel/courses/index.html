@@ -1,24 +1,178 @@
-{% extends 'control_panel/base.html' %}
-{% block title %}Courses List{% endblock %}
+{% extends "control_panel/base.html" %}
+{% block title %}Courses Management | Control Panel{% endblock %}
+
 {% block content %}
-<div class="cp-card">
-  <div class="cp-card-header"><h3 class="cp-card-title">Course Registry</h3></div>
-  <div class="cp-table-container">
-    <table class="cp-table">
-      <thead><tr><th>Course Title</th><th>Academy</th><th>Status</th><th>Created</th></tr></thead>
-      <tbody>
-        {% for c in courses %}
-        <tr>
-          <td><strong>{{ c.title }}</strong></td>
-          <td>{{ c.academy.name }}</td>
-          <td><span class="cp-badge cp-badge-success">{{ c.status }}</span></td>
-          <td>{{ c.created_at|date:"M d, Y" }}</td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="4" style="text-align: center; color: var(--cp-text-muted);">No courses found.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div>
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Courses</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Manage academy courses, publishing status and course content.</p>
+    </div>
+    <a href="{% url 'control_panel:course_create' %}" class="cp-btn cp-btn-primary">
+      {% include "control_panel/components/icon.html" with name="plus" size="14" %}
+      <span>Create Course</span>
+    </a>
   </div>
+
+  <!-- KPI Summary Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Total Courses</span>
+      <span class="cp-kpi-value">{{ total_courses }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Published Courses</span>
+      <span class="cp-kpi-value" style="color: var(--cp-success);">{{ published_courses }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Draft Courses</span>
+      <span class="cp-kpi-value" style="color: var(--cp-warning);">{{ draft_courses }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Total Enrollments</span>
+      <span class="cp-kpi-value" style="color: var(--cp-primary);">{{ total_enrollments }}</span>
+    </div>
+  </div>
+
+  <!-- Filter & Search Bar -->
+  <div class="cp-card" style="margin-bottom: 20px; padding: 14px;">
+    <form method="GET" action="" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <div style="position: relative; flex: 1; min-width: 220px;">
+        <input type="text" name="q" class="cp-input" placeholder="Search courses..." value="{{ q }}" style="padding-left: 32px;">
+        <span style="position: absolute; left: 10px; top: 10px; color: var(--cp-text-muted); display: inline-flex;">
+          {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        </span>
+      </div>
+
+      <div style="width: 180px;">
+        <select name="academy" class="cp-select" onchange="this.form.submit()">
+          <option value="">All Academies</option>
+          {% for a in academies %}
+            <option value="{{ a.id }}" {% if selected_academy == a.id|stringformat:"s" %}selected{% endif %}>{{ a.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="width: 160px;">
+        <select name="category" class="cp-select" onchange="this.form.submit()">
+          <option value="">All Categories</option>
+          {% for cat in categories %}
+            <option value="{{ cat.id }}" {% if selected_category == cat.id|stringformat:"s" %}selected{% endif %}>{{ cat.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="width: 140px;">
+        <select name="status" class="cp-select" onchange="this.form.submit()">
+          <option value="">All Statuses</option>
+          {% for code, label in statuses %}
+            <option value="{{ code }}" {% if selected_status == code %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button type="submit" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        <span>Filter</span>
+      </button>
+
+      {% if q or selected_academy or selected_category or selected_status %}
+        <a href="{% url 'control_panel:courses_list' %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">Clear Filters</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Courses Table / List -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    {% if courses_page %}
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Course Title</th>
+              <th>Academy</th>
+              <th>Category</th>
+              <th>Level</th>
+              <th>Price</th>
+              <th>Enrollments</th>
+              <th>Status</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in courses_page %}
+              <tr>
+                <td>
+                  <a href="{% url 'control_panel:course_detail' pk=c.pk %}" style="font-weight: 600; color: var(--cp-text-primary); text-decoration: none;">
+                    {{ c.title }}
+                  </a>
+                </td>
+                <td>{{ c.academy.name|default:"Global Platform" }}</td>
+                <td>{{ c.category.name|default:"General" }}</td>
+                <td>{{ c.get_level_display }}</td>
+                <td>
+                  {% if c.is_free %}
+                    <span style="color: var(--cp-success); font-weight: 600;">Free</span>
+                  {% else %}
+                    <span style="font-weight: 600;">₹{{ c.price }}</span>
+                  {% endif %}
+                </td>
+                <td>{{ c.enrollments_count }}</td>
+                <td>
+                  <span class="cp-badge {% if c.status == 'PUBLISHED' %}cp-badge-success{% elif c.status == 'DRAFT' %}cp-badge-warning{% else %}cp-badge-neutral{% endif %}">
+                    {{ c.get_status_display }}
+                  </span>
+                </td>
+                <td style="text-align: right;">
+                  <div style="display: inline-flex; gap: 6px; align-items: center;">
+                    <a href="{% url 'control_panel:course_detail' pk=c.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">View</a>
+                    <a href="{% url 'control_panel:course_edit' pk=c.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">Edit</a>
+                    {% if c.status == 'PUBLISHED' %}
+                      <form method="POST" action="{% url 'control_panel:course_disable' pk=c.pk %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-warning);" data-confirm-title="Change to Draft" data-confirm-message="Are you sure you want to change course '{{ c.title }}' to Draft mode?" data-confirm-btn="Unpublish">Unpublish</button>
+                      </form>
+                    {% else %}
+                      <form method="POST" action="{% url 'control_panel:course_enable' pk=c.pk %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-success);">Publish</button>
+                      </form>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      {% if courses_page.has_other_pages %}
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-top: 1px solid var(--cp-border);">
+          <div style="font-size: 12px; color: var(--cp-text-muted);">
+            Showing {{ courses_page.start_index }} to {{ courses_page.end_index }} of {{ total_courses }} courses
+          </div>
+          <div style="display: flex; gap: 6px;">
+            {% if courses_page.has_previous %}
+              <a href="?page={{ courses_page.previous_page_number }}&q={{ q }}&academy={{ selected_academy }}&category={{ selected_category }}&status={{ selected_status }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Previous</a>
+            {% endif %}
+            {% if courses_page.has_next %}
+              <a href="?page={{ courses_page.next_page_number }}&q={{ q }}&academy={{ selected_academy }}&category={{ selected_category }}&status={{ selected_status }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      <div style="padding: 48px; text-align: center; color: var(--cp-text-muted);">
+        <div style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 4px;">No courses found</div>
+        <p style="font-size: 12px; margin-bottom: 16px;">Try adjusting your search criteria or create your first course.</p>
+        <a href="{% url 'control_panel:course_create' %}" class="cp-btn cp-btn-primary">Create Course</a>
+      </div>
+    {% endif %}
+  </div>
+
 </div>
 {% endblock %}

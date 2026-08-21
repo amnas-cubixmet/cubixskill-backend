@@ -187,6 +187,7 @@ class LiveSessionReminder(BaseModel):
     reminder_type = models.CharField(max_length=50, default='EMAIL')
     minutes_before = models.PositiveIntegerField(default=60)
     scheduled_for = models.DateTimeField(db_index=True)
+    send_email = models.BooleanField(default=False)
     status = models.CharField(
         max_length=20,
         choices=ReminderStatus.choices,

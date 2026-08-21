@@ -65,6 +65,55 @@ class CourseViewSet(viewsets.ModelViewSet):
         CourseService.reorder_modules(course, module_order_map)
         return api_response(message="Modules reordered successfully.")
 
+    @action(detail=True, methods=['get', 'patch', 'put'])
+    def fees(self, request, pk=None):
+        course = self.get_object()
+
+        if request.method in ['PATCH', 'PUT']:
+            serializer = CourseWriteSerializer(course, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            course.refresh_from_db()
+
+        from payments.models import PaymentOrder, OrderStatus
+        from enrollments.models import Enrollment, EnrollmentStatus, AccessType
+        from decimal import Decimal
+
+        completed_orders = PaymentOrder.objects.filter(course=course, status=OrderStatus.COMPLETED)
+        pending_orders = PaymentOrder.objects.filter(course=course, status__in=[OrderStatus.PENDING, OrderStatus.PROCESSING, OrderStatus.CREATED])
+        refunded_orders = PaymentOrder.objects.filter(course=course, status__in=[OrderStatus.REFUNDED, OrderStatus.PARTIALLY_REFUNDED])
+
+        total_revenue = sum(o.final_amount for o in completed_orders) or Decimal('0.00')
+        pending_amount = sum(o.final_amount for o in pending_orders) or Decimal('0.00')
+        refunded_amount = sum(o.final_amount for o in refunded_orders) or Decimal('0.00')
+
+        paid_enrollments_count = Enrollment.objects.filter(
+            course=course,
+            status=EnrollmentStatus.ACTIVE,
+            access_type=AccessType.FULL
+        ).count()
+
+        fee_data = {
+            "course_id": str(course.id),
+            "course_title": course.title,
+            "is_free": course.is_free,
+            "price": str(course.price),
+            "sale_price": str(course.sale_price) if course.sale_price is not None else None,
+            "currency": course.currency or "INR",
+            "demo_enabled": course.demo_enabled,
+            "demo_duration_days": course.demo_duration_days,
+            "certificate_enabled": course.certificate_enabled,
+            "revenue_summary": {
+                "total_revenue": float(total_revenue),
+                "paid_enrollments": paid_enrollments_count,
+                "amount_collected": float(total_revenue),
+                "pending_payments": float(pending_amount),
+                "refunded_payments": float(refunded_amount)
+            }
+        }
+
+        return api_response(data=fee_data, message="Course fee configuration loaded successfully.")
+
 #--------------------------------------------------------------
 # Category ViewSet
 import re

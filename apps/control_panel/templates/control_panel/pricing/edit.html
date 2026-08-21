@@ -1,0 +1,96 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Edit Pricing Rule — {{ rule.name }} | Control Panel{% endblock %}
+
+{% block content %}
+<div style="max-width: 600px; margin: 0 auto;">
+
+  {% url 'control_panel:pricing_rules_list' as pricing_rules_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=pricing_rules_list_url back_label="Back to Pricing" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Edit Pricing Rule</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Update credit consumption rate for {{ rule.name }}.</p>
+    </div>
+    <a href="{% url 'control_panel:pricing_rules_list' %}" class="cp-btn cp-btn-secondary">
+      {% include "control_panel/components/icon.html" with name="x" size="14" %}
+      <span>Cancel</span>
+    </a>
+  </div>
+
+  <form method="POST" action="">
+    {% csrf_token %}
+
+    <div class="cp-card">
+      <div class="cp-card-header">
+        <h2 class="cp-card-title">Pricing Rule Details</h2>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Service / Feature Name *
+          </label>
+          <input type="text" name="name" class="cp-input" value="{{ rule.name }}" required>
+          {% if errors.name %}
+            <p style="font-size: 11px; color: var(--cp-danger); margin-top: 4px;">{{ errors.name }}</p>
+          {% endif %}
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Service Code (Read-only)
+          </label>
+          <input type="text" class="cp-input" value="{{ rule.code }}" readonly style="opacity: 0.7; cursor: not-allowed; background: var(--cp-input-disabled-bg, var(--cp-bg-tertiary));">
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Description
+          </label>
+          <textarea name="description" class="cp-input" style="height: 80px; padding: 8px 12px; resize: vertical;">{{ rule.description|default:'' }}</textarea>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+              Billing Unit *
+            </label>
+            <input type="text" name="billing_unit" class="cp-input" value="{{ rule.billing_unit }}" required>
+          </div>
+
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+              Credit Cost *
+            </label>
+            <input type="number" name="credit_cost" class="cp-input" value="{{ rule.credit_cost }}" required>
+            {% if errors.credit_cost %}
+              <p style="font-size: 11px; color: var(--cp-danger); margin-top: 4px;">{{ errors.credit_cost }}</p>
+            {% endif %}
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Status
+          </label>
+          <select name="is_active" class="cp-select" style="width: 180px;">
+            <option value="true" {% if rule.is_active %}selected{% endif %}>Active</option>
+            <option value="false" {% if not rule.is_active %}selected{% endif %}>Inactive</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Submit Buttons -->
+    <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+      <a href="{% url 'control_panel:pricing_rule_detail' pk=rule.pk %}" class="cp-btn cp-btn-secondary">Cancel</a>
+      <button type="submit" class="cp-btn cp-btn-primary" style="padding: 0 20px;">
+        {% include "control_panel/components/icon.html" with name="check" size="15" %}
+        <span>Save Changes</span>
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

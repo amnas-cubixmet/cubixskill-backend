@@ -1,25 +1,150 @@
-{% extends 'control_panel/base.html' %}
-{% block title %}Feature Registry{% endblock %}
+{% extends "control_panel/base.html" %}
+{% block title %}Feature Registry | Control Panel{% endblock %}
+
 {% block content %}
-<div class="cp-card">
-  <div class="cp-card-header"><h3 class="cp-card-title">Global Feature Registry</h3></div>
-  <div class="cp-table-container">
-    <table class="cp-table">
-      <thead><tr><th>Feature Name</th><th>Code</th><th>Billable</th><th>Status</th><th>Actions</th></tr></thead>
-      <tbody>
-        {% for f in features %}
-        <tr>
-          <td><strong>{{ f.name }}</strong></td>
-          <td><code>{{ f.code }}</code></td>
-          <td>{% if f.is_billable %}<span class="cp-badge cp-badge-success">YES</span>{% else %}<span class="cp-badge cp-badge-neutral">NO</span>{% endif %}</td>
-          <td>{% if f.enabled_globally %}<span class="cp-badge cp-badge-success">ENABLED</span>{% else %}<span class="cp-badge cp-badge-danger">DISABLED</span>{% endif %}</td>
-          <td><a href="{% url 'control_panel:feature_edit' pk=f.pk %}" class="cp-btn cp-btn-secondary" style="height: 26px; font-size: 11px;">Edit</a></td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="5" style="text-align: center; color: var(--cp-text-muted);">No features registered.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div>
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Feature Registry</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Manage platform capabilities available to subscription plans and academies.</p>
+    </div>
+    <a href="{% url 'control_panel:feature_create' %}" class="cp-btn cp-btn-primary">
+      {% include "control_panel/components/icon.html" with name="plus" size="14" %}
+      <span>Create Feature</span>
+    </a>
   </div>
+
+  <!-- KPI Summary Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Total Defined Features</span>
+      <span class="cp-kpi-value">{{ total_features }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Active Features</span>
+      <span class="cp-kpi-value" style="color: var(--cp-success);">{{ active_features }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Active Plans Covered</span>
+      <span class="cp-kpi-value" style="color: var(--cp-primary);">{{ total_plans_covered }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Total Academies Covered</span>
+      <span class="cp-kpi-value" style="color: var(--cp-success);">{{ total_academies_covered }}</span>
+    </div>
+  </div>
+
+  <!-- Filter & Search Bar -->
+  <div class="cp-card" style="margin-bottom: 20px; padding: 14px;">
+    <form method="GET" action="" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <div style="position: relative; flex: 1; min-width: 220px;">
+        <input type="text" name="q" class="cp-input" placeholder="Search features by name, code or description..." value="{{ q }}" style="padding-left: 32px;">
+        <span style="position: absolute; left: 10px; top: 10px; color: var(--cp-text-muted); display: inline-flex;">
+          {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        </span>
+      </div>
+
+      <div style="width: 150px;">
+        <select name="status" class="cp-select" onchange="this.form.submit()">
+          <option value="">All Statuses</option>
+          <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option>
+          <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>Inactive</option>
+        </select>
+      </div>
+
+      <button type="submit" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        <span>Filter</span>
+      </button>
+
+      {% if q or status_filter %}
+        <a href="{% url 'control_panel:features_list' %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">Clear Filters</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Features Table / List -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    {% if features_page %}
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Feature Name</th>
+              <th>Feature Code</th>
+              <th>Category</th>
+              <th>Billable</th>
+              <th>Status</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in features_page %}
+              <tr>
+                <td>
+                  <a href="{% url 'control_panel:feature_detail' pk=f.pk %}" style="font-weight: 600; color: var(--cp-text-primary); text-decoration: none;">
+                    {{ f.name }}
+                  </a>
+                  <div style="font-size: 11px; color: var(--cp-text-muted);">{{ f.description|truncatewords:8|default:"No description" }}</div>
+                </td>
+                <td><code style="font-size: 11px; color: var(--cp-primary);">{{ f.code }}</code></td>
+                <td><span class="cp-badge cp-badge-neutral">{{ f.category }}</span></td>
+                <td>{% if f.is_billable %}<span style="color: var(--cp-success); font-weight: 600;">Yes</span>{% else %}No{% endif %}</td>
+                <td>
+                  <span class="cp-badge {% if f.is_active %}cp-badge-success{% else %}cp-badge-neutral{% endif %}">
+                    {% if f.is_active %}Active{% else %}Inactive{% endif %}
+                  </span>
+                </td>
+                <td style="text-align: right;">
+                  <div style="display: inline-flex; gap: 6px; align-items: center;">
+                    <a href="{% url 'control_panel:feature_detail' pk=f.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">View</a>
+                    <a href="{% url 'control_panel:feature_edit' pk=f.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">Edit</a>
+                    {% if f.is_active %}
+                      <form method="POST" action="{% url 'control_panel:feature_disable' pk=f.pk %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-warning);" data-confirm-title="Disable Feature" data-confirm-message="Are you sure you want to disable feature '{{ f.name }}'?" data-confirm-btn="Disable Feature">Disable</button>
+                      </form>
+                    {% else %}
+                      <form method="POST" action="{% url 'control_panel:feature_enable' pk=f.pk %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-success);">Enable</button>
+                      </form>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      {% if features_page.has_other_pages %}
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-top: 1px solid var(--cp-border);">
+          <div style="font-size: 12px; color: var(--cp-text-muted);">
+            Showing {{ features_page.start_index }} to {{ features_page.end_index }} of {{ total_features }} features
+          </div>
+          <div style="display: flex; gap: 6px;">
+            {% if features_page.has_previous %}
+              <a href="?page={{ features_page.previous_page_number }}&q={{ q }}&status={{ status_filter }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Previous</a>
+            {% endif %}
+            {% if features_page.has_next %}
+              <a href="?page={{ features_page.next_page_number }}&q={{ q }}&status={{ status_filter }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      <div style="padding: 48px; text-align: center; color: var(--cp-text-muted);">
+        <div style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 4px;">No feature definitions found</div>
+        <p style="font-size: 12px; margin-bottom: 16px;">Define platform features to control plan capabilities and entitlement access.</p>
+        <a href="{% url 'control_panel:feature_create' %}" class="cp-btn cp-btn-primary">Create Feature</a>
+      </div>
+    {% endif %}
+  </div>
+
 </div>
 {% endblock %}

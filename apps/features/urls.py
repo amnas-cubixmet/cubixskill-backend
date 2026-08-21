@@ -14,12 +14,14 @@ router.register(r'features', FeatureViewSet, basename='feature')
 course_features_list = CourseFeatureViewSet.as_view({'get': 'list'})
 course_feature_enable = CourseFeatureViewSet.as_view({'post': 'enable_feature'})
 course_feature_disable = CourseFeatureViewSet.as_view({'post': 'disable_feature'})
+course_feature_save_bulk = CourseFeatureViewSet.as_view({'post': 'save_bulk'})
 
 urlpatterns = [
     path('', include(router.urls)),
     
     # Course Feature management APIs
     path('courses/<uuid:course_id>/features/', course_features_list, name='course-features-list'),
+    path('courses/<uuid:course_id>/features/save-bulk/', course_feature_save_bulk, name='course-features-save-bulk'),
     path('courses/<uuid:course_id>/features/<str:feature_code>/enable/', course_feature_enable, name='course-feature-enable'),
     path('courses/<uuid:course_id>/features/<str:feature_code>/disable/', course_feature_disable, name='course-feature-disable'),
     

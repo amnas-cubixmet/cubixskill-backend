@@ -1,26 +1,171 @@
-{% extends 'control_panel/base.html' %}
-{% block title %}Payments & Orders{% endblock %}
+{% extends "control_panel/base.html" %}
+{% block title %}Payments | Control Panel{% endblock %}
+
 {% block content %}
-<div class="cp-card">
-  <div class="cp-card-header"><h3 class="cp-card-title">Payment Orders</h3></div>
-  <div class="cp-table-container">
-    <table class="cp-table">
-      <thead><tr><th>Order Number</th><th>Academy</th><th>Payer</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
-      <tbody>
-        {% for o in orders %}
-        <tr>
-          <td><code>{{ o.order_number }}</code></td>
-          <td>{{ o.academy.name|default:"-" }}</td>
-          <td>{{ o.payer.email|default:"-" }}</td>
-          <td><strong>₹{{ o.final_amount }}</strong></td>
-          <td>{% if o.status == 'COMPLETED' %}<span class="cp-badge cp-badge-success">COMPLETED</span>{% else %}<span class="cp-badge cp-badge-neutral">{{ o.status }}</span>{% endif %}</td>
-          <td>{{ o.created_at|date:"M d, Y" }}</td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="6" style="text-align: center; color: var(--cp-text-muted);">No payment orders.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div>
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Payments</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Monitor academy payments and credit package purchases.</p>
+    </div>
   </div>
+
+  <!-- Real Metric Summary Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Total Payments</span>
+      <span class="cp-kpi-value">{{ total_payments }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Successful Payments</span>
+      <span class="cp-kpi-value" style="color: var(--cp-success);">{{ successful_payments }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Pending Payments</span>
+      <span class="cp-kpi-value" style="color: var(--cp-warning);">{{ pending_payments }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Failed / Cancelled</span>
+      <span class="cp-kpi-value" style="color: var(--cp-danger);">{{ failed_payments }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Total Revenue</span>
+      <span class="cp-kpi-value" style="color: var(--cp-primary); font-size: 20px;">₹{{ total_revenue|floatformat:2 }}</span>
+    </div>
+  </div>
+
+  <!-- Search & Filter Bar -->
+  <div class="cp-card" style="margin-bottom: 20px; padding: 14px;">
+    <form method="GET" action="" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <div style="position: relative; flex: 1; min-width: 220px;">
+        <input type="text" name="q" class="cp-input" placeholder="Search payments by reference, academy, or package..." value="{{ q }}" style="padding-left: 32px;">
+        <span style="position: absolute; left: 10px; top: 10px; color: var(--cp-text-muted); display: inline-flex;">
+          {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        </span>
+      </div>
+
+      <div style="width: 170px;">
+        <select name="status" class="cp-select" onchange="this.form.submit()">
+          <option value="">All Statuses</option>
+          <option value="COMPLETED" {% if status_filter == 'COMPLETED' %}selected{% endif %}>Completed / Paid</option>
+          <option value="PENDING" {% if status_filter == 'PENDING' %}selected{% endif %}>Pending</option>
+          <option value="PROCESSING" {% if status_filter == 'PROCESSING' %}selected{% endif %}>Processing</option>
+          <option value="FAILED" {% if status_filter == 'FAILED' %}selected{% endif %}>Failed</option>
+          <option value="REFUNDED" {% if status_filter == 'REFUNDED' %}selected{% endif %}>Refunded</option>
+        </select>
+      </div>
+
+      <div style="width: 170px;">
+        <select name="sort" class="cp-select" onchange="this.form.submit()">
+          <option value="newest" {% if sort_by == 'newest' %}selected{% endif %}>Newest First</option>
+          <option value="oldest" {% if sort_by == 'oldest' %}selected{% endif %}>Oldest First</option>
+          <option value="amount_desc" {% if sort_by == 'amount_desc' %}selected{% endif %}>Highest Amount</option>
+          <option value="amount_asc" {% if sort_by == 'amount_asc' %}selected{% endif %}>Lowest Amount</option>
+        </select>
+      </div>
+
+      <button type="submit" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        <span>Filter</span>
+      </button>
+
+      {% if q or status_filter or sort_by != 'newest' %}
+        <a href="{% url 'control_panel:payments_list' %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">Clear Filters</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Payments Table -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    {% if orders_page %}
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Payment Reference</th>
+              <th>Academy</th>
+              <th>Package / Product</th>
+              <th>Amount</th>
+              <th>Credits</th>
+              <th>Status</th>
+              <th>Provider</th>
+              <th>Date</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for o in orders_page %}
+              <tr>
+                <td>
+                  <a href="{% url 'control_panel:payment_detail' pk=o.pk %}" style="font-weight: 600; color: var(--cp-primary); text-decoration: none;">
+                    <code>{{ o.order_number }}</code>
+                  </a>
+                </td>
+                <td>
+                  {% if o.academy %}
+                    <a href="{% url 'control_panel:academy_detail' pk=o.academy.pk %}" style="font-weight: 500; color: var(--cp-text-primary); text-decoration: none;">
+                      {{ o.academy.name }}
+                    </a>
+                  {% else %}
+                    <span style="color: var(--cp-text-muted);">{{ o.academy_name_snapshot|default:"Platform Direct" }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <span style="font-weight: 500;">{{ o.plan.name|default:o.product_name_snapshot|default:"Credit Package" }}</span>
+                </td>
+                <td><strong style="color: var(--cp-text-primary); font-size: 14px;">₹{{ o.final_amount|floatformat:2 }}</strong></td>
+                <td>
+                  {% if o.plan %}
+                    <span style="color: var(--cp-success); font-weight: 600;">+{{ o.plan.credits|floatformat:0 }}</span>
+                  {% else %}
+                    <span style="color: var(--cp-text-muted);">-</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <span class="cp-badge {% if o.status == 'COMPLETED' or o.status == 'SUCCESSFUL' or o.status == 'PAID' %}cp-badge-success{% elif o.status == 'REFUNDED' %}cp-badge-warning{% elif o.status == 'FAILED' or o.status == 'CANCELLED' %}cp-badge-danger{% else %}cp-badge-neutral{% endif %}">
+                    {{ o.get_status_display }}
+                  </span>
+                </td>
+                <td><span style="font-size: 11px; color: var(--cp-text-secondary);">{{ o.get_gateway_display }}</span></td>
+                <td><span style="font-size: 11px; color: var(--cp-text-muted);">{{ o.created_at|date:"d M Y, H:i" }}</span></td>
+                <td style="text-align: right;">
+                  <a href="{% url 'control_panel:payment_detail' pk=o.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 10px; font-size: 11px;">
+                    {% include "control_panel/components/icon.html" with name="eye" size="13" %}
+                    <span>View</span>
+                  </a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      {% if orders_page.has_other_pages %}
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-top: 1px solid var(--cp-border);">
+          <div style="font-size: 12px; color: var(--cp-text-muted);">
+            Showing {{ orders_page.start_index }} to {{ orders_page.end_index }} of {{ orders_page.paginator.count }} payment transactions
+          </div>
+          <div style="display: flex; gap: 6px;">
+            {% if orders_page.has_previous %}
+              <a href="?page={{ orders_page.previous_page_number }}&q={{ q }}&status={{ status_filter }}&sort={{ sort_by }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Previous</a>
+            {% endif %}
+            {% if orders_page.has_next %}
+              <a href="?page={{ orders_page.next_page_number }}&q={{ q }}&status={{ status_filter }}&sort={{ sort_by }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      <div style="padding: 48px; text-align: center; color: var(--cp-text-muted);">
+        <div style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 4px;">No payment transactions found</div>
+        <p style="font-size: 12px;">Credit package purchases and money transactions will appear here.</p>
+      </div>
+    {% endif %}
+  </div>
+
 </div>
 {% endblock %}

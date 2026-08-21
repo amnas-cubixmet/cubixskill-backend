@@ -1,6 +1,8 @@
 from functools import wraps
 from django.shortcuts import redirect
-from django.contrib import messages
+from django.http import HttpResponseForbidden
+from django.contrib.auth.views import redirect_to_login
+from django.conf import settings
 from users_roles.models import SystemRoleCode
 
 def super_admin_required(view_func):
@@ -10,7 +12,7 @@ def super_admin_required(view_func):
     @wraps(view_func)
     def _wrapped_view(request, *args, **kwargs):
         if not request.user.is_authenticated:
-            return redirect(f'/control/login/?next={request.path}')
+            return redirect_to_login(request.get_full_path(), login_url=settings.LOGIN_URL)
         
         is_super_admin = (
             getattr(request.user, 'role_code', '') in [SystemRoleCode.SUPER_ADMIN, SystemRoleCode.SUPER_ADMIN_STAFF] or
@@ -18,8 +20,8 @@ def super_admin_required(view_func):
         )
         
         if not is_super_admin:
-            messages.error(request, "Access denied. Super Admin privileges required.")
-            return redirect('control_panel:login')
+            from django.shortcuts import render
+            return render(request, 'control_panel/403.html', status=403)
             
         return view_func(request, *args, **kwargs)
     return _wrapped_view

@@ -1,67 +1,246 @@
-{% extends 'control_panel/base.html' %}
-
-{% block title %}Centralized Pricing Engine{% endblock %}
+{% extends "control_panel/base.html" %}
+{% block title %}Pricing | Control Panel{% endblock %}
 
 {% block content %}
-<div style="display: flex; flex-direction: column; gap: 20px;">
+<div>
 
-  <div class="cp-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
     <div>
-      <h2 class="cp-card-title">Centralized Pricing Engine</h2>
-      <p style="color: var(--cp-text-muted); font-size: 12px; margin-top: 2px;">Configure base prices, billable units, and overage rates for all platform features.</p>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Pricing</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Configure credit usage rates for CubixSkill features and services.</p>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span class="cp-badge cp-badge-neutral">{{ total_rules }} Pricing Rules</span>
+      {% if can_create %}
+        <a href="{% url 'control_panel:pricing_rule_create' %}" class="cp-btn cp-btn-secondary">
+          {% include "control_panel/components/icon.html" with name="plus" size="14" %}
+          <span>Add Pricing Rule</span>
+        </a>
+      {% endif %}
     </div>
   </div>
 
-  <form method="POST">
-    {% csrf_token %}
-    <div class="cp-card" style="padding: 0; overflow: hidden;">
-      <div class="cp-table-container">
-        <table class="cp-table">
-          <thead>
-            <tr>
-              <th>Feature Name</th>
-              <th>Code</th>
-              <th>Billable</th>
-              <th>Unit</th>
-              <th>Base Price (₹)</th>
-              <th>Overage Price (₹)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for feat in features %}
-            <tr>
-              <td>
-                <strong style="color: var(--cp-text-primary);">{{ feat.name }}</strong>
-                <div style="font-size: 10px; color: var(--cp-text-muted);">{{ feat.description|truncatewords:6 }}</div>
-              </td>
-              <td><code>{{ feat.code }}</code></td>
-              <td>
-                {% if feat.is_billable %}
-                  <span class="cp-badge cp-badge-success">BILLABLE</span>
-                {% else %}
-                  <span class="cp-badge cp-badge-neutral">FREE / INCLUDED</span>
-                {% endif %}
-              </td>
-              <td><span class="cp-badge cp-badge-neutral">{{ feat.billing_unit }}</span></td>
-              <td>
-                <input type="number" step="0.01" name="base_price_{{ feat.id }}" value="{{ feat.base_price }}" class="cp-input" style="width: 110px; height: 32px;">
-              </td>
-              <td>
-                <input type="number" step="0.01" name="overage_price_{{ feat.id }}" value="{{ feat.overage_price }}" class="cp-input" style="width: 110px; height: 32px;">
-              </td>
-            </tr>
-            {% empty %}
-            <tr><td colspan="6" style="text-align: center; color: var(--cp-text-muted); padding: 24px;">No features defined in pricing engine.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+  <!-- Search & Filter Bar -->
+  <div class="cp-card" style="margin-bottom: 24px; padding: 14px;">
+    <form method="GET" action="" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <div style="position: relative; flex: 1; min-width: 220px;">
+        <input type="text" name="q" id="pricing-search-input" class="cp-input" placeholder="Search pricing features by name, code or unit..." value="{{ q }}" style="padding-left: 32px;">
+        <span style="position: absolute; left: 10px; top: 10px; color: var(--cp-text-muted); display: inline-flex;">
+          {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        </span>
       </div>
+
+      <div style="width: 150px;">
+        <select name="status" class="cp-select" onchange="this.form.submit()">
+          <option value="">All Statuses</option>
+          <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option>
+          <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>Inactive</option>
+        </select>
+      </div>
+
+      <button type="submit" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        <span>Filter</span>
+      </button>
+
+      {% if q or status_filter %}
+        <a href="{% url 'control_panel:pricing_rules_list' %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">Clear Filters</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Pricing Form Container -->
+  <form method="POST" id="pricing-form" action="">
+    {% csrf_token %}
+
+    <!-- 2-Column Responsive Card Grid -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px;" id="pricing-cards-container">
+      {% for rule in pricing_rules %}
+        <div class="cp-card pricing-feature-card" data-search-text="{{ rule.name|lower }} {{ rule.code|lower }} {{ rule.description|lower }} {{ rule.billing_unit|lower }}" style="margin-bottom: 0; padding: 20px; display: flex; flex-direction: column; justify-space: space-between; position: relative; border-radius: 12px;">
+
+          <div>
+            <!-- Card Header: Icon + Title + Code + Status Toggle -->
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
+              <div style="display: flex; align-items: flex-start; gap: 12px;">
+                <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(59, 130, 246, 0.1); color: var(--cp-primary); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                  {% include "control_panel/components/icon.html" with name=rule.icon size="20" %}
+                </div>
+                <div>
+                  <h3 style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">{{ rule.name }}</h3>
+                  <code style="font-size: 11px; color: var(--cp-text-muted);">{{ rule.code }}</code>
+                </div>
+              </div>
+
+              <!-- Active Status Toggle -->
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="hidden" name="rule_{{ rule.id }}_active" id="active-val-{{ rule.id }}" value="{% if rule.is_active %}true{% else %}false{% endif %}">
+                <button type="button" class="status-toggle-btn {% if rule.is_active %}active{% endif %}" data-rule-id="{{ rule.id }}" {% if not can_edit %}disabled{% endif %} style="width: 44px; height: 24px; border-radius: 12px; border: none; background: {% if rule.is_active %}var(--cp-success){% else %}var(--cp-border){% endif %}; position: relative; cursor: pointer; transition: background 0.2s;">
+                  <span style="width: 18px; height: 18px; border-radius: 50%; background: #fff; position: absolute; top: 3px; left: {% if rule.is_active %}23px{% else %}3px{% endif %}; transition: left 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Description -->
+            <p style="font-size: 12px; color: var(--cp-text-muted); line-height: 1.5; margin: 0 0 16px 0; min-height: 36px;">
+              {{ rule.description|default:"Configurable credit deduction rate for service usage." }}
+            </p>
+          </div>
+
+          <!-- Controls: Billing Unit + Credit Cost -->
+          <div style="background: var(--cp-input-bg); padding: 14px; border-radius: 8px; border: 1px solid var(--cp-border);">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px;">
+              <div>
+                <label style="display: block; font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px;">
+                  Billing Unit
+                </label>
+                <input type="text" name="rule_{{ rule.id }}_unit" class="cp-input pricing-input" data-rule-id="{{ rule.id }}" value="{{ rule.billing_unit }}" style="height: 32px; font-size: 12px; padding: 0 8px;" {% if not can_edit %}readonly{% endif %}>
+              </div>
+
+              <div>
+                <label style="display: block; font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px;">
+                  Credit Cost
+                </label>
+                <input type="number" min="0" name="rule_{{ rule.id }}_cost" class="cp-input pricing-input cost-input" data-rule-id="{{ rule.id }}" value="{{ rule.credit_cost }}" style="height: 32px; font-size: 12px; padding: 0 8px; font-weight: 600;" {% if not can_edit %}readonly{% endif %}>
+              </div>
+            </div>
+
+            <!-- Summary Text -->
+            <div style="font-size: 11px; color: var(--cp-text-secondary); display: flex; align-items: center; justify-content: space-between;">
+              <span>Calculated Rate:</span>
+              <strong id="summary-{{ rule.id }}" style="color: var(--cp-success); font-weight: 600;">
+                {{ rule.credit_cost }} {% if rule.credit_cost == 1 %}Credit{% else %}Credits{% endif %} / {{ rule.billing_unit }}
+              </strong>
+            </div>
+          </div>
+
+        </div>
+      {% empty %}
+        <div style="grid-column: 1 / -1; padding: 48px; text-align: center; color: var(--cp-text-muted);">
+          No pricing rules match your search or filter.
+        </div>
+      {% endfor %}
     </div>
 
-    <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
-      <button type="submit" class="cp-btn cp-btn-primary" style="height: 40px; padding: 0 20px; font-size: 13px;">Save Pricing Engine Rates</button>
-    </div>
+    <!-- Sticky Bottom Unsaved Changes Bar -->
+    {% if can_edit %}
+      <div id="sticky-save-bar" style="position: sticky; bottom: 20px; left: 0; right: 0; margin-top: 24px; z-index: 100; display: none;">
+        <div style="max-width: 700px; margin: 0 auto; background: var(--cp-card-bg); border: 1px solid var(--cp-primary); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); border-radius: 12px; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="width: 10px; height: 10px; border-radius: 50%; background: var(--cp-warning); display: inline-block;"></span>
+            <span id="unsaved-count-text" style="font-size: 13px; font-weight: 600; color: var(--cp-text-primary);">0 pricing rules changed</span>
+          </div>
+
+          <div style="display: flex; gap: 10px;">
+            <button type="button" id="discard-changes-btn" class="cp-btn cp-btn-secondary" style="height: 34px; font-size: 12px;">Discard</button>
+            <button type="submit" class="cp-btn cp-btn-primary" style="height: 34px; font-size: 12px; padding: 0 20px;">Save Changes</button>
+          </div>
+        </div>
+      </div>
+    {% endif %}
   </form>
 
 </div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const pricingInputs = document.querySelectorAll('.pricing-input');
+    const toggleBtns = document.querySelectorAll('.status-toggle-btn');
+    const stickyBar = document.getElementById('sticky-save-bar');
+    const unsavedText = document.getElementById('unsaved-count-text');
+    const discardBtn = document.getElementById('discard-changes-btn');
+    const searchInput = document.getElementById('pricing-search-input');
+    const featureCards = document.querySelectorAll('.pricing-feature-card');
+
+    let modifiedRules = new Set();
+
+    // Live Summary & Unsaved Tracker
+    pricingInputs.forEach(input => {
+      input.addEventListener('input', function() {
+        const ruleId = this.getAttribute('data-rule-id');
+        modifiedRules.add(ruleId);
+
+        const card = this.closest('.pricing-feature-card');
+        const unitVal = card.querySelector(`input[name="rule_${ruleId}_unit"]`).value.trim() || 'Action';
+        const costVal = card.querySelector(`input[name="rule_${ruleId}_cost"]`).value.trim() || '0';
+        const summaryElem = document.getElementById(`summary-${ruleId}`);
+
+        if (summaryElem) {
+          summaryElem.textContent = `${costVal} ${costVal == 1 ? 'Credit' : 'Credits'} / ${unitVal}`;
+        }
+
+        updateStickyBar();
+      });
+    });
+
+    // Toggle Buttons
+    toggleBtns.forEach(btn => {
+      btn.addEventListener('click', function() {
+        if (this.disabled) return;
+        const ruleId = this.getAttribute('data-rule-id');
+        const hiddenInput = document.getElementById(`active-val-${ruleId}`);
+        const circle = this.querySelector('span');
+
+        const isActive = hiddenInput.value === 'true';
+        hiddenInput.value = isActive ? 'false' : 'true';
+
+        if (isActive) {
+          this.classList.remove('active');
+          this.style.background = 'var(--cp-border)';
+          circle.style.left = '3px';
+        } else {
+          this.classList.add('active');
+          this.style.background = 'var(--cp-success)';
+          circle.style.left = '23px';
+        }
+
+        modifiedRules.add(ruleId);
+        updateStickyBar();
+      });
+    });
+
+    function updateStickyBar() {
+      if (!stickyBar) return;
+      if (modifiedRules.size > 0) {
+        stickyBar.style.display = 'block';
+        unsavedText.textContent = `${modifiedRules.size} pricing ${modifiedRules.size === 1 ? 'rule' : 'rules'} changed`;
+      } else {
+        stickyBar.style.display = 'none';
+      }
+    }
+
+    if (discardBtn) {
+      discardBtn.addEventListener('click', function() {
+        if (window.openConfirmModal) {
+          window.openConfirmModal({
+            title: 'Discard Unsaved Changes?',
+            message: 'Are you sure you want to discard your edited credit rates?',
+            confirmBtnText: 'Discard Changes',
+            onConfirm: function() {
+              window.location.reload();
+            }
+          });
+        } else {
+          window.location.reload();
+        }
+      });
+    }
+
+    // Client-side quick filter
+    if (searchInput) {
+      searchInput.addEventListener('input', function() {
+        const query = this.value.toLowerCase().trim();
+        featureCards.forEach(card => {
+          const text = card.getAttribute('data-search-text') || '';
+          if (text.includes(query)) {
+            card.style.display = 'flex';
+          } else {
+            card.style.display = 'none';
+          }
+        });
+      });
+    }
+  });
+</script>
 {% endblock %}

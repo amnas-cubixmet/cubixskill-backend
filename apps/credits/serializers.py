@@ -3,15 +3,15 @@ from credits.models import (
     CreditAccount,
     CreditLedgerEntry,
     CreditAdjustment,
+    CreditRate,
+    CreditPackage,
+    CreditPurchaseCoupon,
+    CreditPurchase,
+    StorageCreditCharge,
     LedgerEntryType,
     CreditSourceType,
     AdjustmentType,
 )
-
-# --------------------------------------------------------------
-# Credit Serializers
-# Serializes wallet balances, immutable ledger entries, and admin adjustments.
-# --------------------------------------------------------------
 
 class CreditAccountSerializer(serializers.ModelSerializer):
     academy_id = serializers.UUIDField(source='academy.id', read_only=True)
@@ -54,6 +54,94 @@ class CreditLedgerEntrySerializer(serializers.ModelSerializer):
             'occurred_at',
         ]
         read_only_fields = fields
+
+class CreditRateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CreditRate
+        fields = [
+            'id',
+            'feature_key',
+            'name',
+            'description',
+            'billing_type',
+            'unit_size',
+            'credit_cost',
+            'is_active',
+            'effective_from',
+            'created_at',
+        ]
+
+class CreditPackageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CreditPackage
+        fields = [
+            'id',
+            'name',
+            'description',
+            'credits',
+            'price',
+            'currency',
+            'bonus_credits',
+            'popular',
+            'is_active',
+            'sort_order',
+        ]
+
+class CreditPurchaseCouponSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CreditPurchaseCoupon
+        fields = [
+            'id',
+            'code',
+            'description',
+            'discount_type',
+            'discount_value',
+            'min_purchase_amount',
+            'max_discount_amount',
+            'usage_limit',
+            'current_usage_count',
+            'valid_from',
+            'valid_until',
+            'is_active',
+        ]
+
+class CreditPurchaseSerializer(serializers.ModelSerializer):
+    package_name = serializers.CharField(source='package.name', read_only=True, default='')
+    coupon_code = serializers.CharField(source='coupon.code', read_only=True, default='')
+
+    class Meta:
+        model = CreditPurchase
+        fields = [
+            'id',
+            'package',
+            'package_name',
+            'coupon',
+            'coupon_code',
+            'base_credits',
+            'bonus_credits',
+            'total_credits',
+            'original_price',
+            'discount_amount',
+            'final_price',
+            'currency',
+            'payment_order_id',
+            'payment_transaction_id',
+            'status',
+            'fulfilled_at',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+class CreatePurchaseRequestSerializer(serializers.Serializer):
+    package_id = serializers.UUIDField()
+    coupon_code = serializers.CharField(required=False, allow_blank=True, default='')
+
+class ApplyCouponRequestSerializer(serializers.Serializer):
+    coupon_code = serializers.CharField(required=False, allow_blank=True, default='')
+    package_id = serializers.UUIDField()
+
+class FulfillPurchaseRequestSerializer(serializers.Serializer):
+    payment_transaction_id = serializers.CharField(required=False, allow_blank=True, default='')
 
 class CreditAdjustmentSerializer(serializers.ModelSerializer):
     academy_id = serializers.UUIDField(source='account.academy.id', read_only=True)

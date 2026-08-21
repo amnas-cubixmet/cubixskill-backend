@@ -1,0 +1,237 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Credits | Control Panel{% endblock %}
+
+{% block content %}
+<div>
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Credits</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Manage academy credit balances, adjustments and transaction history.</p>
+    </div>
+  </div>
+
+  <!-- Summary KPI Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Total Academy Credits</span>
+      <span class="cp-kpi-value" style="color: var(--cp-primary);">{{ total_academy_credits }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Credits Added</span>
+      <span class="cp-kpi-value" style="color: var(--cp-success);">{{ credits_added }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Credits Used</span>
+      <span class="cp-kpi-value" style="color: var(--cp-warning);">{{ credits_used }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Active Academy Wallets</span>
+      <span class="cp-kpi-value">{{ active_wallets_count }}</span>
+    </div>
+  </div>
+
+  <!-- Search & Filter Bar -->
+  <div class="cp-card" style="margin-bottom: 20px; padding: 14px;">
+    <form method="GET" action="" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <div style="position: relative; flex: 1; min-width: 220px;">
+        <input type="text" name="q" class="cp-input" placeholder="Search academies by name, email or slug..." value="{{ q }}" style="padding-left: 32px;">
+        <span style="position: absolute; left: 10px; top: 10px; color: var(--cp-text-muted); display: inline-flex;">
+          {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        </span>
+      </div>
+
+      <div style="width: 170px;">
+        <select name="status" class="cp-select" onchange="this.form.submit()">
+          <option value="">All Academies</option>
+          <option value="positive" {% if status_filter == 'positive' %}selected{% endif %}>Positive Balance</option>
+          <option value="zero" {% if status_filter == 'zero' %}selected{% endif %}>Zero Balance</option>
+          <option value="low" {% if status_filter == 'low' %}selected{% endif %}>Low Balance (&le; 100)</option>
+        </select>
+      </div>
+
+      <button type="submit" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        <span>Filter</span>
+      </button>
+
+      {% if q or status_filter %}
+        <a href="{% url 'control_panel:credits_list' %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">Clear Filters</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Academy Wallets Table -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    {% if accounts_page %}
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Academy</th>
+              <th>Current Balance</th>
+              <th>Credits Added</th>
+              <th>Credits Used</th>
+              <th>Last Activity</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for acc in accounts_page %}
+              <tr>
+                <td>
+                  <a href="{% url 'control_panel:wallet_detail' pk=acc.pk %}" style="font-weight: 600; color: var(--cp-text-primary); text-decoration: none;">
+                    {{ acc.academy.name }}
+                  </a>
+                  <div style="font-size: 11px; color: var(--cp-text-muted);">{{ acc.academy.email }}</div>
+                </td>
+                <td>
+                  <span style="font-weight: 700; color: {% if acc.balance > 0 %}var(--cp-primary){% else %}var(--cp-text-muted){% endif %}; font-size: 14px;">
+                    {{ acc.balance|floatformat:0 }} Credits
+                  </span>
+                </td>
+                <td><span style="color: var(--cp-success); font-weight: 500;">+{{ acc.total_credited|floatformat:0 }}</span></td>
+                <td><span style="color: var(--cp-warning); font-weight: 500;">-{{ acc.total_debited|floatformat:0 }}</span></td>
+                <td><span style="font-size: 11px; color: var(--cp-text-muted);">{{ acc.last_transaction_at|date:"d M Y"|default:"No activity" }}</span></td>
+                <td style="text-align: right;">
+                  <div style="display: inline-flex; gap: 6px; align-items: center;">
+                    <a href="{% url 'control_panel:wallet_detail' pk=acc.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 10px; font-size: 11px;">
+                      {% include "control_panel/components/icon.html" with name="eye" size="13" %}
+                      <span>View</span>
+                    </a>
+                    {% if can_adjust %}
+                      <button type="button" class="cp-btn cp-btn-secondary open-adjust-modal-btn" data-account-id="{{ acc.pk }}" data-academy-name="{{ acc.academy.name }}" data-current-balance="{{ acc.balance|floatformat:0 }}" style="height: 28px; padding: 0 10px; font-size: 11px; color: var(--cp-primary);">
+                        {% include "control_panel/components/icon.html" with name="plus" size="13" %}
+                        <span>Adjust</span>
+                      </button>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      {% if accounts_page.has_other_pages %}
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-top: 1px solid var(--cp-border);">
+          <div style="font-size: 12px; color: var(--cp-text-muted);">
+            Showing {{ accounts_page.start_index }} to {{ accounts_page.end_index }} of {{ accounts_page.paginator.count }} wallets
+          </div>
+          <div style="display: flex; gap: 6px;">
+            {% if accounts_page.has_previous %}
+              <a href="?page={{ accounts_page.previous_page_number }}&q={{ q }}&status={{ status_filter }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Previous</a>
+            {% endif %}
+            {% if accounts_page.has_next %}
+              <a href="?page={{ accounts_page.next_page_number }}&q={{ q }}&status={{ status_filter }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      <div style="padding: 48px; text-align: center; color: var(--cp-text-muted);">
+        <div style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 4px;">No credit wallets found</div>
+        <p style="font-size: 12px;">Academy credit wallets will automatically appear as academies operate.</p>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Manual Adjust Credits Popup Modal -->
+<div id="adjust-credits-modal" style="position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 16px;">
+  <div class="cp-card" style="max-width: 480px; width: 100%; margin: 0; padding: 24px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
+
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+      <h3 style="font-size: 17px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Adjust Credits</h3>
+      <button type="button" id="close-adjust-modal-btn" style="background: none; border: none; color: var(--cp-text-muted); cursor: pointer; padding: 4px; display: inline-flex;">
+        {% include "control_panel/components/icon.html" with name="x" size="18" %}
+      </button>
+    </div>
+
+    <form method="POST" id="adjust-credits-form" action="{% url 'control_panel:wallet_adjust_global' %}">
+      {% csrf_token %}
+      <input type="hidden" name="account_id" id="modal-account-id">
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px;">
+            Target Academy
+          </label>
+          <div id="modal-academy-name" style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary);">
+            -
+          </div>
+          <span style="font-size: 11px; color: var(--cp-text-muted);">Current Balance: <strong id="modal-current-balance" style="color: var(--cp-primary);">0</strong> Credits</span>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Adjustment Type *
+          </label>
+          <select name="action" class="cp-select" style="width: 100%;">
+            <option value="ADD" selected>Add Credits (+)</option>
+            <option value="DEDUCT">Deduct Credits (-)</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Credits Amount *
+          </label>
+          <input type="number" min="1" name="amount" class="cp-input" placeholder="e.g. 500" required>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            Reason * (Mandatory)
+          </label>
+          <textarea name="reason" class="cp-input" style="height: 70px; padding: 8px 12px; resize: vertical;" placeholder="e.g. Promotional credit grant / Manual correction..." required></textarea>
+        </div>
+
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+        <button type="button" id="cancel-adjust-modal-btn" class="cp-btn cp-btn-secondary" style="height: 38px; font-size: 12px;">Cancel</button>
+        <button type="submit" class="cp-btn cp-btn-primary" style="height: 38px; font-size: 12px; padding: 0 18px;">Confirm Adjustment</button>
+      </div>
+    </form>
+
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const modal = document.getElementById('adjust-credits-modal');
+    const openBtns = document.querySelectorAll('.open-adjust-modal-btn');
+    const closeBtn = document.getElementById('close-adjust-modal-btn');
+    const cancelBtn = document.getElementById('cancel-adjust-modal-btn');
+    const accountIdInput = document.getElementById('modal-account-id');
+    const nameElem = document.getElementById('modal-academy-name');
+    const balanceElem = document.getElementById('modal-current-balance');
+
+    openBtns.forEach(btn => {
+      btn.addEventListener('click', function() {
+        const id = this.getAttribute('data-account-id');
+        const name = this.getAttribute('data-academy-name');
+        const balance = this.getAttribute('data-current-balance');
+
+        accountIdInput.value = id;
+        nameElem.textContent = name;
+        balanceElem.textContent = balance;
+        modal.style.display = 'flex';
+      });
+    });
+
+    function closeModal() {
+      modal.style.display = 'none';
+    }
+
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+  });
+</script>
+{% endblock %}

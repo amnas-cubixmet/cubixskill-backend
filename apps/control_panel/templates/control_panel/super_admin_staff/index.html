@@ -1,0 +1,130 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Super Admin Staff | Control Panel{% endblock %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 20px;">
+
+  <!-- Header -->
+  <div class="cp-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h2 class="cp-card-title">Super Admin Staff</h2>
+      <p style="color: var(--cp-text-muted); font-size: 12px; margin-top: 2px;">Manage platform staff accounts and assign fine-grained Control Panel permissions.</p>
+    </div>
+    <a href="{% url 'control_panel:super_admin_staff_create' %}" class="cp-btn cp-btn-primary">+ Add Staff</a>
+  </div>
+
+  <!-- Search & Filter Bar -->
+  <div class="cp-card" style="padding: 12px 16px;">
+    <form method="GET" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <input type="text" name="q" value="{{ q }}" class="cp-input" placeholder="Search staff by name, email, phone..." style="max-width: 320px;">
+      
+      <select name="status" class="cp-select" style="max-width: 160px;" onchange="this.form.submit()">
+        <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Statuses</option>
+        <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option>
+        <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>Inactive</option>
+      </select>
+
+      <button type="submit" class="cp-btn cp-btn-primary">Filter</button>
+      {% if q or status_filter != 'all' %}
+        <a href="{% url 'control_panel:super_admin_staff_list' %}" class="cp-btn cp-btn-secondary">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Staff Table -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    <div class="cp-table-container">
+      <table class="cp-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Permissions</th>
+            <th>Last Login</th>
+            <th>Created</th>
+            <th style="text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in staff_data %}
+          <tr>
+            <td>
+              <strong style="color: var(--cp-text-primary); font-weight: 600;">
+                <a href="{% url 'control_panel:super_admin_staff_detail' pk=item.user.pk %}" style="color: var(--cp-primary); text-decoration: none;">{{ item.user.full_name|default:item.user.email }}</a>
+              </strong>
+            </td>
+            <td>{{ item.user.email }}</td>
+            <td style="font-size: 12px; font-weight: 500;">
+              {% if item.user.assigned_role %}
+                <a href="{% url 'control_panel:role_detail' pk=item.user.assigned_role.pk %}" style="color: var(--cp-primary); text-decoration: none;">{{ item.user.assigned_role.name }}</a>
+              {% else %}
+                <span style="color: var(--cp-text-muted);">None</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if item.user.is_active %}
+                <span class="cp-badge cp-badge-success">ACTIVE</span>
+              {% else %}
+                <span class="cp-badge cp-badge-danger">INACTIVE</span>
+              {% endif %}
+            </td>
+            <td style="font-weight: 500;">
+              <span style="color: var(--cp-primary);">{{ item.perm_count }} Effective</span>
+            </td>
+            <td style="font-size: 11px; color: var(--cp-text-muted);">
+              {{ item.user.last_login|date:"d M Y, H:i"|default:"Never" }}
+            </td>
+            <td style="font-size: 11px; color: var(--cp-text-muted);">
+              {{ item.user.created_at|date:"d M Y" }}
+            </td>
+            <td style="text-align: right;">
+              <div style="display: inline-flex; gap: 6px; align-items: center;">
+                <a href="{% url 'control_panel:super_admin_staff_detail' pk=item.user.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">View</a>
+                <a href="{% url 'control_panel:super_admin_staff_edit' pk=item.user.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">Edit</a>
+                {% if item.user.is_active %}
+                  <form method="POST" action="{% url 'control_panel:super_admin_staff_disable' pk=item.user.pk %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-danger);" data-confirm-title="Disable Staff Account" data-confirm-message="Are you sure you want to disable staff account '{{ item.user.email }}'?" data-confirm-btn="Disable Staff">Disable</button>
+                  </form>
+                {% else %}
+                  <form method="POST" action="{% url 'control_panel:super_admin_staff_enable' pk=item.user.pk %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-success);">Enable</button>
+                  </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8" style="text-align: center; color: var(--cp-text-muted); padding: 32px;">
+              No Super Admin Staff accounts found.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if staff_page.has_other_pages %}
+    <div style="padding: 12px 16px; border-top: 1px solid var(--cp-border); display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--cp-text-muted);">
+      <div>
+        Showing page {{ staff_page.number }} of {{ staff_page.paginator.num_pages }} ({{ staff_page.paginator.count }} Total Staff)
+      </div>
+      <div style="display: flex; gap: 6px;">
+        {% if staff_page.has_previous %}
+          <a href="?page={{ staff_page.previous_page_number }}{% if q %}&q={{ q }}{% endif %}{% if status_filter != 'all' %}&status={{ status_filter }}{% endif %}" class="cp-btn cp-btn-secondary" style="height: 28px; font-size: 11px;">&laquo; Previous</a>
+        {% endif %}
+        {% if staff_page.has_next %}
+          <a href="?page={{ staff_page.next_page_number }}{% if q %}&q={{ q }}{% endif %}{% if status_filter != 'all' %}&status={{ status_filter }}{% endif %}" class="cp-btn cp-btn-secondary" style="height: 28px; font-size: 11px;">Next &raquo;</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+</div>
+{% endblock %}

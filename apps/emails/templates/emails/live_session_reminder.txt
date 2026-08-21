@@ -1,0 +1,24 @@
+Hi {{ student_name }},
+
+This is a reminder that your live session starts in approximately 1 hour.
+
+Session:
+{{ session_title }}
+
+Course:
+{{ course_title }}
+
+Starts at:
+{{ session_time }} {% if timezone %}({{ timezone }}){% endif %}
+
+Duration:
+{{ duration }}
+
+Join Live Session:
+{{ live_session_url }}
+
+Please join a few minutes early if possible.
+
+Regards,
+{{ academy_name }}
+{% if academy_support_email %}{{ academy_support_email }}{% endif %}

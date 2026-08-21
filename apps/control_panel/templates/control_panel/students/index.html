@@ -1,24 +1,161 @@
-{% extends 'control_panel/base.html' %}
-{% block title %}Students Management{% endblock %}
+{% extends "control_panel/base.html" %}
+{% block title %}Students | Control Panel{% endblock %}
+
 {% block content %}
-<div class="cp-card">
-  <div class="cp-card-header"><h3 class="cp-card-title">Student Directory</h3></div>
-  <div class="cp-table-container">
-    <table class="cp-table">
-      <thead><tr><th>Student</th><th>Email</th><th>Academy</th><th>Joined</th></tr></thead>
-      <tbody>
-        {% for st in students %}
-        <tr>
-          <td><strong>{{ st.user.full_name }}</strong></td>
-          <td>{{ st.user.email }}</td>
-          <td>{{ st.academy.name }}</td>
-          <td>{{ st.created_at|date:"M d, Y" }}</td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="4" style="text-align: center; color: var(--cp-text-muted);">No students registered.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div style="display: flex; flex-direction: column; gap: 20px;">
+
+  <!-- Header -->
+  <div class="cp-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h2 class="cp-card-title" style="font-size: 18px;">Students</h2>
+      <p style="color: var(--cp-text-muted); font-size: 12px; margin-top: 2px;">Manage students, academy memberships and enrollment information.</p>
+    </div>
+    <a href="{% url 'control_panel:student_create' %}" class="cp-btn cp-btn-primary">+ Add Student</a>
   </div>
+
+  <!-- Summary KPI Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Total Students</div>
+      <div class="cp-kpi-value">{{ total_students }}</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">Registered Accounts</div>
+    </div>
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Active Students</div>
+      <div class="cp-kpi-value" style="color: var(--cp-success);">{{ active_students }}</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">Enabled Accounts</div>
+    </div>
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Inactive Students</div>
+      <div class="cp-kpi-value" style="color: var(--cp-danger);">{{ inactive_students }}</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">Disabled Accounts</div>
+    </div>
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Enrolled Students</div>
+      <div class="cp-kpi-value" style="color: var(--cp-primary);">{{ enrolled_students }}</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">With Active Courses</div>
+    </div>
+  </div>
+
+  <!-- Search & Filters -->
+  <div class="cp-card" style="padding: 12px 16px;">
+    <form method="GET" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <input type="text" name="q" value="{{ q }}" class="cp-input" placeholder="Search students by name, email, phone..." style="max-width: 300px;">
+      
+      <select name="academy" class="cp-select" style="max-width: 200px;" onchange="this.form.submit()">
+        <option value="">All Academies</option>
+        {% for a in academies %}
+          <option value="{{ a.id }}" {% if selected_academy == a.id|stringformat:"s" %}selected{% endif %}>{{ a.name }}</option>
+        {% endfor %}
+      </select>
+
+      <select name="status" class="cp-select" style="max-width: 140px;" onchange="this.form.submit()">
+        <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Statuses</option>
+        <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option>
+        <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>Inactive</option>
+      </select>
+
+      <button type="submit" class="cp-btn cp-btn-primary">Filter</button>
+      {% if q or selected_academy or status_filter != 'all' %}
+        <a href="{% url 'control_panel:students_list' %}" class="cp-btn cp-btn-secondary">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Table View for Desktop & Cards for Mobile -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    <div class="cp-table-container">
+      <table class="cp-table">
+        <thead>
+          <tr>
+            <th>Student</th>
+            <th>Academy</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Courses</th>
+            <th>Status</th>
+            <th>Joined</th>
+            <th style="text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in students_data %}
+          <tr>
+            <td>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--cp-primary-light); color: var(--cp-primary); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 11px;">
+                  {{ item.user.full_name|default:item.user.email|slice:":2"|upper }}
+                </div>
+                <div>
+                  <strong style="color: var(--cp-text-primary); font-weight: 600;">
+                    <a href="{% url 'control_panel:student_detail' pk=item.user.pk %}" style="color: var(--cp-primary); text-decoration: none;">{{ item.user.full_name|default:item.user.email }}</a>
+                  </strong>
+                </div>
+              </div>
+            </td>
+            <td style="font-size: 12px;">{{ item.user.academy.name|default:"Global Platform" }}</td>
+            <td style="font-size: 12px;">{{ item.user.email }}</td>
+            <td style="font-size: 11px; color: var(--cp-text-muted);">{{ item.user.phone|default:"-" }}</td>
+            <td style="font-weight: 500;">{{ item.courses_count }} Courses</td>
+            <td>
+              {% if item.user.is_active %}
+                <span class="cp-badge cp-badge-success">ACTIVE</span>
+              {% else %}
+                <span class="cp-badge cp-badge-danger">INACTIVE</span>
+              {% endif %}
+            </td>
+            <td style="font-size: 11px; color: var(--cp-text-muted);">{{ item.user.created_at|date:"d M Y" }}</td>
+            <td style="text-align: right;">
+              <div style="display: inline-flex; gap: 6px; align-items: center;">
+                <a href="{% url 'control_panel:student_detail' pk=item.user.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">View</a>
+                <a href="{% url 'control_panel:student_edit' pk=item.user.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">Edit</a>
+                {% if item.user.is_active %}
+                  <form method="POST" action="{% url 'control_panel:student_disable' pk=item.user.pk %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-danger);" data-confirm-title="Disable Student Account" data-confirm-message="Are you sure you want to disable student account '{{ item.user.email }}'?" data-confirm-btn="Disable Student">Disable</button>
+                  </form>
+                {% else %}
+                  <form method="POST" action="{% url 'control_panel:student_enable' pk=item.user.pk %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-success);">Enable</button>
+                  </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8" style="text-align: center; color: var(--cp-text-muted); padding: 36px;">
+              <div>No students found matching your criteria.</div>
+              {% if q or selected_academy or status_filter != 'all' %}
+                <a href="{% url 'control_panel:students_list' %}" class="cp-btn cp-btn-secondary" style="margin-top: 10px;">Clear Filters</a>
+              {% else %}
+                <a href="{% url 'control_panel:student_create' %}" class="cp-btn cp-btn-primary" style="margin-top: 10px;">+ Add Student</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if students_page.has_other_pages %}
+    <div style="padding: 12px 16px; border-top: 1px solid var(--cp-border); display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--cp-text-muted);">
+      <div>
+        Showing page {{ students_page.number }} of {{ students_page.paginator.num_pages }} ({{ students_page.paginator.count }} Total Students)
+      </div>
+      <div style="display: flex; gap: 6px;">
+        {% if students_page.has_previous %}
+          <a href="?page={{ students_page.previous_page_number }}{% if q %}&q={{ q }}{% endif %}{% if selected_academy %}&academy={{ selected_academy }}{% endif %}{% if status_filter != 'all' %}&status={{ status_filter }}{% endif %}" class="cp-btn cp-btn-secondary" style="height: 28px; font-size: 11px;">&laquo; Previous</a>
+        {% endif %}
+        {% if students_page.has_next %}
+          <a href="?page={{ students_page.next_page_number }}{% if q %}&q={{ q }}{% endif %}{% if selected_academy %}&academy={{ selected_academy }}{% endif %}{% if status_filter != 'all' %}&status={{ status_filter }}{% endif %}" class="cp-btn cp-btn-secondary" style="height: 28px; font-size: 11px;">Next &raquo;</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
 </div>
 {% endblock %}

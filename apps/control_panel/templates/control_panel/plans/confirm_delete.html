@@ -1,0 +1,44 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Confirm Delete Plan | Control Panel{% endblock %}
+
+{% block content %}
+<div style="max-width: 550px; margin: 40px auto 0 auto;">
+
+  {% url 'control_panel:plans_list' as plans_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=plans_list_url back_label="Back to Plans" %}
+
+  <div class="cp-card" style="border: 1px solid var(--cp-danger); border-radius: 16px; padding: 28px;">
+    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+      <div style="width: 42px; height: 42px; border-radius: 50%; background: rgba(239, 68, 68, 0.1); color: var(--cp-danger); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; flex-shrink: 0;">
+        {% include "control_panel/components/icon.html" with name="warning" size="20" %}
+      </div>
+      <div>
+        <h2 style="font-size: 18px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Delete Subscription Plan</h2>
+        <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Are you sure you want to delete plan "{{ plan.name }}"?</p>
+      </div>
+    </div>
+
+    {% if academies_count > 0 %}
+      <div style="padding: 16px; background-color: var(--cp-danger-bg); border-radius: 12px; border: 1px solid var(--cp-danger-border); margin-bottom: 20px; color: var(--cp-danger); font-size: 13px;">
+        <strong>Subscription Protection:</strong> This plan is currently assigned to <strong>{{ academies_count }} academies</strong>. Plans assigned to academies cannot be deleted. Consider disabling the plan instead.
+      </div>
+      <a href="{% url 'control_panel:plans_list' %}" class="cp-btn cp-btn-secondary" style="height: 38px;">Back to Plans List</a>
+    {% else %}
+      <div style="padding: 16px; background-color: var(--cp-input-bg); border-radius: 12px; border: 1px solid var(--cp-border); margin-bottom: 20px; font-size: 13px; color: var(--cp-text-primary);">
+        <div><strong>Plan Name:</strong> {{ plan.name }}</div>
+        <div><strong>Plan Code:</strong> {{ plan.code }}</div>
+        <div><strong>Monthly Rate:</strong> ₹{{ plan.price_monthly }}</div>
+        <div><strong>Yearly Rate:</strong> ₹{{ plan.price_yearly }}</div>
+      </div>
+
+      <form method="POST" action="" style="display: flex; gap: 12px; justify-content: flex-end;">
+        {% csrf_token %}
+        <a href="{% url 'control_panel:plans_list' %}" class="cp-btn cp-btn-secondary" style="height: 42px; padding: 0 16px; font-size: 12px; display: inline-flex; align-items: center;">Cancel</a>
+        <button type="submit" class="cp-btn" style="height: 42px; padding: 0 20px; font-size: 12px; background: var(--cp-danger); color: white; border: none; font-weight: 600;">Confirm Delete</button>
+      </form>
+    {% endif %}
+
+  </div>
+
+</div>
+{% endblock %}

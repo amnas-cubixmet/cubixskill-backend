@@ -385,3 +385,19 @@ class PaymentWebhookEvent(BaseModel):
 
     def __str__(self):
         return f"Webhook [{self.gateway}] {self.event_type} ({self.event_id})"
+
+# --------------------------------------------------------------
+# 8. Student Fee Collection Domain Models (re-exported from fees app)
+# --------------------------------------------------------------
+from fees.models import (
+    StudentFeePlanType,
+    StudentFeeAccountStatus,
+    InstallmentStatus,
+    StudentFeeAccount,
+    FeeInstallment,
+    FeePayment,
+    FeePaymentAllocation,
+    FeeAdjustment,
+    CourseDefaultFeePlan,
+)
+

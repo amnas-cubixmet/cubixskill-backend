@@ -1,0 +1,288 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Edit Staff Profile | Control Panel{% endblock %}
+
+{% block content %}
+<style>
+  .staff-edit-wrapper {
+    max-width: 700px;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .staff-card {
+    background: var(--cp-card-bg, #FFFFFF);
+    border: 1px solid var(--cp-border, #E2E8F0);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  [data-theme="dark"] .staff-card {
+    background: #111827 !important;
+    border: 1px solid #263244 !important;
+    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.05) !important;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  @media (min-width: 768px) {
+    .form-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .staff-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    color: var(--cp-text-secondary, #475569);
+    margin-bottom: 6px;
+    letter-spacing: 0.02em;
+  }
+
+  [data-theme="dark"] .staff-label {
+    color: #CBD5E1 !important;
+  }
+
+  .staff-req {
+    color: #EF4444;
+  }
+
+  [data-theme="dark"] .staff-req {
+    color: #F87171 !important;
+  }
+
+  .staff-input, .staff-select {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid var(--cp-input-border, #CBD5E1);
+    background-color: var(--cp-input-bg, #FFFFFF);
+    color: var(--cp-text-primary, #0F172A);
+    font-size: 13px;
+    font-weight: 400;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  [data-theme="dark"] .staff-input,
+  [data-theme="dark"] .staff-select {
+    background-color: #0F172A !important;
+    border: 1px solid #334155 !important;
+    color: #F8FAFC !important;
+  }
+
+  .staff-input:focus, .staff-select:focus {
+    border-color: #3B82F6 !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.10) !important;
+  }
+
+  .staff-select option {
+    background-color: var(--cp-card-bg, #FFFFFF);
+    color: var(--cp-text-primary, #0F172A);
+  }
+
+  [data-theme="dark"] .staff-select option {
+    background-color: #111827 !important;
+    color: #F8FAFC !important;
+  }
+
+  .staff-input-error {
+    border-color: #EF4444 !important;
+  }
+
+  .staff-error-msg {
+    color: #DC2626;
+    font-size: 11px;
+    margin-top: 4px;
+  }
+
+  [data-theme="dark"] .staff-error-msg {
+    color: #F87171 !important;
+  }
+
+  .staff-btn-primary {
+    min-height: 42px;
+    padding: 0 20px;
+    font-size: 12px;
+    font-weight: 500;
+    background-color: #2563EB;
+    color: #FFFFFF !important;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.14);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease;
+    text-decoration: none;
+  }
+
+  .staff-btn-primary:hover {
+    background-color: #1D4ED8 !important;
+  }
+
+  .staff-btn-secondary {
+    min-height: 42px;
+    padding: 0 16px;
+    font-size: 12px;
+    font-weight: 500;
+    background-color: #FFFFFF;
+    border: 1px solid #CBD5E1;
+    color: #0F172A !important;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .staff-btn-secondary:hover {
+    background-color: #F1F5F9;
+  }
+
+  [data-theme="dark"] .staff-btn-secondary {
+    background-color: #111827 !important;
+    border: 1px solid #334155 !important;
+    color: #CBD5E1 !important;
+  }
+
+  [data-theme="dark"] .staff-btn-secondary:hover {
+    background-color: #172033 !important;
+    color: #F8FAFC !important;
+  }
+
+  .staff-actions {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--cp-border, #E2E8F0);
+  }
+
+  .staff-actions > * {
+    width: 100%;
+    min-height: 42px;
+    box-sizing: border-box;
+  }
+
+  @media (min-width: 768px) {
+    .staff-actions {
+      flex-direction: row;
+      justify-content: flex-end;
+    }
+    .staff-actions > * {
+      width: auto;
+    }
+  }
+</style>
+
+<div class="staff-edit-wrapper">
+
+  {% url 'control_panel:super_admin_staff_list' as super_admin_staff_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=super_admin_staff_list_url back_label="Back to Super Admin Staff" %}
+
+  <!-- Header Card -->
+  <div class="staff-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h2 style="font-size: 18px; font-weight: 600; color: var(--cp-text-primary, #0F172A); margin: 0;">Edit Profile: {{ target_user.full_name }}</h2>
+      <p style="font-size: 12px; color: var(--cp-text-muted, #64748B); margin-top: 4px; font-weight: 400;">Update staff name, email, phone, role assignment, or status.</p>
+    </div>
+  </div>
+
+  <form method="POST" action="">
+    {% csrf_token %}
+
+    <div class="staff-card">
+      <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary, #0F172A); margin: 0 0 16px 0;">Staff Profile &amp; Role</h3>
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="form-grid">
+          <div>
+            <label class="staff-label">FULL NAME <span class="staff-req">*</span></label>
+            <input type="text" name="full_name" value="{{ target_user.full_name }}" class="staff-input {% if errors.full_name %}staff-input-error{% endif %}" required>
+            {% if errors.full_name %}
+              <div class="staff-error-msg">{{ errors.full_name }}</div>
+            {% endif %}
+          </div>
+
+          <div>
+            <label class="staff-label">EMAIL ADDRESS <span class="staff-req">*</span></label>
+            <input type="email" name="email" value="{{ target_user.email }}" class="staff-input {% if errors.email %}staff-input-error{% endif %}" required>
+            {% if errors.email %}
+              <div class="staff-error-msg">{{ errors.email }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div>
+            <label class="staff-label">PHONE NUMBER</label>
+            <input type="text" name="phone" value="{{ target_user.phone|default:'' }}" class="staff-input">
+          </div>
+
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label class="staff-label" style="margin-bottom: 0;">ROLE</label>
+              {% if target_user.assigned_role %}
+                <a href="{% url 'control_panel:role_detail' pk=target_user.assigned_role.pk %}" style="font-size: 11px; color: var(--cp-primary, #2563EB); text-decoration: none;">View Role Permissions &rarr;</a>
+              {% endif %}
+            </div>
+            <select name="assigned_role_id" class="staff-select {% if errors.assigned_role_id %}staff-input-error{% endif %}">
+              <option value="">No Custom Role Assigned</option>
+              {% for role in assignable_roles %}
+                <option value="{{ role.id }}" {% if target_user.assigned_role_id == role.id %}selected{% endif %}>{{ role.name }}</option>
+              {% endfor %}
+            </select>
+            {% if errors.assigned_role_id %}
+              <div class="staff-error-msg">{{ errors.assigned_role_id }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div>
+            <label class="staff-label">STATUS</label>
+            <select name="is_active" class="staff-select">
+              <option value="true" {% if target_user.is_active %}selected{% endif %}>Active</option>
+              <option value="false" {% if not target_user.is_active %}selected{% endif %}>Inactive / Disabled</option>
+            </select>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="staff-actions">
+        <a href="{% url 'control_panel:super_admin_staff_list' %}" class="staff-btn-secondary">Cancel</a>
+        <button type="submit" class="staff-btn-primary">Save Profile</button>
+      </div>
+
+    </div>
+
+  </form>
+
+</div>
+{% endblock %}

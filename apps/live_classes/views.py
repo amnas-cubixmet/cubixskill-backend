@@ -61,10 +61,14 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        course_id = self.request.query_params.get('course') or self.request.query_params.get('course_id')
         if hasattr(user, 'academy') and user.academy:
-            return LiveSessionSelector.get_academy_live_sessions(user.academy)
-        # Fallback for superadmin or generic authenticated user
-        return LiveSession.objects.select_related('course', 'host', 'created_by').all()
+            qs = LiveSessionSelector.get_academy_live_sessions(user.academy)
+        else:
+            qs = LiveSession.objects.select_related('course', 'host', 'created_by').all()
+        if course_id:
+            qs = qs.filter(course_id=course_id)
+        return qs
 
     def create(self, request, *args, **kwargs):
         serializer = LiveSessionCreateSerializer(data=request.data)
@@ -80,7 +84,7 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
             else:
                 course = Course.objects.get(id=course_id)
         except Course.DoesNotExist:
-            raise ValidationError("Course not found or does not belong to your academy.")
+            raise ValidationError({"course_id": ["Course not found or does not belong to your academy."]})
 
         session = LiveSessionService.create_session(
             course=course,
@@ -94,12 +98,23 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
             meeting_url=serializer.validated_data.get('meeting_url', ''),
             max_participants=serializer.validated_data.get('max_participants', 100),
             recording_enabled=serializer.validated_data.get('recording_enabled', False),
-            reminders_minutes_before=serializer.validated_data.get('reminders_minutes_before', [60]),
-            announce_on_create=serializer.validated_data.get('announce_on_create', False),
+            send_email=serializer.validated_data.get('send_email', False),
             status=serializer.validated_data.get('status', 'SCHEDULED')
         )
 
-        return Response(LiveSessionSerializer(session).data, status=status.HTTP_201_CREATED)
+        session_data = LiveSessionSerializer(session).data
+        response_data = {
+            "success": True,
+            "message": "Live session created successfully.",
+            "data": session_data,
+            "notification_status": "queued",
+            "email_status": "queued" if serializer.validated_data.get('send_email', False) else "disabled",
+            "reminder_status": "scheduled"
+        }
+        # Copy direct properties at top level for backward compatibility
+        response_data.update(session_data)
+
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, *args, **kwargs):
         session = self.get_object()
@@ -108,6 +123,7 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
 
         updated_session = LiveSessionService.update_session(
             session=session,
+            send_email=serializer.validated_data.get('send_email', False),
             **serializer.validated_data
         )
 

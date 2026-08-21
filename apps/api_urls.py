@@ -17,6 +17,7 @@ urlpatterns = [
     path('discussions/', include('discussions_chat.urls')),
     path('leads/', include('leads.urls')),
     path('payments/', include('payments.urls')),
+    path('fees/', include('fees.urls')),
     path('credits/', include('credits.urls')),
     path('website/', include('website.urls')),
     path('notifications/', include('notifications.urls')),

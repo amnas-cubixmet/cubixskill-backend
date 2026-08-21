@@ -1,0 +1,123 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Student — {{ target_user.full_name }} | Control Panel{% endblock %}
+
+{% block content %}
+<div>
+
+  {% url 'control_panel:students_list' as students_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=students_list_url back_label="Back to Students" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">{{ target_user.full_name }}</h1>
+        <span class="cp-badge {% if target_user.is_active %}cp-badge-success{% else %}cp-badge-danger{% endif %}">
+          {% if target_user.is_active %}Active{% else %}Inactive{% endif %}
+        </span>
+      </div>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">
+        {{ target_user.email }} &bull; Academy: {{ target_user.academy.name|default:"Global Platform" }}
+      </p>
+    </div>
+
+    <div style="display: flex; gap: 8px;">
+      <a href="{% url 'control_panel:student_edit' pk=target_user.pk %}" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="edit" size="14" %}
+        <span>Edit Profile</span>
+      </a>
+      <a href="{% url 'control_panel:student_delete' pk=target_user.pk %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">
+        {% include "control_panel/components/icon.html" with name="trash" size="14" %}
+        <span>Delete Account</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- Student Info Card -->
+  <div class="cp-card">
+    <div class="cp-card-header">
+      <h2 class="cp-card-title">Student Profile Details</h2>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; font-size: 13px;">
+      <div>
+        <div style="font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase;">Full Name</div>
+        <div style="font-weight: 600; color: var(--cp-text-primary); margin-top: 2px;">{{ target_user.full_name }}</div>
+      </div>
+
+      <div>
+        <div style="font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase;">Email Address</div>
+        <div style="font-weight: 500; color: var(--cp-text-primary); margin-top: 2px;">{{ target_user.email }}</div>
+      </div>
+
+      <div>
+        <div style="font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase;">Phone Number</div>
+        <div style="font-weight: 500; color: var(--cp-text-primary); margin-top: 2px;">{{ target_user.phone|default:"—" }}</div>
+      </div>
+
+      <div>
+        <div style="font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase;">Registered Academy</div>
+        <div style="font-weight: 500; color: var(--cp-text-primary); margin-top: 2px;">{{ target_user.academy.name|default:"Global Platform" }}</div>
+      </div>
+
+      <div>
+        <div style="font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase;">Registration Date</div>
+        <div style="font-weight: 500; color: var(--cp-text-primary); margin-top: 2px;">{{ target_user.created_at|date:"d M Y, H:i" }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Course Enrollments Table -->
+  <div class="cp-card">
+    <div class="cp-card-header" style="display: flex; align-items: center; justify-content: space-between;">
+      <div>
+        <h2 class="cp-card-title">Enrolled Courses &amp; Learning Progress</h2>
+        <p style="font-size: 11px; color: var(--cp-text-muted); margin-top: 2px;">Real course enrollment records linked via database relationships.</p>
+      </div>
+      <span class="cp-badge cp-badge-neutral">{{ enrollments.count }} Total Enrollments</span>
+    </div>
+
+    {% if enrollments %}
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Course Title</th>
+              <th>Category</th>
+              <th>Enrolled Date</th>
+              <th>Status</th>
+              <th style="text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in enrollments %}
+              <tr>
+                <td>
+                  <a href="{% url 'control_panel:course_detail' pk=e.course.pk %}" style="font-weight: 600; color: var(--cp-primary); text-decoration: none;">
+                    {{ e.course.title }}
+                  </a>
+                </td>
+                <td>{{ e.course.category.name|default:"General" }}</td>
+                <td>{{ e.enrolled_at|date:"d M Y" }}</td>
+                <td>
+                  <span class="cp-badge {% if e.status == 'ACTIVE' %}cp-badge-success{% else %}cp-badge-neutral{% endif %}">
+                    {{ e.get_status_display|default:e.status }}
+                  </span>
+                </td>
+                <td style="text-align: right;">
+                  <a href="{% url 'control_panel:course_detail' pk=e.course.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">View Course</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div style="padding: 32px; text-align: center; color: var(--cp-text-muted); border: 1px dashed var(--cp-border); border-radius: 8px;">
+        This student is currently not enrolled in any courses.
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

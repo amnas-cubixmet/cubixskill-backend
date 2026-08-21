@@ -1,0 +1,124 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Websites | Control Panel{% endblock %}
+
+{% block content %}
+<div>
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Websites</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Manage academy website configuration and publishing.</p>
+    </div>
+  </div>
+
+  <!-- Search & Filter Bar -->
+  <div class="cp-card" style="margin-bottom: 20px; padding: 14px;">
+    <form method="GET" action="" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <div style="position: relative; flex: 1; min-width: 220px;">
+        <input type="text" name="q" class="cp-input" placeholder="Search websites by academy name, slug, or domain..." value="{{ q }}" style="padding-left: 32px;">
+        <span style="position: absolute; left: 10px; top: 10px; color: var(--cp-text-muted); display: inline-flex;">
+          {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        </span>
+      </div>
+
+      <div style="width: 170px;">
+        <select name="status" class="cp-select" onchange="this.form.submit()">
+          <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Websites</option>
+          <option value="published" {% if status_filter == 'published' %}selected{% endif %}>Published Only</option>
+          <option value="unpublished" {% if status_filter == 'unpublished' %}selected{% endif %}>Unpublished Only</option>
+        </select>
+      </div>
+
+      <button type="submit" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        <span>Filter</span>
+      </button>
+
+      {% if q or status_filter != 'all' %}
+        <a href="{% url 'control_panel:website_builder' %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">Clear Filters</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Websites Table -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    {% if websites_page %}
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Academy</th>
+              <th>Headline / Header</th>
+              <th>Domain / Slug</th>
+              <th>Theme</th>
+              <th>Status</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in websites_page %}
+              <tr>
+                <td>
+                  <a href="{% url 'control_panel:website_builder_edit' pk=item.academy.pk %}" style="font-weight: 600; color: var(--cp-text-primary); text-decoration: none;">
+                    {{ item.academy.name }}
+                  </a>
+                  <div style="font-size: 11px; color: var(--cp-text-muted);">{{ item.academy.email }}</div>
+                </td>
+                <td>
+                  <span style="font-weight: 500;">{{ item.config.hero_headline|truncatechars:35|default:item.config.header_title|default:"Master New Skills Online" }}</span>
+                </td>
+                <td>
+                  {% if item.config.custom_domain %}
+                    <span style="font-family: monospace; font-size: 12px; color: var(--cp-primary);">{{ item.config.custom_domain }}</span>
+                  {% else %}
+                    <span style="font-size: 12px; color: var(--cp-text-muted);">{{ item.academy.slug }}.cubixskill.com</span>
+                  {% endif %}
+                </td>
+                <td><span class="cp-badge cp-badge-neutral">{{ item.config.theme }}</span></td>
+                <td>
+                  {% if item.config.is_published %}
+                    <span class="cp-badge cp-badge-success">Published</span>
+                  {% else %}
+                    <span class="cp-badge cp-badge-warning">Unpublished</span>
+                  {% endif %}
+                </td>
+                <td style="text-align: right;">
+                  <a href="{% url 'control_panel:website_builder_edit' pk=item.academy.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 10px; font-size: 11px;">
+                    {% include "control_panel/components/icon.html" with name="pencil" size="13" %}
+                    <span>Configure</span>
+                  </a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      {% if websites_page.has_other_pages %}
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-top: 1px solid var(--cp-border);">
+          <div style="font-size: 12px; color: var(--cp-text-muted);">
+            Showing {{ websites_page.start_index }} to {{ websites_page.end_index }} of {{ websites_page.paginator.count }} websites
+          </div>
+          <div style="display: flex; gap: 6px;">
+            {% if websites_page.has_previous %}
+              <a href="?page={{ websites_page.previous_page_number }}&q={{ q }}&status={{ status_filter }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Previous</a>
+            {% endif %}
+            {% if websites_page.has_next %}
+              <a href="?page={{ websites_page.next_page_number }}&q={{ q }}&status={{ status_filter }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      <div style="padding: 48px; text-align: center; color: var(--cp-text-muted);">
+        <div style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 4px;">No academy websites found</div>
+        <p style="font-size: 12px;">Academy website configurations will appear here.</p>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "control_panel/base.html" %}
+{% block title %}404 Page Not Found | Control Panel{% endblock %}
+
+{% block content %}
+<div style="max-width: 500px; margin: 60px auto; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 16px;">
+  <div style="width: 64px; height: 64px; border-radius: 50%; background: var(--cp-primary-light); color: var(--cp-primary); border: 1px solid var(--cp-primary-border); display: flex; align-items: center; justify-content: center;">
+    {% include "control_panel/components/icon.html" with name="search" size="32" %}
+  </div>
+
+  <h2 style="font-size: 22px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">404 Page Not Found</h2>
+  <p style="font-size: 13px; color: var(--cp-text-muted); line-height: 1.5; margin: 0;">
+    The requested Control Panel page does not exist or may have been moved.
+  </p>
+
+  <div style="display: flex; gap: 10px; margin-top: 8px;">
+    <a href="{% url 'control_panel:dashboard' %}" class="cp-btn cp-btn-primary">
+      {% include "control_panel/components/icon.html" with name="dashboard" size="15" %}
+      <span>Back to Dashboard</span>
+    </a>
+  </div>
+</div>
+{% endblock %}

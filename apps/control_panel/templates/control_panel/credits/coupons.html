@@ -1,0 +1,27 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Credit Purchase Coupons | Control Panel{% endblock %}
+{% block content %}
+<div class="cp-page-header">
+  <h1 class="cp-page-title">Credit Purchase Coupons</h1>
+</div>
+<div class="cp-card" style="padding: 0;">
+  <div class="cp-table-container">
+    <table class="cp-table">
+      <thead>
+        <tr><th>Code</th><th>Discount Type</th><th>Value</th><th>Bonus Credits</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for c in coupons %}
+        <tr>
+          <td style="font-weight: 600; color: var(--cp-primary);">{{ c.code }}</td>
+          <td>{{ c.discount_type }}</td>
+          <td>{{ c.discount_value }}</td>
+          <td>+{{ c.bonus_credits }}</td>
+          <td><span class="cp-badge cp-badge-active">ACTIVE</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,92 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Edit Academy | Control Panel{% endblock %}
+
+{% block content %}
+<div style="max-width: 650px; margin: 0 auto;">
+
+  {% url 'control_panel:academies_list' as academies_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=academies_list_url back_label="Back to Academies" %}
+
+  <div class="cp-card" style="margin-bottom: 20px;">
+    <div>
+      <h2 class="cp-card-title">Edit Academy: {{ academy.name }}</h2>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Update operational settings, status, branding contact, and slug.</p>
+    </div>
+  </div>
+
+  <div class="cp-card">
+    <form method="POST" action="" style="display: flex; flex-direction: column; gap: 16px;">
+      {% csrf_token %}
+
+      <div>
+        <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+          ACADEMY NAME <span style="color: var(--cp-danger);">*</span>
+        </label>
+        <input type="text" name="name" value="{{ academy.name }}" class="cp-login-field" style="height: 42px; padding-left: 12px;" required>
+        {% if errors.name %}
+          <div style="color: var(--cp-danger); font-size: 11px; margin-top: 4px;">{{ errors.name }}</div>
+        {% endif %}
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            ACADEMY EMAIL <span style="color: var(--cp-danger);">*</span>
+          </label>
+          <input type="email" name="email" value="{{ academy.email }}" class="cp-login-field" style="height: 42px; padding-left: 12px;" required>
+          {% if errors.email %}
+            <div style="color: var(--cp-danger); font-size: 11px; margin-top: 4px;">{{ errors.email }}</div>
+          {% endif %}
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            PHONE NUMBER
+          </label>
+          <input type="text" name="phone" value="{{ academy.phone|default:'' }}" class="cp-login-field" style="height: 42px; padding-left: 12px;">
+        </div>
+      </div>
+
+      <div>
+        <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+          URL SLUG
+        </label>
+        <input type="text" name="slug" value="{{ academy.slug }}" class="cp-login-field" style="height: 42px; padding-left: 12px;">
+        {% if errors.slug %}
+          <div style="color: var(--cp-danger); font-size: 11px; margin-top: 4px;">{{ errors.slug }}</div>
+        {% endif %}
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px;">
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            OPERATIONAL STATUS
+          </label>
+          <select name="status" class="cp-login-field" style="height: 42px; padding-left: 12px;">
+            <option value="ACTIVE" {% if academy.status == 'ACTIVE' %}selected{% endif %}>ACTIVE</option>
+            <option value="SUSPENDED" {% if academy.status == 'SUSPENDED' %}selected{% endif %}>SUSPENDED</option>
+            <option value="INACTIVE" {% if academy.status == 'INACTIVE' %}selected{% endif %}>INACTIVE</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+            DEMO ACCOUNT MODE
+          </label>
+          <select name="is_demo" class="cp-login-field" style="height: 42px; padding-left: 12px;">
+            <option value="false" {% if not academy.is_demo %}selected{% endif %}>Standard Production Academy</option>
+            <option value="true" {% if academy.is_demo %}selected{% endif %}>Demo / Trial Academy</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px; pt: 16px; border-top: 1px solid var(--cp-border);">
+        <a href="{% url 'control_panel:academies_list' %}" class="cp-btn cp-btn-secondary" style="height: 42px; padding: 0 16px; font-size: 12px; display: inline-flex; align-items: center;">Cancel</a>
+        <button type="submit" class="cp-btn cp-btn-primary" style="height: 42px; padding: 0 20px; font-size: 12px;">Save Changes</button>
+      </div>
+
+    </form>
+  </div>
+
+</div>
+{% endblock %}

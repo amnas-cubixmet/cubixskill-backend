@@ -1,0 +1,247 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Payment Order {{ order.order_number }} | Control Panel{% endblock %}
+
+{% block content %}
+<div>
+
+  <!-- Standard Back Button -->
+  {% url 'control_panel:payments_list' as payments_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=payments_list_url back_label="Back to Payments" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Payment: <code>{{ order.order_number }}</code></h1>
+        <span class="cp-badge {% if order.status == 'COMPLETED' or order.status == 'SUCCESSFUL' or order.status == 'PAID' %}cp-badge-success{% elif order.status == 'REFUNDED' %}cp-badge-warning{% elif order.status == 'FAILED' or order.status == 'CANCELLED' %}cp-badge-danger{% else %}cp-badge-neutral{% endif %}">
+          {{ order.get_status_display }}
+        </span>
+      </div>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">
+        Created on {{ order.created_at|date:"d M Y, H:i" }} &bull; Provider: {{ order.get_gateway_display }}
+      </p>
+    </div>
+
+    {% if can_refund and order.status == 'COMPLETED' or order.status == 'SUCCESSFUL' or order.status == 'PAID' %}
+      <button type="button" id="open-refund-modal-btn" class="cp-btn cp-btn-secondary" style="height: 36px; color: var(--cp-danger); border-color: var(--cp-danger-border);">
+        {% include "control_panel/components/icon.html" with name="warning" size="14" %}
+        <span>Refund Payment</span>
+      </button>
+    {% endif %}
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 24px;">
+
+    <!-- Payment Information -->
+    <div class="cp-card">
+      <h2 style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-top: 0; margin-bottom: 16px;">Payment Information</h2>
+
+      <div style="display: flex; flex-direction: column; gap: 12px; font-size: 13px;">
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--cp-text-muted);">Payment Reference</span>
+          <code>{{ order.order_number }}</code>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--cp-text-muted);">Subtotal Amount</span>
+          <span>₹{{ order.subtotal_amount|floatformat:2 }}</span>
+        </div>
+        {% if order.discount_amount > 0 %}
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--cp-text-muted);">Discount</span>
+            <span style="color: var(--cp-success);">-₹{{ order.discount_amount|floatformat:2 }}</span>
+          </div>
+        {% endif %}
+        <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 15px; border-top: 1px solid var(--cp-border); padding-top: 8px;">
+          <span>Final Paid Amount</span>
+          <span style="color: var(--cp-primary);">₹{{ order.final_amount|floatformat:2 }} {{ order.currency }}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--cp-text-muted);">Payment Provider</span>
+          <span>{{ order.get_gateway_display }}</span>
+        </div>
+        {% if order.gateway_order_id %}
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--cp-text-muted);">Gateway Order ID</span>
+            <code>{{ order.gateway_order_id }}</code>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Academy & Payer Details -->
+    <div class="cp-card">
+      <h2 style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-top: 0; margin-bottom: 16px;">Academy Details</h2>
+
+      <div style="display: flex; flex-direction: column; gap: 12px; font-size: 13px;">
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--cp-text-muted);">Academy Name</span>
+          {% if order.academy %}
+            <a href="{% url 'control_panel:academy_detail' pk=order.academy.pk %}" style="font-weight: 600; color: var(--cp-primary); text-decoration: none;">
+              {{ order.academy.name }}
+            </a>
+          {% else %}
+            <span>{{ order.academy_name_snapshot|default:"Platform Direct" }}</span>
+          {% endif %}
+        </div>
+        {% if order.academy %}
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--cp-text-muted);">Academy Email</span>
+            <span>{{ order.academy.email }}</span>
+          </div>
+        {% endif %}
+        {% if order.payer %}
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--cp-text-muted);">Payer / User</span>
+            <span>{{ order.payer.full_name|default:order.payer.email }}</span>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Credit Package & Credit Allocation Details -->
+    <div class="cp-card">
+      <h2 style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-top: 0; margin-bottom: 16px;">Credit Package & Allocation</h2>
+
+      <div style="display: flex; flex-direction: column; gap: 12px; font-size: 13px;">
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--cp-text-muted);">Package Name</span>
+          <span style="font-weight: 600;">{{ order.plan.name|default:order.product_name_snapshot|default:"Credit Package" }}</span>
+        </div>
+        {% if order.plan %}
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--cp-text-muted);">Plan Code</span>
+            <code>{{ order.plan.code }}</code>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--cp-text-muted);">Included Credits</span>
+            <span style="font-weight: 700; color: var(--cp-success);">+{{ order.plan.credits|floatformat:0 }} Credits</span>
+          </div>
+        {% endif %}
+
+        <div style="border-top: 1px solid var(--cp-border); padding-top: 10px; margin-top: 4px;">
+          <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">Credit Allocation Status</div>
+          {% if credit_entry %}
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <span class="cp-badge cp-badge-success">Fulfill Completed</span>
+              <a href="{% url 'control_panel:wallet_detail' pk=order.academy.credit_account.pk %}" class="cp-btn cp-btn-secondary" style="height: 26px; font-size: 11px; padding: 0 8px;">
+                View Wallet
+              </a>
+            </div>
+          {% elif order.status == 'COMPLETED' or order.status == 'SUCCESSFUL' or order.status == 'PAID' %}
+            <span class="cp-badge cp-badge-success">Credits Credited</span>
+          {% else %}
+            <span class="cp-badge cp-badge-neutral">Awaiting Verification</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Gateway Attempts Table -->
+  <div class="cp-card" style="padding: 0; overflow: hidden; margin-bottom: 24px;">
+    <div style="padding: 16px 20px; border-bottom: 1px solid var(--cp-border);">
+      <h2 style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Gateway Transactions</h2>
+    </div>
+
+    {% if transactions %}
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Initiated Date</th>
+              <th>Gateway Payment ID</th>
+              <th>Method</th>
+              <th>Amount</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for tx in transactions %}
+              <tr>
+                <td><span style="font-size: 11px; color: var(--cp-text-muted);">{{ tx.initiated_at|date:"d M Y, H:i" }}</span></td>
+                <td><code>{{ tx.gateway_payment_id|default:"-" }}</code></td>
+                <td><span style="font-size: 12px;">{{ tx.get_payment_method_display }}</span></td>
+                <td><strong style="color: var(--cp-text-primary);">₹{{ tx.amount|floatformat:2 }}</strong></td>
+                <td>
+                  <span class="cp-badge {% if tx.status == 'SUCCESS' %}cp-badge-success{% elif tx.status == 'FAILED' %}cp-badge-danger{% else %}cp-badge-neutral{% endif %}">
+                    {{ tx.get_status_display }}
+                  </span>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div style="padding: 30px; text-align: center; color: var(--cp-text-muted); font-size: 12px;">
+        No raw gateway transactions attached.
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Refund Modal -->
+{% if can_refund %}
+  <div id="refund-modal" style="position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 16px;">
+    <div class="cp-card" style="max-width: 480px; width: 100%; margin: 0; padding: 24px; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
+
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+        <h3 style="font-size: 17px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Refund Payment</h3>
+        <button type="button" id="close-refund-modal-btn" style="background: none; border: none; color: var(--cp-text-muted); cursor: pointer; padding: 4px; display: inline-flex;">
+          {% include "control_panel/components/icon.html" with name="x" size="18" %}
+        </button>
+      </div>
+
+      <form method="POST" action="{% url 'control_panel:payment_refund' pk=order.pk %}">
+        {% csrf_token %}
+
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px;">
+              Order Reference
+            </label>
+            <code>{{ order.order_number }}</code>
+          </div>
+
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px;">
+              Refund Amount
+            </label>
+            <div style="font-size: 16px; font-weight: 700; color: var(--cp-danger);">
+              ₹{{ order.final_amount|floatformat:2 }}
+            </div>
+          </div>
+
+          <div>
+            <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 6px;">
+              Refund Reason * (Mandatory)
+            </label>
+            <textarea name="reason" class="cp-input" style="height: 70px; padding: 8px 12px; resize: vertical;" placeholder="Reason for processing refund..." required></textarea>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+          <button type="button" id="cancel-refund-modal-btn" class="cp-btn cp-btn-secondary" style="height: 38px; font-size: 12px;">Cancel</button>
+          <button type="submit" class="cp-btn" style="height: 38px; font-size: 12px; padding: 0 18px; background: var(--cp-danger); color: white; border: none; font-weight: 600;">Confirm Refund</button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const modal = document.getElementById('refund-modal');
+      const openBtn = document.getElementById('open-refund-modal-btn');
+      const closeBtn = document.getElementById('close-refund-modal-btn');
+      const cancelBtn = document.getElementById('cancel-refund-modal-btn');
+
+      if (openBtn) openBtn.addEventListener('click', () => modal.style.display = 'flex');
+      if (closeBtn) closeBtn.addEventListener('click', () => modal.style.display = 'none');
+      if (cancelBtn) cancelBtn.addEventListener('click', () => modal.style.display = 'none');
+    });
+  </script>
+{% endif %}
+{% endblock %}

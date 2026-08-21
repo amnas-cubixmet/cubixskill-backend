@@ -1,0 +1,96 @@
+{% extends "control_panel/base.html" %}
+{% block title %}{{ rule.name }} — Pricing Rule | Control Panel{% endblock %}
+
+{% block content %}
+<div>
+
+  {% url 'control_panel:pricing_rules_list' as pricing_rules_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=pricing_rules_list_url back_label="Back to Pricing" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">{{ rule.name }}</h1>
+        <span class="cp-badge {% if rule.is_active %}cp-badge-success{% else %}cp-badge-neutral{% endif %}">
+          {% if rule.is_active %}Active{% else %}Inactive{% endif %}
+        </span>
+      </div>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">
+        Code: <code>{{ rule.code }}</code> &bull; Billing Unit: {{ rule.billing_unit }}
+      </p>
+    </div>
+
+    <div style="display: flex; gap: 8px;">
+      {% if can_edit %}
+        <a href="{% url 'control_panel:pricing_rule_edit' pk=rule.pk %}" class="cp-btn cp-btn-secondary">
+          {% include "control_panel/components/icon.html" with name="edit" size="14" %}
+          <span>Edit Rule</span>
+        </a>
+      {% endif %}
+      {% if can_delete %}
+        <a href="{% url 'control_panel:pricing_rule_delete' pk=rule.pk %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">
+          {% include "control_panel/components/icon.html" with name="trash" size="14" %}
+          <span>Delete Rule</span>
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Metric Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Service Code</span>
+      <span class="cp-kpi-value" style="font-size: 16px; color: var(--cp-primary); font-family: monospace;">{{ rule.code }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Billing Unit</span>
+      <span class="cp-kpi-value" style="font-size: 16px;">{{ rule.billing_unit }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Credit Cost</span>
+      <span class="cp-kpi-value" style="color: var(--cp-success);">{{ rule.credit_cost }} {% if rule.credit_cost == 1 %}Credit{% else %}Credits{% endif %}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Created Date</span>
+      <span class="cp-kpi-value" style="font-size: 15px; margin-top: 4px;">{{ rule.created_at|date:"d M Y" }}</span>
+    </div>
+  </div>
+
+  <!-- Overview Card -->
+  <div class="cp-card">
+    <div class="cp-card-header">
+      <h2 class="cp-card-title">Rule Description</h2>
+    </div>
+    <div style="font-size: 13px; color: var(--cp-text-secondary);">
+      {{ rule.description|default:"No description provided for this pricing rule."|linebreaks }}
+    </div>
+  </div>
+
+  <!-- Audit Logs Card -->
+  <div class="cp-card">
+    <div class="cp-card-header">
+      <h2 class="cp-card-title">Recent Activity Logs</h2>
+    </div>
+
+    {% if recent_logs %}
+      <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px;">
+        {% for log in recent_logs %}
+          <div style="padding: 10px 12px; background: var(--cp-input-bg); border: 1px solid var(--cp-border); border-radius: 8px; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <span style="font-weight: 600; color: var(--cp-text-primary);">{{ log.get_action_display }}</span>
+              <span style="color: var(--cp-text-muted); margin-left: 8px;">{{ log.description }}</span>
+            </div>
+            <span style="color: var(--cp-text-muted); font-size: 11px;">{{ log.occurred_at|date:"d M Y, H:i" }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div style="padding: 24px; text-align: center; color: var(--cp-text-muted); border: 1px dashed var(--cp-border); border-radius: 8px; font-size: 12px;">
+        No audit log history recorded for this pricing rule.
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

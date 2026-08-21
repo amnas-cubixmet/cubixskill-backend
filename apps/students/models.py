@@ -8,6 +8,7 @@ from storage.models import MediaFile
 #--------------------------------------------------------------
 
 class StudentStatus(models.TextChoices):
+    PENDING = 'PENDING', 'Pending'
     ACTIVE = 'ACTIVE', 'Active'
     INACTIVE = 'INACTIVE', 'Inactive'
     SUSPENDED = 'SUSPENDED', 'Suspended'

@@ -1,0 +1,139 @@
+{% extends "control_panel/base.html" %}
+{% block title %}{{ academy.name }} Storage Usage | Control Panel{% endblock %}
+
+{% block content %}
+<div>
+
+  <!-- Standard Back Button -->
+  {% url 'control_panel:storage_control' as storage_control_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=storage_control_url back_label="Back to Storage" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">{{ academy.name }}</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">
+        Academy Storage Usage &bull; Email: {{ academy.email }}
+      </p>
+    </div>
+  </div>
+
+  <!-- Metric Overview Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Total Storage Used</span>
+      <span class="cp-kpi-value" style="color: var(--cp-primary); font-size: 22px;">{{ total_bytes_formatted }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Total Files</span>
+      <span class="cp-kpi-value" style="font-size: 22px;">{{ total_files }}</span>
+    </div>
+  </div>
+
+  <!-- File Type Breakdown Grid -->
+  <div style="margin-top: 24px; margin-bottom: 24px;">
+    <h2 style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 12px;">File Type Breakdown</h2>
+
+    <div class="cp-grid-3">
+      <div class="cp-card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted);">Videos</span>
+          <span style="font-size: 11px; color: var(--cp-text-muted);">{{ video_count }} files</span>
+        </div>
+        <div style="font-size: 18px; font-weight: 700; color: var(--cp-primary); margin-top: 6px;">{{ video_bytes_formatted }}</div>
+      </div>
+
+      <div class="cp-card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted);">Images</span>
+          <span style="font-size: 11px; color: var(--cp-text-muted);">{{ image_count }} files</span>
+        </div>
+        <div style="font-size: 18px; font-weight: 700; color: var(--cp-success); margin-top: 6px;">{{ image_bytes_formatted }}</div>
+      </div>
+
+      <div class="cp-card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted);">Documents & PDFs</span>
+          <span style="font-size: 11px; color: var(--cp-text-muted);">{{ doc_count }} files</span>
+        </div>
+        <div style="font-size: 18px; font-weight: 700; color: var(--cp-warning); margin-top: 6px;">{{ doc_bytes_formatted }}</div>
+      </div>
+
+      <div class="cp-card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted);">Audio</span>
+          <span style="font-size: 11px; color: var(--cp-text-muted);">{{ audio_count }} files</span>
+        </div>
+        <div style="font-size: 18px; font-weight: 700; color: var(--cp-text-primary); margin-top: 6px;">{{ audio_bytes_formatted }}</div>
+      </div>
+
+      <div class="cp-card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted);">Other Files</span>
+          <span style="font-size: 11px; color: var(--cp-text-muted);">{{ other_count }} files</span>
+        </div>
+        <div style="font-size: 18px; font-weight: 700; color: var(--cp-text-muted); margin-top: 6px;">{{ other_bytes_formatted }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Uploads Table -->
+  <div class="cp-card" style="padding: 0; overflow: hidden; margin-top: 24px;">
+    <div style="padding: 16px 20px; border-bottom: 1px solid var(--cp-border);">
+      <h2 style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Uploaded Files</h2>
+    </div>
+
+    {% if recent_uploads %}
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>File Name</th>
+              <th>Type</th>
+              <th>Size</th>
+              <th>Uploaded Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in recent_uploads %}
+              <tr>
+                <td>
+                  <span style="font-weight: 500; color: var(--cp-text-primary);">{{ item.file.original_filename }}</span>
+                </td>
+                <td>
+                  <span class="cp-badge cp-badge-neutral">{{ item.file.media_type|default:item.file.file_type|default:"FILE" }}</span>
+                </td>
+                <td><span style="font-weight: 600;">{{ item.formatted_size }}</span></td>
+                <td><span style="font-size: 11px; color: var(--cp-text-muted);">{{ item.file.created_at|date:"d M Y, H:i" }}</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      {% if files_page.has_other_pages %}
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-top: 1px solid var(--cp-border);">
+          <div style="font-size: 12px; color: var(--cp-text-muted);">
+            Showing {{ files_page.start_index }} to {{ files_page.end_index }} of {{ files_page.paginator.count }} files
+          </div>
+          <div style="display: flex; gap: 6px;">
+            {% if files_page.has_previous %}
+              <a href="?page={{ files_page.previous_page_number }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Previous</a>
+            {% endif %}
+            {% if files_page.has_next %}
+              <a href="?page={{ files_page.next_page_number }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      <div style="padding: 40px; text-align: center; color: var(--cp-text-muted); font-size: 13px;">
+        No uploaded files recorded for this academy.
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

@@ -77,7 +77,7 @@ class CourseListSerializer(serializers.ModelSerializer):
         model = Course
         fields = [
             'id', 'title', 'slug', 'subtitle', 'thumbnail', 'thumbnail_url', 'level', 'language',
-            'price', 'currency', 'is_free', 'status', 'visibility', 'category_name', 'created_at'
+            'price', 'sale_price', 'currency', 'is_free', 'status', 'visibility', 'category_name', 'created_at'
         ]
 
 class CourseDetailSerializer(serializers.ModelSerializer):
@@ -90,9 +90,9 @@ class CourseDetailSerializer(serializers.ModelSerializer):
         model = Course
         fields = [
             'id', 'academy', 'category', 'title', 'slug', 'subtitle', 'short_description', 'description',
-            'thumbnail', 'thumbnail_url', 'promo_video', 'promo_video_url', 'level', 'language', 'duration_minutes', 'price', 'currency',
-            'is_free', 'visibility', 'status', 'is_published', 'published_at', 'demo_enabled',
-            'demo_duration_days', 'certificate_enabled', 'modules', 'created_at', 'updated_at'
+            'thumbnail', 'thumbnail_url', 'promo_video', 'promo_video_url', 'level', 'language', 'duration_minutes',
+            'price', 'sale_price', 'currency', 'is_free', 'visibility', 'status', 'is_published', 'published_at',
+            'demo_enabled', 'demo_duration_days', 'certificate_enabled', 'modules', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'slug', 'academy', 'is_published', 'published_at', 'created_at', 'updated_at']
 
@@ -101,8 +101,8 @@ class CourseWriteSerializer(serializers.ModelSerializer):
         model = Course
         fields = [
             'id', 'slug', 'status', 'category', 'title', 'subtitle', 'short_description', 'description', 'thumbnail',
-            'thumbnail_url', 'promo_video', 'promo_video_url', 'level', 'language', 'duration_minutes', 'price', 'currency',
-            'is_free', 'visibility', 'demo_enabled', 'demo_duration_days', 'certificate_enabled'
+            'thumbnail_url', 'promo_video', 'promo_video_url', 'level', 'language', 'duration_minutes',
+            'price', 'sale_price', 'currency', 'is_free', 'visibility', 'demo_enabled', 'demo_duration_days', 'certificate_enabled'
         ]
         read_only_fields = ['id', 'slug']
 

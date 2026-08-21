@@ -1,24 +1,150 @@
-{% extends 'control_panel/base.html' %}
-{% block title %}Plans & Entitlements{% endblock %}
+{% extends "control_panel/base.html" %}
+{% block title %}Credit Packages | Control Panel{% endblock %}
+
 {% block content %}
-<div class="cp-card">
-  <div class="cp-card-header"><h3 class="cp-card-title">Platform Plans</h3></div>
-  <div class="cp-table-container">
-    <table class="cp-table">
-      <thead><tr><th>Plan Name</th><th>Code</th><th>Monthly Price</th><th>Yearly Price</th></tr></thead>
-      <tbody>
-        {% for p in plans %}
-        <tr>
-          <td><strong>{{ p.name }}</strong></td>
-          <td><code>{{ p.code }}</code></td>
-          <td>₹{{ p.price_monthly }}</td>
-          <td>₹{{ p.price_yearly }}</td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="4" style="text-align: center; color: var(--cp-text-muted);">No plans configured.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div>
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Credit Packages</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Manage credit purchase packages for academies on CubixSkill.</p>
+    </div>
+    <a href="{% url 'control_panel:plan_create' %}" class="cp-btn cp-btn-primary">
+      {% include "control_panel/components/icon.html" with name="plus" size="14" %}
+      <span>Create Package</span>
+    </a>
   </div>
+
+  <!-- KPI Summary Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Total Credit Packages</span>
+      <span class="cp-kpi-value">{{ total_plans }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Active Packages</span>
+      <span class="cp-kpi-value" style="color: var(--cp-success);">{{ active_plans }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Academies Using Packages</span>
+      <span class="cp-kpi-value" style="color: var(--cp-primary);">{{ academies_using_plans }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Total Active Package Credits</span>
+      <span class="cp-kpi-value" style="color: var(--cp-success);">{{ total_package_credits }}</span>
+    </div>
+  </div>
+
+  <!-- Filter & Search Bar -->
+  <div class="cp-card" style="margin-bottom: 20px; padding: 14px;">
+    <form method="GET" action="" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <div style="position: relative; flex: 1; min-width: 220px;">
+        <input type="text" name="q" class="cp-input" placeholder="Search credit packages..." value="{{ q }}" style="padding-left: 32px;">
+        <span style="position: absolute; left: 10px; top: 10px; color: var(--cp-text-muted); display: inline-flex;">
+          {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        </span>
+      </div>
+
+      <div style="width: 150px;">
+        <select name="status" class="cp-select" onchange="this.form.submit()">
+          <option value="">All Statuses</option>
+          <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option>
+          <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>Inactive</option>
+        </select>
+      </div>
+
+      <button type="submit" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        <span>Filter</span>
+      </button>
+
+      {% if q or status_filter %}
+        <a href="{% url 'control_panel:plans_list' %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">Clear Filters</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Plans Table -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    {% if plans_page %}
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Plan Code</th>
+              <th>Price (₹)</th>
+              <th>Credits</th>
+              <th>Status</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in plans_page %}
+              <tr>
+                <td>
+                  <a href="{% url 'control_panel:plan_detail' pk=p.pk %}" style="font-weight: 600; color: var(--cp-text-primary); text-decoration: none;">
+                    {{ p.name }}
+                  </a>
+                  <div style="font-size: 11px; color: var(--cp-text-muted);">{{ p.description|truncatewords:6|default:"Credit Package" }}</div>
+                </td>
+                <td><code style="font-size: 11px; color: var(--cp-primary);">{{ p.code }}</code></td>
+                <td><span style="font-weight: 600; color: var(--cp-text-primary);">₹{{ p.price }}</span></td>
+                <td><span style="font-weight: 600; color: var(--cp-success);">{{ p.credits }} Credits</span></td>
+                <td>
+                  <span class="cp-badge {% if p.is_active %}cp-badge-success{% else %}cp-badge-neutral{% endif %}">
+                    {% if p.is_active %}Active{% else %}Inactive{% endif %}
+                  </span>
+                </td>
+                <td style="text-align: right;">
+                  <div style="display: inline-flex; gap: 6px; align-items: center;">
+                    <a href="{% url 'control_panel:plan_detail' pk=p.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">View</a>
+                    <a href="{% url 'control_panel:plan_edit' pk=p.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">Edit</a>
+                    {% if p.is_active %}
+                      <form method="POST" action="{% url 'control_panel:plan_disable' pk=p.pk %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-warning);" data-confirm-title="Disable Package" data-confirm-message="Are you sure you want to disable credit package '{{ p.name }}'?" data-confirm-btn="Disable Package">Disable</button>
+                      </form>
+                    {% else %}
+                      <form method="POST" action="{% url 'control_panel:plan_enable' pk=p.pk %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-success);">Enable</button>
+                      </form>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      {% if plans_page.has_other_pages %}
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-top: 1px solid var(--cp-border);">
+          <div style="font-size: 12px; color: var(--cp-text-muted);">
+            Showing {{ plans_page.start_index }} to {{ plans_page.end_index }} of {{ total_plans }} packages
+          </div>
+          <div style="display: flex; gap: 6px;">
+            {% if plans_page.has_previous %}
+              <a href="?page={{ plans_page.previous_page_number }}&q={{ q }}&status={{ status_filter }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Previous</a>
+            {% endif %}
+            {% if plans_page.has_next %}
+              <a href="?page={{ plans_page.next_page_number }}&q={{ q }}&status={{ status_filter }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      <div style="padding: 48px; text-align: center; color: var(--cp-text-muted);">
+        <div style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 4px;">No credit packages found</div>
+        <p style="font-size: 12px; margin-bottom: 16px;">Create credit packages for academies to purchase credits.</p>
+        <a href="{% url 'control_panel:plan_create' %}" class="cp-btn cp-btn-primary">Create Package</a>
+      </div>
+    {% endif %}
+  </div>
+
 </div>
 {% endblock %}

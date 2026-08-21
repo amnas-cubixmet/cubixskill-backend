@@ -1,0 +1,86 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Configure Website | {{ academy.name }} | Control Panel{% endblock %}
+
+{% block content %}
+<div>
+
+  <!-- Standard Back Button -->
+  {% url 'control_panel:website_builder' as website_builder_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=website_builder_url back_label="Back to Websites" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">{{ academy.name }} Website</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Configure academy branding, hero content, theme, and publishing status.</p>
+    </div>
+  </div>
+
+  <div class="cp-card" style="max-width: 680px;">
+    <form method="POST" action="" style="display: flex; flex-direction: column; gap: 16px;">
+      {% csrf_token %}
+
+      <div>
+        <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px;">
+          Header Title / Brand Name
+        </label>
+        <input type="text" name="header_title" value="{{ config.header_title|default:academy.name }}" class="cp-input" placeholder="e.g. ABC Academy Online" {% if not can_edit %}disabled{% endif %}>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px;">
+            Custom Domain
+          </label>
+          <input type="text" name="custom_domain" value="{{ config.custom_domain }}" class="cp-input" placeholder="e.g. academy.custom.com" {% if not can_edit %}disabled{% endif %}>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px;">
+            Theme Style
+          </label>
+          <select name="theme" class="cp-select" {% if not can_edit %}disabled{% endif %}>
+            <option value="modern-dark" {% if config.theme == 'modern-dark' %}selected{% endif %}>Modern Dark</option>
+            <option value="clean-light" {% if config.theme == 'clean-light' %}selected{% endif %}>Clean Light</option>
+            <option value="vibrant-blue" {% if config.theme == 'vibrant-blue' %}selected{% endif %}>Vibrant Blue</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px;">
+          Hero Headline
+        </label>
+        <input type="text" name="hero_headline" value="{{ config.hero_headline }}" class="cp-input" placeholder="e.g. Master New Skills Online" required {% if not can_edit %}disabled{% endif %}>
+      </div>
+
+      <div>
+        <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px;">
+          Hero Subheadline / Description
+        </label>
+        <textarea name="hero_subheadline" class="cp-input" style="height: 80px; padding: 8px 12px; resize: vertical;" placeholder="Join top courses led by industry experts..." {% if not can_edit %}disabled{% endif %}>{{ config.hero_subheadline }}</textarea>
+      </div>
+
+      {% if can_publish %}
+        <div>
+          <label style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--cp-text-muted); margin-bottom: 4px;">
+            Publishing Status
+          </label>
+          <select name="is_published" class="cp-select">
+            <option value="true" {% if config.is_published %}selected{% endif %}>Published (Live)</option>
+            <option value="false" {% if not config.is_published %}selected{% endif %}>Unpublished (Draft / Offline)</option>
+          </select>
+        </div>
+      {% endif %}
+
+      {% if can_edit %}
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; border-top: 1px solid var(--cp-border); padding-top: 16px;">
+          <a href="{% url 'control_panel:website_builder' %}" class="cp-btn cp-btn-secondary" style="height: 38px;">Cancel</a>
+          <button type="submit" class="cp-btn cp-btn-primary" style="height: 38px; padding: 0 18px;">Save Configuration</button>
+        </div>
+      {% endif %}
+    </form>
+  </div>
+
+</div>
+{% endblock %}

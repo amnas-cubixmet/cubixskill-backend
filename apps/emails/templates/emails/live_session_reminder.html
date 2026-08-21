@@ -1,0 +1,45 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Reminder: {{ session_title }} starts in 1 hour – {{ academy_name }}{% endblock %}
+
+{% block content %}
+<p>Hi {{ student_name }},</p>
+
+<p>This is a reminder that your live session starts in approximately 1 hour for <strong>{{ course_title }}</strong>.</p>
+
+<div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 20px; margin: 20px 0;">
+  <h3 style="margin-top: 0; color: #0F172A; font-size: 18px; font-weight: 700;">{{ session_title }}</h3>
+  <table border="0" cellpadding="4" cellspacing="0" style="font-size: 14px; color: #334155;">
+    <tr>
+      <td style="font-weight: 600; width: 100px; color: #64748B;">Course:</td>
+      <td style="font-weight: 700; color: #0F172A;">{{ course_title }}</td>
+    </tr>
+    <tr>
+      <td style="font-weight: 600; color: #64748B;">Starts at:</td>
+      <td style="font-weight: 700; color: #2563EB;">{{ session_time }} {% if timezone %}({{ timezone }}){% endif %}</td>
+    </tr>
+    <tr>
+      <td style="font-weight: 600; color: #64748B;">Duration:</td>
+      <td>{{ duration }}</td>
+    </tr>
+  </table>
+</div>
+
+<p>Please click the button below to join when it is time:</p>
+
+<table border="0" cellpadding="0" cellspacing="0" style="margin: 24px 0;">
+  <tr>
+    <td align="center" style="border-radius: 8px; background-color: #2563EB;">
+      <a href="{{ live_session_url }}" target="_blank" style="font-size: 15px; font-family: inherit; color: #ffffff; text-decoration: none; border-radius: 8px; padding: 12px 28px; border: 1px solid #2563EB; display: inline-block; font-weight: 600;">Join Live Session</a>
+    </td>
+  </tr>
+</table>
+
+<p style="font-size: 13px; color: #64748B;">Please join a few minutes early to ensure audio and video devices are working properly.</p>
+
+<p style="margin-top: 28px;">
+  Regards,<br>
+  <strong>{{ academy_name }}</strong><br>
+  {% if academy_support_email %}{{ academy_support_email }}{% endif %}
+</p>
+{% endblock %}

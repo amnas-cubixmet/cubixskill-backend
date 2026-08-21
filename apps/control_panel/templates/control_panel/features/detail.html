@@ -1,0 +1,91 @@
+{% extends "control_panel/base.html" %}
+{% block title %}{{ feature.name }} | Control Panel{% endblock %}
+
+{% block content %}
+<div>
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">{{ feature.name }}</h1>
+        <span class="cp-badge {% if feature.is_active %}cp-badge-success{% else %}cp-badge-neutral{% endif %}">
+          {% if feature.is_active %}Active{% else %}Inactive{% endif %}
+        </span>
+      </div>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">
+        Code: <code>{{ feature.code }}</code> &bull; Category: {{ feature.category }}
+      </p>
+    </div>
+
+    <div style="display: flex; gap: 8px;">
+      <a href="{% url 'control_panel:feature_edit' pk=feature.pk %}" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="edit" size="14" %}
+        <span>Edit Feature</span>
+      </a>
+      <a href="{% url 'control_panel:feature_delete' pk=feature.pk %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">
+        {% include "control_panel/components/icon.html" with name="trash" size="14" %}
+        <span>Delete Feature</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- Summary Metrics Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Feature Code</span>
+      <span class="cp-kpi-value" style="font-size: 16px; color: var(--cp-primary); font-family: monospace;">{{ feature.code }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Category</span>
+      <span class="cp-kpi-value" style="font-size: 16px;">{{ feature.category }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Billable Feature</span>
+      <span class="cp-kpi-value" style="font-size: 16px; color: {% if feature.is_billable %}var(--cp-success){% else %}var(--cp-text-muted){% endif %};">
+        {% if feature.is_billable %}Yes{% else %}No{% endif %}
+      </span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Created Date</span>
+      <span class="cp-kpi-value" style="font-size: 15px; margin-top: 4px;">{{ feature.created_at|date:"d M Y" }}</span>
+    </div>
+  </div>
+
+  <!-- Feature Details Card -->
+  <div class="cp-card">
+    <div class="cp-card-header">
+      <h2 class="cp-card-title">Feature Overview</h2>
+    </div>
+    <div style="font-size: 13px; color: var(--cp-text-secondary);">
+      {{ feature.description|default:"No description provided for this feature capability."|linebreaks }}
+    </div>
+  </div>
+
+  <!-- Audit Activity Log -->
+  <div class="cp-card">
+    <div class="cp-card-header">
+      <h2 class="cp-card-title">Recent Activity Logs</h2>
+    </div>
+
+    {% if recent_logs %}
+      <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px;">
+        {% for log in recent_logs %}
+          <div style="padding: 10px 12px; background: var(--cp-input-bg); border: 1px solid var(--cp-border); border-radius: 8px; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <span style="font-weight: 600; color: var(--cp-text-primary);">{{ log.get_action_display }}</span>
+              <span style="color: var(--cp-text-muted); margin-left: 8px;">{{ log.description }}</span>
+            </div>
+            <span style="color: var(--cp-text-muted); font-size: 11px;">{{ log.occurred_at|date:"d M Y, H:i" }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div style="padding: 24px; text-align: center; color: var(--cp-text-muted); border: 1px dashed var(--cp-border); border-radius: 8px; font-size: 12px;">
+        No recent audit log history recorded for this feature definition.
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

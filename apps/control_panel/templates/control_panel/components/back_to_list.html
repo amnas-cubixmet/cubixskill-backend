@@ -1,0 +1,4 @@
+<a href="{{ back_url }}" class="cp-back-btn" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--cp-text-muted); text-decoration: none; margin-bottom: 12px; transition: color 0.15s ease;" onmouseover="this.style.color='var(--cp-text-primary)';" onmouseout="this.style.color='var(--cp-text-muted)';">
+  {% include "control_panel/components/icon.html" with name="arrow-left" size="14" %}
+  <span>{{ back_label|default:"Back" }}</span>
+</a>

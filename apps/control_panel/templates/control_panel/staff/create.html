@@ -1,0 +1,39 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Add Staff Member | Control Panel{% endblock %}
+{% block content %}
+<div class="cp-page-header">
+  <h1 class="cp-page-title">Add Staff Member</h1>
+</div>
+
+<div class="cp-card" style="max-width: 500px;">
+  <form method="POST" action="" style="display: flex; flex-direction: column; gap: 16px;">
+    {% csrf_token %}
+    <div>
+      <label style="font-size: 11px; font-weight: 600; color: var(--cp-text-muted);">FULL NAME</label>
+      <input type="text" name="full_name" placeholder="John Doe" class="cp-login-field" style="height: 40px; padding-left: 12px;" required>
+    </div>
+    <div>
+      <label style="font-size: 11px; font-weight: 600; color: var(--cp-text-muted);">EMAIL ADDRESS</label>
+      <input type="email" name="email" placeholder="staff@example.com" class="cp-login-field" style="height: 40px; padding-left: 12px;" required>
+    </div>
+    <div>
+      <label style="font-size: 11px; font-weight: 600; color: var(--cp-text-muted);">ROLE</label>
+      <select name="role_code" class="cp-login-field" style="height: 40px; padding-left: 12px;">
+        <option value="ACADEMY_STAFF">Instructor / Teacher</option>
+        <option value="ACADEMY_ADMIN">Academy Owner / Admin</option>
+        <option value="SUPER_ADMIN_STAFF">Super Admin Staff</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size: 11px; font-weight: 600; color: var(--cp-text-muted);">ACADEMY</label>
+      <select name="academy_id" class="cp-login-field" style="height: 40px; padding-left: 12px;">
+        <option value="">-- None (Global Staff) --</option>
+        {% for a in academies %}
+          <option value="{{ a.id }}">{{ a.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="cp-btn cp-btn-primary" style="height: 42px; margin-top: 8px;">Create Staff</button>
+  </form>
+</div>
+{% endblock %}

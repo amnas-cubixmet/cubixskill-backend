@@ -1,0 +1,135 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Ticket #{{ ticket.ticket_number }} | Support | Control Panel{% endblock %}
+
+{% block content %}
+<div>
+
+  <!-- Standard Back Button -->
+  {% url 'control_panel:support_tickets_list' as support_tickets_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=support_tickets_list_url back_label="Back to Support" %}
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Ticket: <code>#{{ ticket.ticket_number }}</code></h1>
+        <span class="cp-badge {% if ticket.status == 'RESOLVED' or ticket.status == 'CLOSED' %}cp-badge-success{% elif ticket.status == 'IN_PROGRESS' %}cp-badge-primary{% else %}cp-badge-warning{% endif %}">
+          {{ ticket.get_status_display }}
+        </span>
+      </div>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">
+        Subject: {{ ticket.subject }} &bull; Priority: {{ ticket.get_priority_display }} &bull; Submitted on {{ ticket.created_at|date:"d M Y, H:i" }}
+      </p>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
+
+    <!-- Left Column: Messages Thread -->
+    <div>
+      <div class="cp-card" style="margin-bottom: 24px;">
+        <h2 style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-top: 0; margin-bottom: 16px;">Conversation Thread</h2>
+
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+          {% for msg in ticket_messages %}
+            <div style="padding: 14px; border-radius: 8px; background-color: var(--cp-input-bg); border: 1px solid var(--cp-border); {% if msg.is_internal_note %}border-left: 3px solid var(--cp-warning);{% endif %}">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <div style="font-size: 12px; font-weight: 600; color: var(--cp-text-primary);">
+                  {{ msg.sender.full_name|default:msg.sender.email }}
+                  {% if msg.is_internal_note %}
+                    <span class="cp-badge cp-badge-warning" style="font-size: 10px; margin-left: 6px;">INTERNAL NOTE</span>
+                  {% endif %}
+                </div>
+                <span style="font-size: 11px; color: var(--cp-text-muted);">{{ msg.created_at|date:"d M Y, H:i" }}</span>
+              </div>
+              <div style="font-size: 13px; color: var(--cp-text-secondary); line-height: 1.5; white-space: pre-wrap;">{{ msg.message }}</div>
+            </div>
+          {% empty %}
+            <div style="font-size: 12px; color: var(--cp-text-muted); padding: 12px;">No messages recorded on this ticket.</div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Post Reply Box -->
+      {% if can_reply or can_update %}
+        <div class="cp-card">
+          <h2 style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-top: 0; margin-bottom: 14px;">Post Response</h2>
+
+          <form method="POST" action="{% url 'control_panel:support_ticket_reply' pk=ticket.pk %}" style="display: flex; flex-direction: column; gap: 14px;">
+            {% csrf_token %}
+
+            {% if can_reply %}
+              <div>
+                <textarea name="message" class="cp-input" style="height: 100px; padding: 10px 12px; resize: vertical;" placeholder="Type your response to the user..."></textarea>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" name="is_internal_note" value="true" id="internal-note-check">
+                <label for="internal-note-check" style="font-size: 12px; color: var(--cp-text-muted); cursor: pointer;">Internal note (visible only to support team)</label>
+              </div>
+            {% endif %}
+
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--cp-border); padding-top: 14px;">
+              {% if can_update %}
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label style="font-size: 12px; color: var(--cp-text-muted);">Update Status:</label>
+                  <select name="status" class="cp-select" style="width: 150px; height: 34px;">
+                    <option value="OPEN" {% if ticket.status == 'OPEN' %}selected{% endif %}>Open</option>
+                    <option value="IN_PROGRESS" {% if ticket.status == 'IN_PROGRESS' %}selected{% endif %}>In Progress</option>
+                    <option value="RESOLVED" {% if ticket.status == 'RESOLVED' %}selected{% endif %}>Resolved</option>
+                    <option value="CLOSED" {% if ticket.status == 'CLOSED' %}selected{% endif %}>Closed</option>
+                  </select>
+                </div>
+              {% else %}
+                <div></div>
+              {% endif %}
+
+              <button type="submit" class="cp-btn cp-btn-primary" style="height: 36px; padding: 0 16px;">Submit Reply</button>
+            </div>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Right Column: Ticket Metadata -->
+    <div>
+      <div class="cp-card">
+        <h2 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary); margin-top: 0; margin-bottom: 14px;">Ticket Context</h2>
+
+        <div style="display: flex; flex-direction: column; gap: 12px; font-size: 12px;">
+          <div>
+            <div style="color: var(--cp-text-muted); margin-bottom: 2px;">Academy</div>
+            {% if ticket.academy %}
+              <a href="{% url 'control_panel:academy_detail' pk=ticket.academy.pk %}" style="font-weight: 600; color: var(--cp-primary); text-decoration: none;">
+                {{ ticket.academy.name }}
+              </a>
+            {% else %}
+              <span style="font-weight: 500;">Platform Direct</span>
+            {% endif %}
+          </div>
+
+          <div>
+            <div style="color: var(--cp-text-muted); margin-bottom: 2px;">Submitted By</div>
+            <div style="font-weight: 600; color: var(--cp-text-primary);">{{ ticket.user.full_name|default:ticket.user.email }}</div>
+            <div style="color: var(--cp-text-muted);">{{ ticket.user.email }}</div>
+          </div>
+
+          <div>
+            <div style="color: var(--cp-text-muted); margin-bottom: 2px;">Category</div>
+            <span class="cp-badge cp-badge-neutral">{{ ticket.category }}</span>
+          </div>
+
+          <div>
+            <div style="color: var(--cp-text-muted); margin-bottom: 2px;">Priority</div>
+            <span class="cp-badge {% if ticket.priority == 'URGENT' or ticket.priority == 'HIGH' %}cp-badge-danger{% else %}cp-badge-neutral{% endif %}">
+              {{ ticket.get_priority_display }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}

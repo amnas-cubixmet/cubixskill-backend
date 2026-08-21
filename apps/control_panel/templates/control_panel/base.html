@@ -4,35 +4,58 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Super Admin Control Panel{% endblock %} | CubixSkill</title>
+  <title>{% block title %}Control Panel{% endblock %} | CubixSkill</title>
   <link rel="stylesheet" href="{% static 'control_panel/css/style.css' %}">
+  <script>
+    // Early theme application to prevent dark/light theme flash
+    (function() {
+      const savedTheme = localStorage.getItem('cubixskill-theme') || localStorage.getItem('cp-theme') || 'system';
+      let activeTheme = savedTheme;
+      if (savedTheme === 'system') {
+        activeTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', activeTheme);
+    })();
+  </script>
   {% block extra_head %}{% endblock %}
 </head>
 <body>
   <div class="cp-layout">
-    <!-- Header -->
+    <!-- Header Navbar -->
     <header class="cp-header">
       <div style="display: flex; align-items: center; gap: 12px;">
-        <button type="button" id="sidebar-toggle" style="background: none; border: none; color: var(--cp-text-primary); cursor: pointer; font-size: 16px;" class="md-hidden">☰</button>
+        <button type="button" id="sidebar-toggle" style="background: none; border: none; color: var(--cp-text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px;" class="md-hidden" aria-label="Toggle Navigation Sidebar">
+          {% include "control_panel/components/icon.html" with name="menu" size="18" %}
+        </button>
         <a href="{% url 'control_panel:dashboard' %}" class="cp-brand">
           <span>CubixSkill</span>
           <span class="cp-brand-badge">CONTROL</span>
         </a>
       </div>
 
-      <div style="display: flex; align-items: center; gap: 16px;">
-        <!-- Theme Toggle -->
-        <button type="button" id="theme-toggle" class="cp-btn cp-btn-secondary" style="height: 32px; padding: 0 10px;">
-          <span id="theme-icon">🌙</span> <span id="theme-text">Dark</span>
-        </button>
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <!-- Theme Selector (Light, Dark, System) -->
+        <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--cp-text-secondary);">
+          <span id="theme-svg-icon" style="display: inline-flex; align-items: center;">
+            <!-- SVG Icon injected dynamically -->
+          </span>
+          <select id="theme-selector" class="cp-select" style="height: 32px; padding: 0 24px 0 8px; font-size: 11px; width: auto; font-weight: 500;">
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+            <option value="system">System</option>
+          </select>
+        </div>
 
         <!-- User Badge -->
         <div style="display: flex; align-items: center; gap: 8px;">
           <div style="width: 28px; height: 28px; border-radius: 50%; background: var(--cp-primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 11px;">
             {{ request.user.full_name|default:"SA"|slice:":2"|upper }}
           </div>
-          <span style="font-weight: 500; font-size: 12px; color: var(--cp-text-primary);">{{ request.user.full_name|default:request.user.email }}</span>
-          <a href="{% url 'control_panel:logout' %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">Logout</a>
+          <span style="font-weight: 500; font-size: 12px; color: var(--cp-text-primary);" class="sm-hidden">{{ request.user.full_name|default:request.user.email }}</span>
+          <a href="{% url 'control_panel:logout' %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+            {% include "control_panel/components/icon.html" with name="logout" size="13" %}
+            <span>Logout</span>
+          </a>
         </div>
       </div>
     </header>
@@ -43,53 +66,210 @@
 
       <!-- Content Area -->
       <main class="cp-content">
-        {% if messages %}
-          {% for message in messages %}
-            <div class="cp-card" style="padding: 10px 16px; margin-bottom: 16px; border-left: 4px solid var(--cp-primary);">
-              {{ message }}
-            </div>
-          {% endfor %}
-        {% endif %}
+        <!-- Toast Notification Container -->
+        <div id="cp-toast-container" class="cp-toast-container">
+          {% if messages %}
+            {% for message in messages %}
+              <div class="cp-toast cp-toast-{{ message.tags|default:'info' }}">
+                <span class="cp-toast-icon">
+                  {% if message.tags == 'error' or message.tags == 'danger' %}
+                    {% include "control_panel/components/icon.html" with name="warning" size="15" %}
+                  {% elif message.tags == 'success' %}
+                    {% include "control_panel/components/icon.html" with name="check" size="15" %}
+                  {% else %}
+                    {% include "control_panel/components/icon.html" with name="info" size="15" %}
+                  {% endif %}
+                </span>
+                <span class="cp-toast-msg">{{ message }}</span>
+                <button type="button" class="cp-toast-close" onclick="this.parentElement.remove()" aria-label="Close notification">&times;</button>
+              </div>
+            {% endfor %}
+          {% endif %}
+        </div>
 
         {% block content %}{% endblock %}
       </main>
     </div>
   </div>
 
+  <!-- Global Custom Confirmation Modal -->
+  <div id="cp-global-modal" class="cp-modal-backdrop" style="display:none;">
+    <div class="cp-modal-card">
+      <div class="cp-modal-header">
+        <div id="cp-modal-icon-container" class="cp-modal-icon">
+          {% include "control_panel/components/icon.html" with name="warning" size="22" %}
+        </div>
+        <div>
+          <h3 id="cp-modal-title" class="cp-modal-title">Confirm Action</h3>
+          <p id="cp-modal-desc" class="cp-modal-desc">Are you sure you want to proceed with this action?</p>
+        </div>
+      </div>
+      <div class="cp-modal-footer">
+        <button type="button" id="cp-modal-cancel-btn" class="cp-btn cp-btn-secondary">Cancel</button>
+        <button type="button" id="cp-modal-confirm-btn" class="cp-btn cp-btn-danger">Confirm Action</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    // Theme Management
-    const themeToggleBtn = document.getElementById('theme-toggle');
-    const themeIcon = document.getElementById('theme-icon');
-    const themeText = document.getElementById('theme-text');
-    
-    function setTheme(theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem('cp-theme', theme);
-      if (theme === 'dark') {
-        themeIcon.textContent = '🌙';
-        themeText.textContent = 'Dark';
+    // Theme Management with Light / Dark / System support
+    const themeSelector = document.getElementById('theme-selector');
+    const themeIconContainer = document.getElementById('theme-svg-icon');
+    const systemMediaMatch = window.matchMedia('(prefers-color-scheme: dark)');
+
+    const SVG_SUN = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>`;
+    const SVG_MOON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>`;
+    const SVG_MONITOR = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>`;
+
+    function applyThemeMode(mode) {
+      let activeTheme = mode;
+      if (mode === 'system') {
+        activeTheme = systemMediaMatch.matches ? 'dark' : 'light';
+        themeIconContainer.innerHTML = SVG_MONITOR;
+      } else if (mode === 'dark') {
+        themeIconContainer.innerHTML = SVG_MOON;
       } else {
-        themeIcon.textContent = '☀️';
-        themeText.textContent = 'Light';
+        themeIconContainer.innerHTML = SVG_SUN;
+      }
+
+      document.documentElement.setAttribute('data-theme', activeTheme);
+      localStorage.setItem('cubixskill-theme', mode);
+      localStorage.setItem('cp-theme', mode);
+      if (themeSelector) {
+        themeSelector.value = mode;
       }
     }
 
-    const savedTheme = localStorage.getItem('cp-theme') || 'dark';
-    setTheme(savedTheme);
+    const savedThemeMode = localStorage.getItem('cubixskill-theme') || localStorage.getItem('cp-theme') || 'system';
+    applyThemeMode(savedThemeMode);
 
-    themeToggleBtn.addEventListener('click', () => {
-      const current = document.documentElement.getAttribute('data-theme');
-      setTheme(current === 'dark' ? 'light' : 'dark');
+    if (themeSelector) {
+      themeSelector.addEventListener('change', (e) => {
+        applyThemeMode(e.target.value);
+      });
+    }
+
+    systemMediaMatch.addEventListener('change', () => {
+      const currentMode = localStorage.getItem('cubixskill-theme') || 'system';
+      if (currentMode === 'system') {
+        applyThemeMode('system');
+      }
     });
 
-    // Mobile Sidebar Drawer Toggle
+    // Auto-center active sidebar navigation item inside sidebar container without scrolling main document
+    function autoCenterActiveSidebarItem() {
+      const sidebar = document.getElementById('cp-sidebar');
+      if (!sidebar) return;
+
+      const activeItem = sidebar.querySelector('.cp-nav-item.active');
+      if (!activeItem) return;
+
+      const sidebarHeight = sidebar.clientHeight;
+      const itemTop = activeItem.offsetTop;
+      const itemHeight = activeItem.offsetHeight;
+
+      const targetScrollTop = itemTop - (sidebarHeight / 2) + (itemHeight / 2);
+      sidebar.scrollTo({
+        top: Math.max(0, targetScrollTop),
+        behavior: 'auto'
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', autoCenterActiveSidebarItem);
+    window.addEventListener('load', autoCenterActiveSidebarItem);
+
+    // Mobile Sidebar Drawer Toggle with background scroll locking
     const sidebarToggleBtn = document.getElementById('sidebar-toggle');
     const cpSidebar = document.getElementById('cp-sidebar');
     if (sidebarToggleBtn && cpSidebar) {
       sidebarToggleBtn.addEventListener('click', () => {
-        cpSidebar.classList.toggle('open');
+        const isOpen = cpSidebar.classList.toggle('open');
+        if (isOpen) {
+          document.body.style.overflow = 'hidden';
+          autoCenterActiveSidebarItem();
+        } else {
+          document.body.style.overflow = '';
+        }
+      });
+      document.addEventListener('click', (e) => {
+        if (!cpSidebar.contains(e.target) && !sidebarToggleBtn.contains(e.target) && cpSidebar.classList.contains('open')) {
+          cpSidebar.classList.remove('open');
+          document.body.style.overflow = '';
+        }
       });
     }
+
+    // Global Modal Dialog System (replaces native confirm/alert)
+    const modalBackdrop = document.getElementById('cp-global-modal');
+    const modalTitle = document.getElementById('cp-modal-title');
+    const modalDesc = document.getElementById('cp-modal-desc');
+    const modalCancelBtn = document.getElementById('cp-modal-cancel-btn');
+    const modalConfirmBtn = document.getElementById('cp-modal-confirm-btn');
+    let modalCallback = null;
+
+    window.openConfirmModal = function({ title, message, confirmText = 'Confirm', confirmClass = 'cp-btn-danger', onConfirm }) {
+      if (!modalBackdrop) return;
+      modalTitle.textContent = title || 'Confirm Action';
+      modalDesc.textContent = message || 'Are you sure you want to proceed?';
+      modalConfirmBtn.textContent = confirmText;
+      modalConfirmBtn.className = 'cp-btn ' + confirmClass;
+      modalCallback = onConfirm;
+      modalBackdrop.style.display = 'flex';
+    };
+
+    function closeModal() {
+      if (modalBackdrop) modalBackdrop.style.display = 'none';
+      modalCallback = null;
+    }
+
+    if (modalCancelBtn) modalCancelBtn.addEventListener('click', closeModal);
+    if (modalConfirmBtn) {
+      modalConfirmBtn.addEventListener('click', () => {
+        if (modalCallback) modalCallback();
+        closeModal();
+      });
+    }
+    if (modalBackdrop) {
+      modalBackdrop.addEventListener('click', (e) => {
+        if (e.target === modalBackdrop) closeModal();
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modalBackdrop.style.display === 'flex') closeModal();
+      });
+    }
+
+    // Event delegation for confirm buttons/forms with data-confirm-title and data-confirm-message
+    document.addEventListener('click', function(e) {
+      const target = e.target.closest('[data-confirm-title]');
+      if (target) {
+        e.preventDefault();
+        const title = target.getAttribute('data-confirm-title');
+        const message = target.getAttribute('data-confirm-message') || 'Are you sure you want to proceed?';
+        const confirmText = target.getAttribute('data-confirm-btn') || 'Confirm Action';
+        const isForm = target.tagName === 'BUTTON' && target.form;
+
+        openConfirmModal({
+          title: title,
+          message: message,
+          confirmText: confirmText,
+          onConfirm: function() {
+            if (isForm) {
+              target.form.submit();
+            } else if (target.tagName === 'A' && target.href) {
+              window.location.href = target.href;
+            }
+          }
+        });
+      }
+    });
+
+    // Auto-dismiss toasts after 5 seconds
+    setTimeout(() => {
+      document.querySelectorAll('.cp-toast').forEach(toast => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 250);
+      });
+    }, 5000);
   </script>
   {% block extra_js %}{% endblock %}
 </body>

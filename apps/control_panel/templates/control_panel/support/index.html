@@ -1,0 +1,158 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Support | Control Panel{% endblock %}
+
+{% block content %}
+<div>
+
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Support</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Manage academy support requests and assistance.</p>
+    </div>
+  </div>
+
+  <!-- Real Metric Summary Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Total Tickets</span>
+      <span class="cp-kpi-value">{{ total_tickets }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Open Tickets</span>
+      <span class="cp-kpi-value" style="color: var(--cp-warning);">{{ open_tickets }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">In Progress</span>
+      <span class="cp-kpi-value" style="color: var(--cp-primary);">{{ in_progress_tickets }}</span>
+    </div>
+    <div class="cp-kpi-card">
+      <span class="cp-kpi-label">Resolved</span>
+      <span class="cp-kpi-value" style="color: var(--cp-success);">{{ resolved_tickets }}</span>
+    </div>
+  </div>
+
+  <!-- Search & Filter Bar -->
+  <div class="cp-card" style="margin-bottom: 20px; padding: 14px;">
+    <form method="GET" action="" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <div style="position: relative; flex: 1; min-width: 220px;">
+        <input type="text" name="q" class="cp-input" placeholder="Search ticket #, subject, academy or user..." value="{{ q }}" style="padding-left: 32px;">
+        <span style="position: absolute; left: 10px; top: 10px; color: var(--cp-text-muted); display: inline-flex;">
+          {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        </span>
+      </div>
+
+      <div style="width: 160px;">
+        <select name="status" class="cp-select" onchange="this.form.submit()">
+          <option value="">All Statuses</option>
+          <option value="OPEN" {% if status_filter == 'OPEN' %}selected{% endif %}>Open</option>
+          <option value="IN_PROGRESS" {% if status_filter == 'IN_PROGRESS' %}selected{% endif %}>In Progress</option>
+          <option value="RESOLVED" {% if status_filter == 'RESOLVED' %}selected{% endif %}>Resolved</option>
+          <option value="CLOSED" {% if status_filter == 'CLOSED' %}selected{% endif %}>Closed</option>
+        </select>
+      </div>
+
+      <div style="width: 160px;">
+        <select name="priority" class="cp-select" onchange="this.form.submit()">
+          <option value="">All Priorities</option>
+          <option value="LOW" {% if priority_filter == 'LOW' %}selected{% endif %}>Low</option>
+          <option value="MEDIUM" {% if priority_filter == 'MEDIUM' %}selected{% endif %}>Medium</option>
+          <option value="HIGH" {% if priority_filter == 'HIGH' %}selected{% endif %}>High</option>
+          <option value="URGENT" {% if priority_filter == 'URGENT' %}selected{% endif %}>Urgent</option>
+        </select>
+      </div>
+
+      <button type="submit" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        <span>Filter</span>
+      </button>
+
+      {% if q or status_filter or priority_filter %}
+        <a href="{% url 'control_panel:support_tickets_list' %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">Clear Filters</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Support Tickets Table -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    {% if tickets_page %}
+      <div class="cp-table-container">
+        <table class="cp-table">
+          <thead>
+            <tr>
+              <th>Ticket Ref</th>
+              <th>Subject</th>
+              <th>Academy / User</th>
+              <th>Priority</th>
+              <th>Status</th>
+              <th>Created Date</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in tickets_page %}
+              <tr>
+                <td>
+                  <a href="{% url 'control_panel:support_ticket_detail' pk=t.pk %}" style="font-weight: 600; color: var(--cp-primary); text-decoration: none;">
+                    <code>#{{ t.ticket_number }}</code>
+                  </a>
+                </td>
+                <td><span style="font-weight: 500; color: var(--cp-text-primary);">{{ t.subject }}</span></td>
+                <td>
+                  {% if t.academy %}
+                    <span style="font-weight: 500; color: var(--cp-text-primary);">{{ t.academy.name }}</span>
+                    <div style="font-size: 11px; color: var(--cp-text-muted);">{{ t.user.email }}</div>
+                  {% else %}
+                    <span style="font-weight: 500;">{{ t.user.full_name|default:t.user.email }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <span class="cp-badge {% if t.priority == 'URGENT' or t.priority == 'HIGH' %}cp-badge-danger{% else %}cp-badge-neutral{% endif %}">
+                    {{ t.get_priority_display }}
+                  </span>
+                </td>
+                <td>
+                  <span class="cp-badge {% if t.status == 'RESOLVED' or t.status == 'CLOSED' %}cp-badge-success{% elif t.status == 'IN_PROGRESS' %}cp-badge-primary{% else %}cp-badge-warning{% endif %}">
+                    {{ t.get_status_display }}
+                  </span>
+                </td>
+                <td><span style="font-size: 11px; color: var(--cp-text-muted);">{{ t.created_at|date:"d M Y, H:i" }}</span></td>
+                <td style="text-align: right;">
+                  <a href="{% url 'control_panel:support_ticket_detail' pk=t.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 10px; font-size: 11px;">
+                    {% include "control_panel/components/icon.html" with name="eye" size="13" %}
+                    <span>View Ticket</span>
+                  </a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      {% if tickets_page.has_other_pages %}
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-top: 1px solid var(--cp-border);">
+          <div style="font-size: 12px; color: var(--cp-text-muted);">
+            Showing {{ tickets_page.start_index }} to {{ tickets_page.end_index }} of {{ tickets_page.paginator.count }} support tickets
+          </div>
+          <div style="display: flex; gap: 6px;">
+            {% if tickets_page.has_previous %}
+              <a href="?page={{ tickets_page.previous_page_number }}&q={{ q }}&status={{ status_filter }}&priority={{ priority_filter }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Previous</a>
+            {% endif %}
+            {% if tickets_page.has_next %}
+              <a href="?page={{ tickets_page.next_page_number }}&q={{ q }}&status={{ status_filter }}&priority={{ priority_filter }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      <div style="padding: 48px; text-align: center; color: var(--cp-text-muted);">
+        <div style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 4px;">No support tickets found</div>
+        <p style="font-size: 12px;">Academy support requests will appear here.</p>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

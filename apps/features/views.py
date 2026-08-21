@@ -94,6 +94,25 @@ class CourseFeatureViewSet(viewsets.ViewSet):
             "is_enabled": cf.is_enabled
         })
 
+    @action(detail=False, methods=['post'], url_path='save-bulk')
+    def save_bulk(self, request, course_id=None):
+        course = get_object_or_404(Course, pk=course_id)
+        user_academy = getattr(request.user, 'academy_id', None)
+        if user_academy and course.academy_id and user_academy != course.academy_id:
+            raise CubixSkillAPIException("Access denied to course in another academy.", code="CROSS_ACADEMY_FORBIDDEN", status_code=403)
+
+        features_data = request.data.get('features', {})
+        if not isinstance(features_data, dict):
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"features": ["Expected a dictionary mapping feature codes to boolean states."]})
+
+        updated_features = CourseFeatureService.save_bulk_features(course, features_data, user=request.user)
+        return Response({
+            "message": "Course features configuration saved successfully.",
+            "course_id": str(course.id),
+            "features": updated_features
+        })
+
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])

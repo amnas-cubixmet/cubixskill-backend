@@ -1,0 +1,31 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Academy Subscriptions | Control Panel{% endblock %}
+{% block content %}
+<div class="cp-page-header">
+  <h1 class="cp-page-title">Academy Subscriptions</h1>
+</div>
+<div class="cp-card" style="padding: 0;">
+  <div class="cp-table-container">
+    <table class="cp-table">
+      <thead>
+        <tr><th>Academy</th><th>Plan</th><th>Billing Cycle</th><th>Status</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for sub in subscriptions %}
+        <tr>
+          <td style="font-weight: 500;">{{ sub.academy.name }}</td>
+          <td>{{ sub.plan.name }}</td>
+          <td>{{ sub.billing_cycle }}</td>
+          <td><span class="cp-badge cp-badge-active">{{ sub.status }}</span></td>
+          <td>
+            <a href="{% url 'control_panel:subscription_detail' sub.id %}" class="cp-btn cp-btn-secondary" style="padding: 2px 8px; font-size: 11px;">View</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" style="text-align: center; color: var(--cp-text-muted);">No academy subscriptions found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

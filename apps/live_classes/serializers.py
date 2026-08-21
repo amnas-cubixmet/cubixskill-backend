@@ -150,6 +150,7 @@ class LiveSessionCreateSerializer(serializers.Serializer):
     meeting_url = serializers.URLField(required=False, allow_blank=True, default='')
     max_participants = serializers.IntegerField(required=False, default=100)
     recording_enabled = serializers.BooleanField(required=False, default=False)
+    send_email = serializers.BooleanField(required=False, default=False)
     reminders_minutes_before = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
@@ -171,6 +172,7 @@ class LiveSessionUpdateSerializer(serializers.Serializer):
     meeting_url = serializers.URLField(required=False, allow_blank=True)
     max_participants = serializers.IntegerField(required=False)
     recording_enabled = serializers.BooleanField(required=False)
+    send_email = serializers.BooleanField(required=False, default=False)
 
 #--------------------------------------------------------------
 # 8. End Session Request Serializer

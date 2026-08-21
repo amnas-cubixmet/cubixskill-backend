@@ -92,6 +92,45 @@ class StudentViewSet(viewsets.ModelViewSet):
 
         return api_response(message=f"Email sent successfully to {recipient_email}.")
 
+    @action(detail=True, methods=['post'], url_path='resend-activation')
+    def resend_activation(self, request, pk=None):
+        student = self.get_object()
+        StudentService.resend_activation_email(student, request.user.academy)
+        return api_response(message="Activation email resent successfully.")
+
+    @action(detail=False, methods=['post'], url_path='bulk-upload')
+    def bulk_upload(self, request):
+        course_id = request.data.get('course_id')
+        rows = request.data.get('rows')
+
+        if not course_id:
+            raise CubixSkillAPIException("course_id is required.", code="COURSE_REQUIRED", status_code=400)
+        if rows is None or not isinstance(rows, list):
+            raise CubixSkillAPIException("rows must be a list of student records.", code="INVALID_ROWS", status_code=400)
+        if len(rows) == 0:
+            raise CubixSkillAPIException("rows list cannot be empty.", code="EMPTY_ROWS", status_code=400)
+
+        try:
+            result = StudentService.bulk_upload_students(
+                academy=request.user.academy,
+                course_id=str(course_id),
+                rows=rows,
+                created_by=request.user
+            )
+
+            return api_response(
+                data=result,
+                message="Bulk upload completed successfully.",
+                status_code=status.HTTP_200_OK
+            )
+        except CubixSkillAPIException:
+            raise
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.exception("Unexpected error in bulk_upload endpoint: %s", str(e))
+            raise CubixSkillAPIException("Bulk upload processing failed due to a server error.", code="BULK_UPLOAD_ERROR", status_code=500)
+
 #--------------------------------------------------------------
 # Student Self-Service ViewSet
 #--------------------------------------------------------------

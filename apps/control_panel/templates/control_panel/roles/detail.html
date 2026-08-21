@@ -1,0 +1,125 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Role Detail: {{ role.name }} | Control Panel{% endblock %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 20px;">
+
+  {% url 'control_panel:roles_list' as roles_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=roles_list_url back_label="Back to Roles" %}
+
+  <!-- Header -->
+  <div class="cp-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h2 class="cp-card-title" style="font-size: 20px;">Role: {{ role.name }} <code>({{ role.code }})</code></h2>
+    </div>
+
+    <div style="display: flex; gap: 8px;">
+      <a href="{% url 'control_panel:role_edit' pk=role.pk %}" class="cp-btn cp-btn-secondary" style="height: 32px; padding: 0 12px; font-size: 11px;">Edit Role</a>
+      {% if not role.is_system_role %}
+        <a href="{% url 'control_panel:role_delete' pk=role.pk %}" class="cp-btn cp-btn-secondary" style="height: 32px; padding: 0 12px; font-size: 11px; color: var(--cp-danger);">Delete Role</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Summary KPI Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Role Type</div>
+      <div style="margin-top: 4px;">
+        {% if role.is_system_role %}
+          <span class="cp-badge cp-badge-warning" style="font-size: 13px;">SYSTEM PROTECTED</span>
+        {% else %}
+          <span class="cp-badge cp-badge-neutral" style="font-size: 13px;">CUSTOM ROLE</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Role Scope</div>
+      <div class="cp-kpi-value">{{ role.scope }}</div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Assigned Users</div>
+      <div class="cp-kpi-value" style="color: var(--cp-primary);">{{ user_count }}</div>
+    </div>
+
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Granted Permissions</div>
+      <div class="cp-kpi-value" style="color: var(--cp-success);">{{ perm_count }}</div>
+    </div>
+  </div>
+
+  <!-- Grouped Permissions matrix -->
+  <div class="cp-card">
+    <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 16px;">Assigned Permissions Matrix</h3>
+
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      {% for mod_name, items in modules_dict.items %}
+        <div style="border: 1px solid var(--cp-border); border-radius: 8px; padding: 14px; background-color: var(--cp-input-bg);">
+          <div style="font-size: 12px; font-weight: 600; color: var(--cp-primary); text-transform: uppercase; margin-bottom: 10px;">
+            {{ mod_name }}
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px;">
+            {% for item in items %}
+              <div style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
+                {% if item.is_assigned %}
+                  <span style="color: var(--cp-success); font-weight: bold;">✓</span>
+                  <span style="color: var(--cp-text-primary); font-weight: 500;">{{ item.permission.name }}</span>
+                {% else %}
+                  <span style="color: var(--cp-text-muted);">✕</span>
+                  <span style="color: var(--cp-text-muted); text-decoration: line-through;">{{ item.permission.name }}</span>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Assigned Users list -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    <div style="padding: 16px 20px; border-bottom: 1px solid var(--cp-border);">
+      <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary);">Assigned Users ({{ user_count }})</h3>
+    </div>
+    <div class="cp-table-container">
+      <table class="cp-table">
+        <thead>
+          <tr>
+            <th>User Name</th>
+            <th>Email</th>
+            <th>Academy</th>
+            <th>Role Code</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in assigned_users %}
+          <tr>
+            <td style="font-weight: 500;">{{ u.full_name|default:u.email }}</td>
+            <td>{{ u.email }}</td>
+            <td>{{ u.academy.name|default:"Global Platform" }}</td>
+            <td><code>{{ u.role_code }}</code></td>
+            <td>
+              {% if u.is_active %}
+                <span class="cp-badge cp-badge-success">ACTIVE</span>
+              {% else %}
+                <span class="cp-badge cp-badge-danger">INACTIVE</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="5" style="text-align: center; color: var(--cp-text-muted); padding: 24px;">
+              No users currently assigned to this role.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

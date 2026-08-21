@@ -1,0 +1,132 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Roles & Permissions | Control Panel{% endblock %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 20px;">
+
+  <!-- Header -->
+  <div class="cp-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h2 class="cp-card-title">Roles &amp; Permissions</h2>
+      <p style="color: var(--cp-text-muted); font-size: 12px; margin-top: 2px;">Manage system roles and control access permissions across the platform.</p>
+    </div>
+    <div style="display: flex; gap: 10px;">
+      <a href="{% url 'control_panel:permissions_list' %}" class="cp-btn cp-btn-secondary">View Permissions Catalog</a>
+      <a href="{% url 'control_panel:role_create' %}" class="cp-btn cp-btn-primary">+ Create Role</a>
+    </div>
+  </div>
+
+  <!-- KPI Summary Cards -->
+  <div class="cp-kpi-grid">
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Total Roles</div>
+      <div class="cp-kpi-value">{{ total_roles }}</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">Defined Roles</div>
+    </div>
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Total Permissions</div>
+      <div class="cp-kpi-value" style="color: var(--cp-primary);">{{ total_permissions }}</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">Platform Permissions</div>
+    </div>
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Active Roles</div>
+      <div class="cp-kpi-value" style="color: var(--cp-success);">{{ active_roles }}</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">Enabled Roles</div>
+    </div>
+    <div class="cp-kpi-card">
+      <div class="cp-kpi-label">Assigned Users</div>
+      <div class="cp-kpi-value">{{ assigned_users_count }}</div>
+      <div style="font-size: 11px; color: var(--cp-text-muted);">Users with Roles</div>
+    </div>
+  </div>
+
+  <!-- Search & Filters -->
+  <div class="cp-card" style="padding: 12px 16px;">
+    <form method="GET" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <input type="text" name="q" value="{{ q }}" class="cp-input" placeholder="Search roles by name, code, description..." style="max-width: 320px;">
+      
+      <select name="type" class="cp-select" style="max-width: 150px;" onchange="this.form.submit()">
+        <option value="all" {% if role_type == 'all' %}selected{% endif %}>All Types</option>
+        <option value="system" {% if role_type == 'system' %}selected{% endif %}>System Roles</option>
+        <option value="custom" {% if role_type == 'custom' %}selected{% endif %}>Custom Roles</option>
+      </select>
+
+      <select name="status" class="cp-select" style="max-width: 150px;" onchange="this.form.submit()">
+        <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Statuses</option>
+        <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Active</option>
+        <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>Inactive</option>
+      </select>
+
+      <button type="submit" class="cp-btn cp-btn-primary">Filter</button>
+      {% if q or role_type != 'all' or status_filter != 'all' %}
+        <a href="{% url 'control_panel:roles_list' %}" class="cp-btn cp-btn-secondary">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Roles Table -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    <div class="cp-table-container">
+      <table class="cp-table">
+        <thead>
+          <tr>
+            <th>Role Name</th>
+            <th>Code</th>
+            <th>Type</th>
+            <th>Scope</th>
+            <th>Users</th>
+            <th>Permissions</th>
+            <th>Status</th>
+            <th style="text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in roles_data %}
+          <tr>
+            <td>
+              <strong style="color: var(--cp-text-primary); font-weight: 600;">
+                <a href="{% url 'control_panel:role_detail' pk=item.role.pk %}" style="color: var(--cp-primary); text-decoration: none;">{{ item.role.name }}</a>
+              </strong>
+            </td>
+            <td><code>{{ item.role.code }}</code></td>
+            <td>
+              {% if item.role.is_system_role %}
+                <span class="cp-badge cp-badge-warning">SYSTEM</span>
+              {% else %}
+                <span class="cp-badge cp-badge-neutral">CUSTOM</span>
+              {% endif %}
+            </td>
+            <td style="font-size: 11px;">{{ item.role.scope }}</td>
+            <td style="font-weight: 500;">{{ item.user_count }} Users</td>
+            <td style="font-weight: 500;">{{ item.perm_count }} Permissions</td>
+            <td>
+              {% if item.role.is_active %}
+                <span class="cp-badge cp-badge-success">ACTIVE</span>
+              {% else %}
+                <span class="cp-badge cp-badge-danger">INACTIVE</span>
+              {% endif %}
+            </td>
+            <td style="text-align: right;">
+              <div style="display: inline-flex; gap: 6px; align-items: center;">
+                <a href="{% url 'control_panel:role_detail' pk=item.role.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">View</a>
+                <a href="{% url 'control_panel:role_edit' pk=item.role.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">Edit</a>
+                {% if not item.role.is_system_role %}
+                  <a href="{% url 'control_panel:role_delete' pk=item.role.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-danger);">Delete</a>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8" style="text-align: center; color: var(--cp-text-muted); padding: 32px;">
+              No roles found.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

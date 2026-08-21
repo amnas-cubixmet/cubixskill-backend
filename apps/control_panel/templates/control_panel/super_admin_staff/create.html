@@ -1,0 +1,352 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Add Super Admin Staff | Control Panel{% endblock %}
+
+{% block content %}
+<style>
+  .staff-create-wrapper {
+    max-width: 700px;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .staff-card {
+    background: var(--cp-card-bg, #FFFFFF);
+    border: 1px solid var(--cp-border, #E2E8F0);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  [data-theme="dark"] .staff-card {
+    background: #111827 !important;
+    border: 1px solid #263244 !important;
+    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.05) !important;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  @media (min-width: 768px) {
+    .form-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .staff-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    color: var(--cp-text-secondary, #475569);
+    margin-bottom: 6px;
+    letter-spacing: 0.02em;
+  }
+
+  [data-theme="dark"] .staff-label {
+    color: #CBD5E1 !important;
+  }
+
+  .staff-req {
+    color: #EF4444;
+  }
+
+  [data-theme="dark"] .staff-req {
+    color: #F87171 !important;
+  }
+
+  .staff-input, .staff-select {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid var(--cp-input-border, #CBD5E1);
+    background-color: var(--cp-input-bg, #FFFFFF);
+    color: var(--cp-text-primary, #0F172A);
+    font-size: 13px;
+    font-weight: 400;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  [data-theme="dark"] .staff-input,
+  [data-theme="dark"] .staff-select {
+    background-color: #0F172A !important;
+    border: 1px solid #334155 !important;
+    color: #F8FAFC !important;
+  }
+
+  .staff-input::placeholder {
+    color: #94A3B8;
+  }
+
+  [data-theme="dark"] .staff-input::placeholder {
+    color: #64748B !important;
+  }
+
+  .staff-input:focus, .staff-select:focus {
+    border-color: #3B82F6 !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.10) !important;
+  }
+
+  .staff-select option {
+    background-color: var(--cp-card-bg, #FFFFFF);
+    color: var(--cp-text-primary, #0F172A);
+  }
+
+  [data-theme="dark"] .staff-select option {
+    background-color: #111827 !important;
+    color: #F8FAFC !important;
+  }
+
+  .staff-input-error {
+    border-color: #EF4444 !important;
+  }
+
+  .staff-error-msg {
+    color: #DC2626;
+    font-size: 11px;
+    margin-top: 4px;
+  }
+
+  [data-theme="dark"] .staff-error-msg {
+    color: #F87171 !important;
+  }
+
+  .staff-help-text {
+    font-size: 11px;
+    font-weight: 400;
+    color: #64748B;
+    margin-top: 4px;
+  }
+
+  [data-theme="dark"] .staff-help-text {
+    color: #94A3B8 !important;
+  }
+
+  .staff-eye-btn {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #64748B;
+    cursor: pointer;
+    padding: 0;
+    font-size: 14px;
+    transition: color 0.15s ease;
+  }
+
+  [data-theme="dark"] .staff-eye-btn {
+    color: #94A3B8 !important;
+  }
+
+  .staff-eye-btn:hover {
+    color: #60A5FA !important;
+  }
+
+  .staff-btn-primary {
+    min-height: 42px;
+    padding: 0 20px;
+    font-size: 12px;
+    font-weight: 500;
+    background-color: #2563EB;
+    color: #FFFFFF !important;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.14);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease;
+    text-decoration: none;
+  }
+
+  .staff-btn-primary:hover {
+    background-color: #1D4ED8 !important;
+  }
+
+  .staff-btn-secondary {
+    min-height: 42px;
+    padding: 0 16px;
+    font-size: 12px;
+    font-weight: 500;
+    background-color: #FFFFFF;
+    border: 1px solid #CBD5E1;
+    color: #0F172A !important;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .staff-btn-secondary:hover {
+    background-color: #F1F5F9;
+  }
+
+  [data-theme="dark"] .staff-btn-secondary {
+    background-color: #111827 !important;
+    border: 1px solid #334155 !important;
+    color: #CBD5E1 !important;
+  }
+
+  [data-theme="dark"] .staff-btn-secondary:hover {
+    background-color: #172033 !important;
+    color: #F8FAFC !important;
+  }
+
+  .staff-actions {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--cp-border, #E2E8F0);
+  }
+
+  .staff-actions > * {
+    width: 100%;
+    min-height: 42px;
+    box-sizing: border-box;
+  }
+
+  @media (min-width: 768px) {
+    .staff-actions {
+      flex-direction: row;
+      justify-content: flex-end;
+    }
+    .staff-actions > * {
+      width: auto;
+    }
+  }
+</style>
+
+<div class="staff-create-wrapper">
+
+  {% url 'control_panel:super_admin_staff_list' as super_admin_staff_list_url %}
+  {% include "control_panel/components/back_to_list.html" with back_url=super_admin_staff_list_url back_label="Back to Super Admin Staff" %}
+
+  <!-- Header Card -->
+  <div class="staff-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+    <div>
+      <h2 style="font-size: 18px; font-weight: 600; color: var(--cp-text-primary, #0F172A); margin: 0;">Create Super Admin Staff</h2>
+      <p style="font-size: 12px; color: var(--cp-text-muted, #64748B); margin-top: 4px; font-weight: 400;">Add platform staff account and assign a Control Panel access role.</p>
+    </div>
+  </div>
+
+  {% if not assignable_roles %}
+    <div class="staff-card" style="border: 1px solid var(--cp-warning-border, #FDE68A); background-color: var(--cp-warning-bg, #FEF3C7); padding: 20px;">
+      <h4 style="font-size: 14px; font-weight: 600; color: #92400E; margin: 0 0 8px 0;">No staff roles are available</h4>
+      <p style="font-size: 12px; color: #78350F; margin: 0 0 16px 0;">Create a role before adding Super Admin Staff accounts.</p>
+      <a href="{% url 'control_panel:role_create' %}" class="staff-btn-primary">+ Create Role</a>
+    </div>
+  {% else %}
+
+  <form method="POST" action="">
+    {% csrf_token %}
+
+    <!-- Staff Profile Card -->
+    <div class="staff-card">
+      <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary, #0F172A); margin: 0 0 16px 0;">Staff Profile &amp; Role</h3>
+
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="form-grid">
+          <div>
+            <label class="staff-label">FULL NAME <span class="staff-req">*</span></label>
+            <input type="text" name="full_name" value="{{ form_data.full_name|default:'' }}" class="staff-input {% if errors.full_name %}staff-input-error{% endif %}" placeholder="Fahad Ali" required>
+            {% if errors.full_name %}
+              <div class="staff-error-msg">{{ errors.full_name }}</div>
+            {% endif %}
+          </div>
+
+          <div>
+            <label class="staff-label">EMAIL ADDRESS <span class="staff-req">*</span></label>
+            <input type="email" name="email" value="{{ form_data.email|default:'' }}" class="staff-input {% if errors.email %}staff-input-error{% endif %}" placeholder="fahad@example.com" required>
+            {% if errors.email %}
+              <div class="staff-error-msg">{{ errors.email }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div>
+            <label class="staff-label">PHONE NUMBER</label>
+            <input type="text" name="phone" value="{{ form_data.phone|default:'' }}" class="staff-input" placeholder="+91 98765 43210">
+          </div>
+
+          <div>
+            <label class="staff-label">ROLE <span class="staff-req">*</span></label>
+            <select name="assigned_role_id" class="staff-select {% if errors.assigned_role_id %}staff-input-error{% endif %}" required>
+              <option value="">Select Role...</option>
+              {% for role in assignable_roles %}
+                <option value="{{ role.id }}" {% if form_data.assigned_role_id == role.id|stringformat:"s" %}selected{% endif %}>{{ role.name }}</option>
+              {% endfor %}
+            </select>
+            {% if errors.assigned_role_id %}
+              <div class="staff-error-msg">{{ errors.assigned_role_id }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div>
+            <label class="staff-label">ACCOUNT STATUS</label>
+            <select name="is_active" class="staff-select">
+              <option value="true" selected>Active</option>
+              <option value="false">Inactive / Disabled</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="staff-label">INITIAL PASSWORD</label>
+            <div style="position: relative; width: 100%;">
+              <input type="password" id="staff-password-input" name="password" class="staff-input" style="padding-right: 36px;" placeholder="Default: Password123!">
+              <button type="button" class="staff-eye-btn" onclick="togglePasswordVisibility()" aria-label="Toggle password visibility">{% include "control_panel/components/icon.html" with name="eye" size="15" %}</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="staff-actions">
+        <a href="{% url 'control_panel:super_admin_staff_list' %}" class="staff-btn-secondary">Cancel</a>
+        <button type="submit" class="staff-btn-primary">Create Staff Account</button>
+      </div>
+
+    </div>
+
+  </form>
+
+  {% endif %}
+
+</div>
+
+<script>
+  function togglePasswordVisibility() {
+    const input = document.getElementById('staff-password-input');
+    if (input) {
+      input.type = input.type === 'password' ? 'text' : 'password';
+    }
+  }
+</script>
+{% endblock %}

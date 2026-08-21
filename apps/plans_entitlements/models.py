@@ -5,8 +5,8 @@ class Plan(BaseModel, ActiveMixin):
     name = models.CharField(max_length=100)
     code = models.CharField(max_length=50, unique=True)
     description = models.TextField(blank=True, default='')
-    price_monthly = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    price_yearly = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    credits = models.BigIntegerField(default=10000)
 
     class Meta:
         db_table = 'plans'
@@ -22,7 +22,7 @@ class PlanFeature(BaseModel):
 
 class AcademySubscription(BaseModel, ActiveMixin):
     academy = models.ForeignKey('academy.Academy', on_delete=models.CASCADE, related_name='subscriptions', null=True, blank=True)
-    plan = models.ForeignKey(Plan, on_delete=models.PROTECT, null=True, blank=True)
+    plan = models.ForeignKey(Plan, on_delete=models.PROTECT, related_name='subscriptions', null=True, blank=True)
 
     starts_at = models.DateTimeField()
     expires_at = models.DateTimeField(null=True, blank=True)

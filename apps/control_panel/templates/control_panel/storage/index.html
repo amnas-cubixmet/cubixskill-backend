@@ -1,130 +1,139 @@
-{% extends 'control_panel/base.html' %}
-
-{% block title %}Storage Control & Billing Rules{% endblock %}
+{% extends "control_panel/base.html" %}
+{% block title %}Storage | Control Panel{% endblock %}
 
 {% block content %}
-<div style="display: flex; flex-direction: column; gap: 20px;">
+<div>
 
-  <!-- Header Banner -->
-  <div class="cp-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+  <!-- Header -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
     <div>
-      <h2 class="cp-card-title">Storage Control & Billing Engine</h2>
-      <p style="color: var(--cp-text-muted); font-size: 12px; margin-top: 2px;">Configure storage metering intervals, rates per GB-hour, and monitor global media file storage.</p>
+      <h1 style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Storage</h1>
+      <p style="font-size: 12px; color: var(--cp-text-muted); margin-top: 2px;">Monitor academy storage usage and media consumption.</p>
     </div>
   </div>
 
-  <!-- Storage Summary KPI -->
+  <!-- Real Metric Summary Cards -->
   <div class="cp-kpi-grid">
     <div class="cp-kpi-card">
-      <div class="cp-kpi-label">Total Storage Used</div>
-      <div class="cp-kpi-value" style="color: var(--cp-primary);">{{ total_gb }} GB</div>
-      <div style="font-size: 11px; color: var(--cp-text-muted);">{{ total_files }} Total Files Uploaded</div>
+      <span class="cp-kpi-label">Total Storage Used</span>
+      <span class="cp-kpi-value" style="color: var(--cp-primary);">{{ total_system_storage_formatted }}</span>
     </div>
-
     <div class="cp-kpi-card">
-      <div class="cp-kpi-label">Images</div>
-      <div class="cp-kpi-value">{{ images_count }}</div>
-      <div style="font-size: 11px; color: var(--cp-text-muted);">PNG, JPG, SVG</div>
+      <span class="cp-kpi-label">Total Files</span>
+      <span class="cp-kpi-value">{{ total_system_files }}</span>
     </div>
-
     <div class="cp-kpi-card">
-      <div class="cp-kpi-label">Videos</div>
-      <div class="cp-kpi-value">{{ videos_count }}</div>
-      <div style="font-size: 11px; color: var(--cp-text-muted);">MP4, WebM, Stream</div>
+      <span class="cp-kpi-label">Academies Using Storage</span>
+      <span class="cp-kpi-value" style="color: var(--cp-success);">{{ academies_using_storage }}</span>
     </div>
-
     <div class="cp-kpi-card">
-      <div class="cp-kpi-label">Documents & Audio</div>
-      <div class="cp-kpi-value">{{ docs_count|add:audios_count }}</div>
-      <div style="font-size: 11px; color: var(--cp-text-muted);">PDF, DOCX, MP3</div>
+      <span class="cp-kpi-label">Highest Storage Consumer</span>
+      <span class="cp-kpi-value" style="font-size: 15px; font-weight: 700; color: var(--cp-warning); margin-top: 2px;">{{ highest_consumer_name }}</span>
+      <span style="font-size: 11px; color: var(--cp-text-muted);">{{ highest_consumer_formatted }}</span>
     </div>
   </div>
 
-  <!-- Middle Grid: Config & Account Summary -->
-  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
-
-    <!-- Storage Billing Config Form -->
-    <div class="cp-card">
-      <div class="cp-card-header">
-        <h3 class="cp-card-title">Storage Billing Rule Engine</h3>
+  <!-- Search & Sort Filter Bar -->
+  <div class="cp-card" style="margin-bottom: 20px; padding: 14px;">
+    <form method="GET" action="" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+      <div style="position: relative; flex: 1; min-width: 220px;">
+        <input type="text" name="q" class="cp-input" placeholder="Search academies by name, email or slug..." value="{{ q }}" style="padding-left: 32px;">
+        <span style="position: absolute; left: 10px; top: 10px; color: var(--cp-text-muted); display: inline-flex;">
+          {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        </span>
       </div>
-      <form method="POST" action="{% url 'control_panel:storage_config' %}" style="display: flex; flex-direction: column; gap: 14px;">
-        {% csrf_token %}
 
-        <div>
-          <label style="font-size: 11px; color: var(--cp-text-muted); display: block; margin-bottom: 4px;">Metering Interval (Hours)</label>
-          <select name="metering_interval_hours" class="cp-select">
-            <option value="1" {% if storage_config.metering_interval_hours == 1 %}selected{% endif %}>1 Hour</option>
-            <option value="2" {% if storage_config.metering_interval_hours == 2 %}selected{% endif %}>2 Hours</option>
-            <option value="6" {% if storage_config.metering_interval_hours == 6 %}selected{% endif %}>6 Hours</option>
-            <option value="12" {% if storage_config.metering_interval_hours == 12 %}selected{% endif %}>12 Hours (Default)</option>
-            <option value="24" {% if storage_config.metering_interval_hours == 24 %}selected{% endif %}>24 Hours (Daily)</option>
-          </select>
-        </div>
-
-        <div style="display: flex; gap: 12px;">
-          <div style="flex: 1;">
-            <label style="font-size: 11px; color: var(--cp-text-muted); display: block; margin-bottom: 4px;">Billing Unit</label>
-            <select name="storage_unit" class="cp-select">
-              <option value="MB" {% if storage_config.storage_unit == 'MB' %}selected{% endif %}>MB</option>
-              <option value="GB" {% if storage_config.storage_unit == 'GB' %}selected{% endif %}>GB</option>
-              <option value="TB" {% if storage_config.storage_unit == 'TB' %}selected{% endif %}>TB</option>
-            </select>
-          </div>
-
-          <div style="flex: 1;">
-            <label style="font-size: 11px; color: var(--cp-text-muted); display: block; margin-bottom: 4px;">Price per Unit (₹)</label>
-            <input type="number" step="0.01" name="price_per_unit" value="{{ storage_config.price_per_unit }}" class="cp-input" required>
-          </div>
-        </div>
-
-        <div>
-          <label style="font-size: 11px; color: var(--cp-text-muted); display: block; margin-bottom: 4px;">Storage Metering Status</label>
-          <select name="billing_enabled" class="cp-select">
-            <option value="true" {% if storage_config.billing_enabled %}selected{% endif %}>Enabled (Billing Active)</option>
-            <option value="false" {% if not storage_config.billing_enabled %}selected{% endif %}>Disabled</option>
-          </select>
-        </div>
-
-        <button type="submit" class="cp-btn cp-btn-primary" style="height: 38px;">Save Storage Billing Configuration</button>
-      </form>
-    </div>
-
-    <!-- Top Storage Consuming Academies -->
-    <div class="cp-card">
-      <div class="cp-card-header">
-        <h3 class="cp-card-title">Top Storage-Consuming Academies</h3>
+      <div style="width: 200px;">
+        <select name="sort" class="cp-select" onchange="this.form.submit()">
+          <option value="storage_desc" {% if sort_by == 'storage_desc' %}selected{% endif %}>Highest Usage First</option>
+          <option value="storage_asc" {% if sort_by == 'storage_asc' %}selected{% endif %}>Lowest Usage First</option>
+          <option value="files_desc" {% if sort_by == 'files_desc' %}selected{% endif %}>Most Files First</option>
+          <option value="name_asc" {% if sort_by == 'name_asc' %}selected{% endif %}>Academy Name (A-Z)</option>
+        </select>
       </div>
+
+      <button type="submit" class="cp-btn cp-btn-secondary">
+        {% include "control_panel/components/icon.html" with name="search" size="14" %}
+        <span>Filter</span>
+      </button>
+
+      {% if q or sort_by != 'storage_desc' %}
+        <a href="{% url 'control_panel:storage_control' %}" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);">Clear Filters</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Academy Storage Usage Table -->
+  <div class="cp-card" style="padding: 0; overflow: hidden;">
+    {% if storage_page %}
       <div class="cp-table-container">
         <table class="cp-table">
           <thead>
             <tr>
-              <th>Academy UUID</th>
-              <th>Usage (Bytes)</th>
-              <th>Status</th>
+              <th>Academy</th>
+              <th>Storage Used</th>
+              <th>Total Files</th>
+              <th>Images</th>
+              <th>Videos</th>
+              <th>Documents</th>
+              <th>Last Upload</th>
+              <th style="text-align: right;">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {% for acc in storage_accounts %}
-            <tr>
-              <td><strong style="color: var(--cp-primary);">{{ acc.academy_uuid }}</strong></td>
-              <td>{{ acc.current_usage_bytes }} Bytes</td>
-              <td>
-                {% if acc.billing_enabled %}
-                  <span class="cp-badge cp-badge-success">ACTIVE</span>
-                {% else %}
-                  <span class="cp-badge cp-badge-neutral">DISABLED</span>
-                {% endif %}
-              </td>
-            </tr>
-            {% empty %}
-            <tr><td colspan="3" style="text-align: center; color: var(--cp-text-muted);">No academy storage records found.</td></tr>
+            {% for item in storage_page %}
+              <tr>
+                <td>
+                  <a href="{% url 'control_panel:academy_storage_detail' pk=item.academy.pk %}" style="font-weight: 600; color: var(--cp-text-primary); text-decoration: none;">
+                    {{ item.academy.name }}
+                  </a>
+                  <div style="font-size: 11px; color: var(--cp-text-muted);">{{ item.academy.email }}</div>
+                </td>
+                <td>
+                  <span style="font-weight: 700; color: {% if item.bytes_used > 0 %}var(--cp-primary){% else %}var(--cp-text-muted){% endif %}; font-size: 14px;">
+                    {{ item.formatted_bytes }}
+                  </span>
+                </td>
+                <td><span style="font-weight: 500;">{{ item.file_count }}</span></td>
+                <td><span style="color: var(--cp-text-secondary);">{{ item.images_count }}</span></td>
+                <td><span style="color: var(--cp-text-secondary);">{{ item.videos_count }}</span></td>
+                <td><span style="color: var(--cp-text-secondary);">{{ item.docs_count }}</span></td>
+                <td><span style="font-size: 11px; color: var(--cp-text-muted);">{{ item.last_upload_at|date:"d M Y"|default:"No uploads" }}</span></td>
+                <td style="text-align: right;">
+                  <a href="{% url 'control_panel:academy_storage_detail' pk=item.academy.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 10px; font-size: 11px;">
+                    {% include "control_panel/components/icon.html" with name="eye" size="13" %}
+                    <span>View Usage</span>
+                  </a>
+                </td>
+              </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
-    </div>
 
+      <!-- Pagination -->
+      {% if storage_page.has_other_pages %}
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-top: 1px solid var(--cp-border);">
+          <div style="font-size: 12px; color: var(--cp-text-muted);">
+            Showing {{ storage_page.start_index }} to {{ storage_page.end_index }} of {{ storage_page.paginator.count }} academies
+          </div>
+          <div style="display: flex; gap: 6px;">
+            {% if storage_page.has_previous %}
+              <a href="?page={{ storage_page.previous_page_number }}&q={{ q }}&sort={{ sort_by }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Previous</a>
+            {% endif %}
+            {% if storage_page.has_next %}
+              <a href="?page={{ storage_page.next_page_number }}&q={{ q }}&sort={{ sort_by }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      <div style="padding: 48px; text-align: center; color: var(--cp-text-muted);">
+        <div style="font-size: 15px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 4px;">No academy storage usage recorded</div>
+        <p style="font-size: 12px;">Academy file uploads and storage metrics will appear here automatically.</p>
+      </div>
+    {% endif %}
   </div>
 
 </div>

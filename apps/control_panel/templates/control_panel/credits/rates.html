@@ -1,0 +1,27 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Credit Rates | Control Panel{% endblock %}
+{% block content %}
+<div class="cp-page-header">
+  <h1 class="cp-page-title">Credit Rates Configuration</h1>
+</div>
+<div class="cp-card" style="padding: 0;">
+  <div class="cp-table-container">
+    <table class="cp-table">
+      <thead>
+        <tr><th>Feature Key</th><th>Name</th><th>Billing Type</th><th>Credit Cost</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rates %}
+        <tr>
+          <td style="font-weight: 600; color: var(--cp-primary);">{{ r.feature_key }}</td>
+          <td>{{ r.name }}</td>
+          <td>{{ r.billing_type }}</td>
+          <td>{{ r.credit_cost }} Credits</td>
+          <td><span class="cp-badge cp-badge-active">ACTIVE</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
