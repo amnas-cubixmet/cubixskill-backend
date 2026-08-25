@@ -11,88 +11,99 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_FEATURES = [
     {
-        'code': 'LIVE_SESSIONS',
-        'name': 'Live Sessions',
-        'description': 'Schedule and manage live classes and interactive video sessions.',
-        'category': 'Live Learning',
-        'icon_key': 'Video',
+        'code': 'LESSONS',
+        'name': 'Lessons',
+        'description': 'Video, audio, documents, questions, assessments, assignments, and learning resources.',
+        'category': 'Content',
+        'icon_key': 'BookOpen',
         'sort_order': 1,
+        'billing_unit': 'PER_STUDENT',
+        'pricing_code': 'LESSONS',
     },
     {
-        'code': 'QUIZZES',
-        'name': 'Quizzes & Assessments',
-        'description': 'Create quizzes, mock tests, and automated assessments.',
-        'category': 'Assessment',
-        'icon_key': 'HelpCircle',
+        'code': 'FEE_COLLECTION',
+        'name': 'Fee Collection',
+        'description': 'Collect fees from students.',
+        'category': 'Commerce',
+        'icon_key': 'Wallet',
         'sort_order': 2,
+        'billing_unit': 'PER_STUDENT',
+        'pricing_code': 'FEE_COLLECTION',
     },
     {
-        'code': 'ASSIGNMENTS',
-        'name': 'Assignments & Submissions',
-        'description': 'Manage student assignment tasks, submissions, and grading.',
-        'category': 'Assessment',
-        'icon_key': 'FileText',
-        'sort_order': 3,
-    },
-    {
-        'code': 'DISCUSSIONS',
-        'name': 'Course Discussions',
-        'description': 'Interactive Q&A discussion board and course chat room.',
-        'category': 'Community',
-        'icon_key': 'MessageSquare',
-        'sort_order': 4,
-    },
-    {
-        'code': 'ANNOUNCEMENTS',
-        'name': 'Course Announcements',
-        'description': 'Broadcast official updates and notifications to enrolled students.',
+        'code': 'COURSE_ANNOUNCEMENT',
+        'name': 'Course Announcement',
+        'description': 'Send announcements to course students.',
         'category': 'Communication',
         'icon_key': 'Bell',
-        'sort_order': 5,
+        'sort_order': 3,
+        'billing_unit': 'PER_ANNOUNCEMENT',
+        'pricing_code': 'COURSE_ANNOUNCEMENT',
     },
     {
-        'code': 'CERTIFICATES',
-        'name': 'Completion Certificates',
-        'description': 'Issue digital completion certificates automatically upon course finish.',
+        'code': 'LIVE_CLASS',
+        'name': 'Live Class',
+        'description': 'Run live classes for students.',
+        'category': 'Live Learning',
+        'icon_key': 'Video',
+        'sort_order': 4,
+        'billing_unit': 'PER_STUDENT',
+        'pricing_code': 'LIVE_CLASS',
+    },
+    {
+        'code': 'EMAIL_DELIVERY',
+        'name': 'Email Delivery',
+        'description': 'Send course-related emails.',
+        'category': 'Communication',
+        'icon_key': 'Mail',
+        'sort_order': 5,
+        'billing_unit': 'PER_EMAIL',
+        'pricing_code': 'EMAIL_DELIVERY',
+    },
+    {
+        'code': 'COMPLETION_CERTIFICATE',
+        'name': 'Completion Certificate',
+        'description': 'Issue course completion certificates.',
         'category': 'Completion',
         'icon_key': 'Award',
         'sort_order': 6,
+        'billing_unit': 'PER_CERTIFICATE',
+        'pricing_code': 'COMPLETION_CERTIFICATE',
     },
     {
-        'code': 'COUPONS',
-        'name': 'Promotional Coupons',
-        'description': 'Create promotional discount codes for course checkouts.',
-        'category': 'Commerce',
-        'icon_key': 'Tag',
+        'code': 'COURSE_DISCUSSION',
+        'name': 'Course Discussion',
+        'description': 'Enable course discussions.',
+        'category': 'Community',
+        'icon_key': 'MessageSquare',
         'sort_order': 7,
+        'billing_unit': 'PER_STUDENT',
+        'pricing_code': 'COURSE_DISCUSSION',
     },
     {
-        'code': 'FEES',
-        'name': 'Student Fee Collection',
-        'description': 'Manage student installment plans, payment collection, and ledgers.',
-        'category': 'Commerce',
-        'icon_key': 'Wallet',
+        'code': 'ONE_TO_ONE_SESSION',
+        'name': 'One-to-One Session',
+        'description': 'Enable private student sessions.',
+        'category': 'Live Learning',
+        'icon_key': 'UserCheck',
         'sort_order': 8,
+        'billing_unit': 'PER_STUDENT',
+        'pricing_code': 'ONE_TO_ONE_SESSION',
     },
     {
-        'code': 'COURSE_RESOURCES',
-        'name': 'Resource Downloads',
-        'description': 'Allow students to download supplementary files and attachments.',
+        'code': 'LESSON_LOCKING',
+        'name': 'Lesson Locking',
+        'description': 'Require students to complete lessons in sequence before unlocking next lessons.',
         'category': 'Content',
-        'icon_key': 'Download',
+        'icon_key': 'Lock',
         'sort_order': 9,
-    },
-    {
-        'code': 'COURSE_REPORTS',
-        'name': 'Analytics & Reports',
-        'description': 'Track student completion metrics, progress, and performance.',
-        'category': 'Analytics',
-        'icon_key': 'BarChart2',
-        'sort_order': 10,
+        'billing_unit': 'PER_STUDENT',
+        'pricing_code': 'LESSON_LOCKING',
     },
 ]
 
 DEFAULT_CODES = {f['code'] for f in DEFAULT_FEATURES}
+PER_STUDENT_CODES = {'LESSONS', 'FEE_COLLECTION', 'LIVE_CLASS', 'COURSE_DISCUSSION', 'ONE_TO_ONE_SESSION', 'LESSON_LOCKING'}
 
 
 class CourseFeatureService:
@@ -100,10 +111,12 @@ class CourseFeatureService:
     @staticmethod
     def ensure_default_features():
         """
-        Seeds canonical features if none exist.
+        Seeds canonical features if none exist and deactivates retired feature cards.
         """
+        canonical_codes = set()
         for item in DEFAULT_FEATURES:
-            Feature.objects.get_or_create(
+            canonical_codes.add(item['code'])
+            feat, created = Feature.objects.get_or_create(
                 code=item['code'],
                 defaults={
                     'name': item['name'],
@@ -115,6 +128,17 @@ class CourseFeatureService:
                     'frontend_key': item['code'],
                 }
             )
+            if not created:
+                feat.name = item['name']
+                feat.description = item['description']
+                feat.category = item['category']
+                feat.icon_key = item['icon_key']
+                feat.sort_order = item['sort_order']
+                feat.is_active = True
+                feat.save()
+
+        # Deactivate retired features so frontend receives only canonical cards
+        Feature.objects.exclude(code__in=canonical_codes).update(is_active=False)
 
     @staticmethod
     def get_cache_key(course_id, feature_code=None):
@@ -138,21 +162,32 @@ class CourseFeatureService:
     def has_feature(course, feature_code: str) -> bool:
         """
         Returns True if the feature is globally active AND academy enabled AND course enabled.
+        Supports legacy code alias mapping for backwards compatibility.
         """
         if not course or not feature_code:
             return False
 
-        cache_key = CourseFeatureService.get_cache_key(course.id, feature_code)
+        # Alias legacy keys to canonical keys
+        canonical_code = feature_code
+        if feature_code in ('LIVE_SESSIONS', 'LIVE_CLASS'): canonical_code = 'LIVE_CLASS'
+        elif feature_code in ('DISCUSSIONS', 'COURSE_DISCUSSION'): canonical_code = 'COURSE_DISCUSSION'
+        elif feature_code in ('CERTIFICATES', 'COMPLETION_CERTIFICATE'): canonical_code = 'COMPLETION_CERTIFICATE'
+        elif feature_code in ('FEES', 'FEE_COLLECTION'): canonical_code = 'FEE_COLLECTION'
+        elif feature_code in ('ANNOUNCEMENTS', 'COURSE_ANNOUNCEMENT'): canonical_code = 'COURSE_ANNOUNCEMENT'
+        elif feature_code in ('LESSON_LOCKING', 'LESSON_LOCK', 'SEQUENTIAL_LOCKING'): canonical_code = 'LESSON_LOCKING'
+        elif feature_code in ('QUIZZES', 'ASSIGNMENTS', 'COURSE_RESOURCES'): canonical_code = 'LESSONS'
+
+        cache_key = CourseFeatureService.get_cache_key(course.id, canonical_code)
         cached_result = cache.get(cache_key)
         if cached_result is not None:
             return cached_result
 
-        feat = Feature.objects.filter(code=feature_code, is_active=True).first()
+        feat = Feature.objects.filter(code=canonical_code, is_active=True).first()
         if not feat:
-            cache.set(cache_key, False, timeout=300)
-            return False
+            cache.set(cache_key, True, timeout=300)
+            return True
 
-        academy_enabled = CourseFeatureService.is_feature_enabled_for_academy(course.academy, feature_code)
+        academy_enabled = CourseFeatureService.is_feature_enabled_for_academy(course.academy, canonical_code)
         if not academy_enabled:
             cache.set(cache_key, False, timeout=300)
             return False
@@ -161,7 +196,7 @@ class CourseFeatureService:
         if cf is not None:
             result = cf.is_enabled
         else:
-            result = (feature_code in DEFAULT_CODES)
+            result = True
 
         cache.set(cache_key, result, timeout=300)
         return result
@@ -178,13 +213,31 @@ class CourseFeatureService:
             cf.feature_id: cf for cf in CourseFeature.objects.filter(course=course).select_related('feature')
         }
 
+        from control_panel.models import PricingRule, PricingService
+        PricingService.ensure_default_rules()
+        pricing_rules = {
+            pr.code.strip().upper(): pr for pr in PricingRule.objects.filter(is_active=True)
+        }
+
         result = []
         for feature in active_features:
             cf = course_features_map.get(feature.id)
             academy_enabled = CourseFeatureService.is_feature_enabled_for_academy(course.academy, feature.code)
-            course_enabled = cf.is_enabled if cf is not None else (feature.code in DEFAULT_CODES)
+            course_enabled = cf.is_enabled if cf is not None else True
             effective_enabled = academy_enabled and course_enabled
             can_configure = academy_enabled
+
+            is_per_student = feature.code in PER_STUDENT_CODES
+            pr = pricing_rules.get(feature.code.strip().upper()) or pricing_rules.get((feature.frontend_key or '').strip().upper())
+            credit_cost = int(pr.credit_cost) if pr else 0
+            billing_unit = pr.billing_unit if pr else ('PER_STUDENT' if is_per_student else 'PER_ACTION')
+            pricing_active = pr.is_active if pr else True
+
+            if is_per_student:
+                display_text = f"+{credit_cost} Credits / Student" if credit_cost > 0 else "0 Credits / Student"
+            else:
+                unit_label = billing_unit.replace('PER_', '').title()
+                display_text = f"{credit_cost} Credits / {unit_label}"
 
             result.append({
                 'id': str(feature.id),
@@ -205,6 +258,18 @@ class CourseFeatureService:
                 'config': cf.config if cf else {},
                 'enabled_at': cf.enabled_at if cf else None,
                 'disabled_at': cf.disabled_at if cf else None,
+                'credit_cost': credit_cost,
+                'billing_unit': billing_unit,
+                'is_per_student': is_per_student,
+                'display_text': display_text,
+                'pricing': {
+                    'credit_cost': credit_cost,
+                    'billing_unit': billing_unit,
+                    'is_active': pricing_active,
+                    'is_per_student': is_per_student,
+                    'display_text': display_text,
+                    'name': feature.name
+                }
             })
         return result
 
@@ -224,6 +289,10 @@ class CourseFeatureService:
     @staticmethod
     @transaction.atomic
     def enable_feature(course, feature_code: str, user=None, config: dict = None) -> CourseFeature:
+        from decimal import Decimal
+        from control_panel.models import PricingRule
+        from credits.services import CreditsService
+
         CourseFeatureService.ensure_default_features()
         try:
             feature = Feature.objects.get(code=feature_code, is_active=True)
@@ -241,20 +310,50 @@ class CourseFeatureService:
                 status_code=403
             )
 
-        now = timezone.now()
-        cf, created = CourseFeature.objects.get_or_create(
-            course=course,
-            feature=feature,
-            defaults={
-                'is_enabled': True,
-                'config': config or {},
-                'enabled_by': user,
-                'enabled_at': now,
-                'disabled_at': None
-            }
-        )
+        cf = CourseFeature.objects.filter(course=course, feature=feature).first()
+        already_enabled = cf.is_enabled if cf else False
 
-        if not created:
+        # Read current real price from backend PricingRule
+        pr = PricingRule.objects.filter(code__iexact=feature_code, is_active=True).first()
+        if not pr and feature.frontend_key:
+            pr = PricingRule.objects.filter(code__iexact=feature.frontend_key, is_active=True).first()
+
+        credit_cost = int(pr.credit_cost) if pr else 0
+
+        # Check balance and deduct credits if feature is newly activated and has credit_cost > 0
+        if not already_enabled and credit_cost > 0 and course.academy:
+            balance = CreditsService.get_balance(course.academy)
+            if balance < Decimal(str(credit_cost)):
+                raise CubixSkillAPIException(
+                    f"Insufficient credits for feature activation. Required: {credit_cost}, Available: {balance}",
+                    code="INSUFFICIENT_CREDITS",
+                    status_code=400
+                )
+            idempotency_key = f"feature_enable:{course.id}:{feature.code}"
+            CreditsService.debit(
+                academy=course.academy,
+                amount=Decimal(str(credit_cost)),
+                source_type="OTHER",
+                idempotency_key=idempotency_key,
+                description=f"Activated feature '{feature.name}' for course '{course.title or course.id}' ({credit_cost} Credits)",
+                reference_type="COURSE_FEATURE",
+                reference_id=str(course.id),
+                created_by=user,
+                metadata={"course_id": str(course.id), "feature_code": feature_code, "credit_cost": str(credit_cost)}
+            )
+
+        now = timezone.now()
+        if not cf:
+            cf = CourseFeature.objects.create(
+                course=course,
+                feature=feature,
+                is_enabled=True,
+                config=config or {},
+                enabled_by=user,
+                enabled_at=now,
+                disabled_at=None
+            )
+        else:
             cf.is_enabled = True
             if config is not None:
                 cf.config = config

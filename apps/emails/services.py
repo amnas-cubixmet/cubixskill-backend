@@ -1,73 +1,67 @@
 import logging
 from typing import Dict, Any, Optional
+from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
-from django.conf import settings
-from django.utils import timezone
-
-from emails.constants import EmailTemplateCodes, SUBJECTS
-from emails.utils import (
-    build_setup_password_url,
-    build_reset_password_url,
-    build_verify_email_url
-)
+from django.utils.html import strip_tags
+from emails.utils import build_reset_password_url, build_verify_email_url, build_setup_password_url
 
 logger = logging.getLogger(__name__)
+
+class EmailTemplateCodes:
+    ACADEMY_ACTIVATION = "academy_activation"
+    PASSWORD_RESET = "password_reset"
+    PASSWORD_CHANGED = "password_changed"
+    EMAIL_VERIFICATION = "email_verification"
+
+SUBJECTS = {
+    EmailTemplateCodes.ACADEMY_ACTIVATION: "Activate Your CubixSkill Academy Account",
+    EmailTemplateCodes.PASSWORD_RESET: "Reset Your CubixSkill Password",
+    EmailTemplateCodes.PASSWORD_CHANGED: "Your CubixSkill Password Has Been Changed",
+    EmailTemplateCodes.EMAIL_VERIFICATION: "Verify Your Email Address – CubixSkill",
+}
 
 def send_transactional_email(
     recipient: str,
     template_name: str,
     subject: str,
-    context: Dict[str, Any],
-    from_email: Optional[str] = None
+    context: Dict[str, Any]
 ) -> bool:
     """
-    Renders HTML and plain-text templates and sends a transactional email using
-    Django's configured email backend. Logs success/failure safely without revealing tokens or passwords.
+    Sends transactional HTML + Plain text email via Django's SMTP backend.
     """
-    if not recipient:
-        logger.error("Failed to send transactional email: missing recipient.")
-        return False
-
-    sender = from_email or getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@cubixskill.com')
-    html_template = f"emails/{template_name}.html"
-    text_template = f"emails/{template_name}.txt"
-
     try:
-        html_content = render_to_string(html_template, context)
-        text_content = render_to_string(text_template, context)
-    except Exception as e:
-        logger.error(f"Template rendering error for template '{template_name}': {str(e)}")
-        # Fallback to context body if rendering fails
-        html_content = f"<p>{context.get('body', subject)}</p>"
-        text_content = context.get('body', subject)
+        from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@cubixskill.com')
+        html_content = render_to_string(f"emails/{template_name}.html", context)
+        text_content = strip_tags(html_content)
 
-    try:
-        msg = EmailMultiAlternatives(
+        email = EmailMultiAlternatives(
             subject=subject,
             body=text_content,
-            from_email=sender,
+            from_email=from_email,
             to=[recipient]
         )
-        msg.attach_alternative(html_content, "text/html")
-        msg.send(fail_silently=False)
-        logger.info(f"Transactional email '{subject}' sent successfully to {recipient}")
+        email.attach_alternative(html_content, "text/html")
+        email.send(fail_silently=False)
+        logger.info(f"Transactional email '{template_name}' sent successfully to {recipient}")
         return True
     except Exception as e:
-        logger.error(f"SMTP/Email delivery failure to {recipient} for subject '{subject}': {str(e)}")
+        logger.error(f"Failed to send transactional email '{template_name}' to {recipient}: {str(e)}", exc_info=True)
         return False
 
 
-def send_academy_activation_email(user, academy, raw_token: str) -> bool:
+def send_academy_activation_email(user, academy, raw_token: str, expiry_time: str = "24 hours") -> bool:
     """
-    Sends Academy Activation & Setup Password email to the Academy Administrator.
+    Sends Academy Activation / Initial Admin Password Setup email.
     """
-    action_url = build_setup_password_url(raw_token)
-    subject = SUBJECTS[EmailTemplateCodes.ACADEMY_ACCOUNT_SETUP]
+    academy_uuid = str(academy.pk) if academy else None
+    action_url = build_setup_password_url(raw_token, academy_uuid=academy_uuid)
+    subject = SUBJECTS[EmailTemplateCodes.ACADEMY_ACTIVATION]
     context = {
-        "user_name": user.full_name or "Administrator",
+        "user_name": user.full_name or "Academy Admin",
         "academy_name": academy.name if academy else "Your Academy",
         "action_url": action_url,
+        "expiry_time": expiry_time,
         "recipient_email": user.email,
     }
     return send_transactional_email(
@@ -78,16 +72,18 @@ def send_academy_activation_email(user, academy, raw_token: str) -> bool:
     )
 
 
-def send_password_reset_email(user, raw_token: str) -> bool:
+def send_password_reset_email(user, raw_token: str, expiry_time: str = "1 hour") -> bool:
     """
     Sends Password Reset link email.
     """
-    academy_slug = user.academy.slug if user.academy else None
-    action_url = build_reset_password_url(raw_token, academy_slug=academy_slug)
+    target_academy = getattr(user, 'academy', None)
+    academy_uuid = str(target_academy.pk) if target_academy else None
+    action_url = build_reset_password_url(raw_token, academy_uuid=academy_uuid)
     subject = SUBJECTS[EmailTemplateCodes.PASSWORD_RESET]
     context = {
         "user_name": user.full_name or "User",
         "action_url": action_url,
+        "expiry_time": expiry_time,
         "recipient_email": user.email,
     }
     return send_transactional_email(
@@ -100,13 +96,12 @@ def send_password_reset_email(user, raw_token: str) -> bool:
 
 def send_password_changed_email(user) -> bool:
     """
-    Sends Password Change Confirmation security alert email.
+    Sends Password Changed Confirmation email.
     """
     subject = SUBJECTS[EmailTemplateCodes.PASSWORD_CHANGED]
     context = {
         "user_name": user.full_name or "User",
         "recipient_email": user.email,
-        "timestamp": timezone.now().strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
     return send_transactional_email(
         recipient=user.email,
@@ -116,17 +111,20 @@ def send_password_changed_email(user) -> bool:
     )
 
 
-def send_verification_email(user, raw_token: str) -> bool:
+def send_verification_email(user, raw_token: str, academy=None) -> bool:
     """
     Sends Email Verification link email.
     """
-    academy_slug = user.academy.slug if user.academy else None
-    action_url = build_verify_email_url(raw_token, academy_slug=academy_slug)
-    subject = SUBJECTS[EmailTemplateCodes.EMAIL_VERIFICATION]
+    target_academy = academy or getattr(user, 'academy', None)
+    academy_uuid = str(target_academy.pk) if target_academy else None
+    action_url = build_verify_email_url(raw_token, academy_uuid=academy_uuid)
+    academy_name = target_academy.name if target_academy else "CubixSkill Academy"
+    subject = f"Verify Your Email – {academy_name}"
     context = {
         "user_name": user.full_name or "User",
         "action_url": action_url,
         "recipient_email": user.email,
+        "academy_name": academy_name,
     }
     return send_transactional_email(
         recipient=user.email,
@@ -140,17 +138,16 @@ def send_student_activation_email(user, academy, raw_token: str, expiry_time: st
     """
     Sends Student Account Activation email.
     """
-    action_url = build_setup_password_url(raw_token)
+    academy_uuid = str(academy.pk) if academy else None
+    action_url = build_setup_password_url(raw_token, academy_uuid=academy_uuid)
     academy_name = academy.name if academy else "CubixSkill Academy"
-    subject = f"Activate Your Student Account – {academy_name}"
-    support_email = getattr(academy, 'support_email', None) or getattr(settings, 'SUPPORT_EMAIL', 'support@cubixskill.com')
+    subject = f"Set up your CubixSkill student password – {academy_name}"
     context = {
-        "student_name": user.full_name or "Student",
-        "student_email": user.email,
+        "user_name": user.full_name or "Student",
         "academy_name": academy_name,
-        "activation_url": action_url,
+        "action_url": action_url,
         "expiry_time": expiry_time,
-        "academy_support_email": support_email,
+        "recipient_email": user.email,
     }
     return send_transactional_email(
         recipient=user.email,
@@ -158,4 +155,3 @@ def send_student_activation_email(user, academy, raw_token: str, expiry_time: st
         subject=subject,
         context=context
     )
-

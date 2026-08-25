@@ -44,6 +44,13 @@ class ReportStatus(models.TextChoices):
 #--------------------------------------------------------------
 
 class DiscussionThread(BaseModel, ActiveMixin):
+    academy = models.ForeignKey(
+        'academy.Academy',
+        on_delete=models.CASCADE,
+        related_name='discussion_threads',
+        null=True,
+        blank=True
+    )
     course = models.ForeignKey(
         'courses.Course',
         on_delete=models.CASCADE,

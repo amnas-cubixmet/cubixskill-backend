@@ -65,7 +65,122 @@ class PricingRule(BaseModel, ActiveMixin):
 
 class PricingService:
     @staticmethod
-    def get_credit_cost(service_code: str, default_cost: int = 0) -> int:
+    def ensure_default_rules():
+        default_rules = [
+            {
+                'code': 'STUDENT_BASE',
+                'name': 'Student Base Price',
+                'description': 'Base credit rate charged per enrolled student.',
+                'category': 'BASE PRICING',
+                'billing_unit': 'PER_STUDENT',
+                'credit_cost': 10,
+                'icon': 'users',
+            },
+            {
+                'code': 'LESSONS',
+                'name': 'Lessons',
+                'description': 'Video, audio, documents, questions, assessments, assignments, and learning resources.',
+                'category': 'FEATURE PRICING',
+                'billing_unit': 'PER_STUDENT',
+                'credit_cost': 2,
+                'icon': 'book-open',
+            },
+            {
+                'code': 'FEE_COLLECTION',
+                'name': 'Fee Collection',
+                'description': 'Collect fees from students.',
+                'category': 'FEATURE PRICING',
+                'billing_unit': 'PER_STUDENT',
+                'credit_cost': 1,
+                'icon': 'wallet',
+            },
+            {
+                'code': 'COURSE_ANNOUNCEMENT',
+                'name': 'Course Announcement',
+                'description': 'Send announcements to course students.',
+                'category': 'FEATURE PRICING',
+                'billing_unit': 'PER_ANNOUNCEMENT',
+                'credit_cost': 2,
+                'icon': 'bell',
+            },
+            {
+                'code': 'LIVE_CLASS',
+                'name': 'Live Class',
+                'description': 'Run live classes for students.',
+                'category': 'FEATURE PRICING',
+                'billing_unit': 'PER_STUDENT',
+                'credit_cost': 2,
+                'icon': 'video',
+            },
+            {
+                'code': 'EMAIL_DELIVERY',
+                'name': 'Email Delivery',
+                'description': 'Send course-related emails.',
+                'category': 'FEATURE PRICING',
+                'billing_unit': 'PER_EMAIL',
+                'credit_cost': 1,
+                'icon': 'mail',
+            },
+            {
+                'code': 'COMPLETION_CERTIFICATE',
+                'name': 'Completion Certificate',
+                'description': 'Issue course completion certificates.',
+                'category': 'FEATURE PRICING',
+                'billing_unit': 'PER_CERTIFICATE',
+                'credit_cost': 3,
+                'icon': 'award',
+            },
+            {
+                'code': 'COURSE_DISCUSSION',
+                'name': 'Course Discussion',
+                'description': 'Enable course discussions.',
+                'category': 'FEATURE PRICING',
+                'billing_unit': 'PER_STUDENT',
+                'credit_cost': 1,
+                'icon': 'message-square',
+            },
+            {
+                'code': 'ONE_TO_ONE_SESSION',
+                'name': 'One-to-One Session',
+                'description': 'Enable private student sessions.',
+                'category': 'FEATURE PRICING',
+                'billing_unit': 'PER_STUDENT',
+                'credit_cost': 2,
+                'icon': 'user-check',
+            },
+            {
+                'code': 'LESSON_LOCKING',
+                'name': 'Lesson Locking',
+                'description': 'Require students to complete lessons in sequence before unlocking next lessons.',
+                'category': 'FEATURE PRICING',
+                'billing_unit': 'PER_STUDENT',
+                'credit_cost': 0,
+                'icon': 'lock',
+            },
+        ]
+        canonical_codes = {r['code'] for r in default_rules}
+        for r in default_rules:
+            rule, created = PricingRule.objects.get_or_create(
+                code=r['code'],
+                defaults={
+                    'name': r['name'],
+                    'description': r['description'],
+                    'category': r['category'],
+                    'billing_unit': r['billing_unit'],
+                    'credit_cost': r['credit_cost'],
+                    'icon': r['icon'],
+                    'is_active': True
+                }
+            )
+            if not created and not rule.is_active:
+                rule.is_active = True
+                rule.save(update_fields=['is_active'])
+
+        PricingRule.objects.exclude(code__in=canonical_codes).update(is_active=False)
+
+    @staticmethod
+    def get_rate(service_code: str, default_cost: int = 0) -> int:
+        PricingService.ensure_default_rules()
         try:
             rule = PricingRule.objects.get(code=service_code, is_active=True)
             return rule.credit_cost
@@ -73,8 +188,23 @@ class PricingService:
             return default_cost
 
     @staticmethod
+    def is_per_student_feature(feature_key: str) -> bool:
+        per_student_keys = {'LESSONS', 'FEE_COLLECTION', 'LIVE_CLASS', 'COURSE_DISCUSSION', 'ONE_TO_ONE_SESSION'}
+        key = (feature_key or '').strip().upper()
+        if key in ('LIVE_SESSIONS', 'LIVE_CLASS'): return True
+        if key in ('DISCUSSIONS', 'COURSE_DISCUSSION'): return True
+        if key in ('FEES', 'FEE_COLLECTION'): return True
+        if key in ('QUIZZES', 'ASSIGNMENTS', 'COURSE_RESOURCES', 'LESSONS'): return True
+        if key in ('ONE_TO_ONE', 'PRIVATE_CLASS', 'ONE_TO_ONE_CLASS', 'ONE_TO_ONE_SESSION'): return True
+        return key in per_student_keys
+
+    @staticmethod
+    def get_credit_cost(service_code: str, default_cost: int = 0) -> int:
+        return PricingService.get_rate(service_code, default_cost)
+
+    @staticmethod
     def calculate_cost(service_code: str, quantity: int = 1, default_cost: int = 0) -> int:
-        unit_cost = PricingService.get_credit_cost(service_code, default_cost)
+        unit_cost = PricingService.get_rate(service_code, default_cost)
         return unit_cost * quantity
 
 # --------------------------------------------------------------

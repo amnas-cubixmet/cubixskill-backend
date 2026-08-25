@@ -35,8 +35,9 @@ class ModuleService:
                 Module.objects.filter(id=module_id, course=course).update(order_index=new_order)
 
     @staticmethod
+    @transaction.atomic
     def delete_module(module: Module) -> None:
-        # Check if Lessons exist on module safely when Lessons app is added
-        if hasattr(module, 'lessons') and module.lessons.exists():
-            raise CubixSkillAPIException("Cannot delete a module that contains active lessons. Delete lessons first.", code="MODULE_NOT_EMPTY")
+        """
+        Deletes a course module and its child lessons in a clean atomic transaction.
+        """
         module.delete()

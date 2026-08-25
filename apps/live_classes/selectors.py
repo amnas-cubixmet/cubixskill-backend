@@ -62,8 +62,9 @@ class LiveSessionSelector:
         """
         Retrieves all live sessions belonging to a specific academy.
         """
+        from django.db.models import Q
         return LiveSession.objects.filter(
-            course__academy=academy
+            Q(course__academy=academy) | Q(course__isnull=True, created_by__academy=academy)
         ).select_related('course', 'host', 'created_by').prefetch_related('reminders').order_by('-scheduled_start')
 
     @classmethod

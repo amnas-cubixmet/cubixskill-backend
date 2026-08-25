@@ -78,20 +78,14 @@ class RootControlPanelRoutingTestCase(TestCase):
             f'/students/{self.student_user.id}/edit/',
             f'/students/{self.student_user.id}/delete/',
             '/courses/',
-            '/enrollments/',
-            '/plans/',
-            '/subscriptions/',
-            '/features/',
             '/pricing/',
-            '/credit-engine/',
+            '/credits/purchase-rates/',
+            '/credit-engine/coupons/',
             '/storage/',
-            '/usage/',
             '/payments/',
             '/fees/',
-            '/coupons/',
             '/credits/',
             '/websites/',
-            '/staff/',
             '/super-admin-staff/',
             '/super-admin-staff/create/',
             f'/super-admin-staff/{self.staff_user.id}/',
@@ -111,8 +105,7 @@ class RootControlPanelRoutingTestCase(TestCase):
         for route in routes:
             with self.subTest(route=route):
                 response = self.client.get(route)
-                expected_status = 302 if route in ['/enrollments/', '/features/', '/usage/', '/staff/', '/system/', '/jobs/'] else 200
-                self.assertEqual(response.status_code, expected_status, f"Route {route} failed with status {response.status_code}")
+                self.assertEqual(response.status_code, 200, f"Route {route} failed with status {response.status_code}")
 
     def test_student_create_post_flow(self):
         self.client.force_login(self.super_admin)

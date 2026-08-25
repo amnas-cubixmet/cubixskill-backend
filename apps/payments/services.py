@@ -1,5 +1,6 @@
 import uuid
 from decimal import Decimal
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -52,6 +53,8 @@ class PaymentGatewayService:
         """
         Creates checkout/payment session reference using active payment provider.
         """
+        from core.utils import normalize_currency
+        order.currency = normalize_currency(order.currency)
         provider = cls.get_provider(order.gateway)
         session_data = provider.create_checkout_session(
             order=order,
@@ -186,15 +189,27 @@ class PaymentPricingService:
     @classmethod
     def calculate_order_pricing(
         cls,
-        subtotal_amount: Decimal,
+        subtotal_amount: Decimal = None,
         coupon_code: str = None,
         user: User = None,
         payment_context: str = PaymentContext.COURSE_PURCHASE,
         academy: Academy = None,
         course: Course = None
     ) -> dict:
-        subtotal = Decimal(str(subtotal_amount)).quantize(Decimal('0.01'))
-        discount = Decimal('0.00')
+        from courses.services import CoursePricingService
+
+        if course and payment_context == PaymentContext.COURSE_PURCHASE:
+            regular_price = Decimal(str(course.price)).quantize(Decimal('0.01')) if course.price is not None else Decimal('0.00')
+            effective_price = CoursePricingService.get_course_effective_price(course).quantize(Decimal('0.01'))
+            sale_discount = max(Decimal('0.00'), regular_price - effective_price)
+            subtotal = effective_price
+        else:
+            effective_price = Decimal(str(subtotal_amount or '0.00')).quantize(Decimal('0.01'))
+            regular_price = effective_price
+            sale_discount = Decimal('0.00')
+            subtotal = effective_price
+
+        coupon_discount = Decimal('0.00')
         coupon = None
 
         if coupon_code:
@@ -206,16 +221,22 @@ class PaymentPricingService:
                 course=course,
                 order_amount=subtotal
             )
-            discount = CouponService.calculate_discount(coupon, subtotal)
+            coupon_discount = CouponService.calculate_discount(coupon, subtotal)
 
-        taxable_amount = max(Decimal('0.00'), subtotal - discount)
+        total_discount = sale_discount + coupon_discount
+        taxable_amount = max(Decimal('0.00'), subtotal - coupon_discount)
         tax = Decimal('0.00')  # Configurable tax engine hook
         final_amount = taxable_amount + tax
 
         return {
+            'regular_price': regular_price,
+            'sale_price': effective_price if sale_discount > Decimal('0.00') else None,
+            'sale_discount': sale_discount,
+            'coupon_discount': coupon_discount,
             'subtotal': subtotal,
-            'discount': discount,
+            'discount': total_discount,
             'tax': tax,
+            'tax_amount': tax,
             'final_amount': final_amount,
             'coupon': coupon,
         }
@@ -309,6 +330,8 @@ class PaymentOrderService:
 
         # Create Gateway Order Reference
         gateway_data = PaymentGatewayService.create_gateway_order(order, return_url=return_url, cancel_url=cancel_url)
+        order.gateway_order_id = gateway_data.get('gateway_order_id', f"order_{order.id.hex[:16]}")
+        order.save(update_fields=['gateway_order_id'])
 
         return order, gateway_data
 
@@ -462,23 +485,73 @@ class PaymentFulfillmentService:
             event.save(update_fields=['error_message'])
             return False
 
-        if event_type in ['payment_intent.succeeded', 'checkout.session.completed', 'order.paid', 'payment.authorized']:
+        if event_type in ['payment_intent.succeeded', 'checkout.session.completed', 'payment.captured', 'order.paid', 'payment.authorized']:
             order_id = payload.get('order_id') or payload.get('payment_order_id')
-            if not order_id and isinstance(payload.get('data'), dict):
+            gw_order_id = None
+            if not order_id and isinstance(payload.get('payload'), dict):
+                p_entity = payload['payload'].get('payment', {}).get('entity', {})
+                gw_order_id = p_entity.get('order_id')
+                order_id = p_entity.get('notes', {}).get('order_id')
+            elif not order_id and isinstance(payload.get('data'), dict):
                 obj = payload['data'].get('object', {})
                 order_id = obj.get('metadata', {}).get('order_id') or obj.get('client_reference_id') or obj.get('order_id')
 
-            gw_pay_id = payload.get('payment_id') or payload.get('gateway_payment_id') or event_id
+            gw_pay_id = payload.get('payment_id') or payload.get('gateway_payment_id')
+            if not gw_pay_id and isinstance(payload.get('payload'), dict):
+                p_entity = payload['payload'].get('payment', {}).get('entity', {})
+                gw_pay_id = p_entity.get('id')
             if not gw_pay_id and isinstance(payload.get('data'), dict):
                 obj = payload['data'].get('object', {})
                 gw_pay_id = obj.get('payment_intent') or obj.get('id') or event_id
+            if not gw_pay_id:
+                gw_pay_id = event_id
 
+            # 1. Try finalizing CreditPurchase if order corresponds to credit package
+            from credits.models import CreditPurchase, PurchaseStatus
+            from credits.services import CreditPurchaseService
+            cp = None
+            if gw_order_id:
+                cp = CreditPurchase.objects.filter(payment_order_id=gw_order_id).first()
+            if not cp and order_id:
+                cp = CreditPurchase.objects.filter(payment_order_id=order_id).first()
+
+            if cp:
+                CreditPurchaseService.finalize_credit_purchase(
+                    payment_order_id=cp.payment_order_id,
+                    transaction_id=gw_pay_id,
+                    razorpay_order_id=gw_order_id or cp.payment_order_id,
+                    source="razorpay_webhook"
+                )
+
+            # 2. Process standard course/platform PaymentOrder
+            order = None
             if order_id:
                 try:
                     order = PaymentOrder.objects.get(id=order_id)
-                    cls.process_successful_payment(order, gateway_payment_id=gw_pay_id, gateway=gateway, raw_payload=payload)
                 except (PaymentOrder.DoesNotExist, ValueError):
                     pass
+            if not order and gw_order_id:
+                order = PaymentOrder.objects.filter(gateway_order_id=gw_order_id).first()
+
+            if order:
+                cls.process_successful_payment(order, gateway_payment_id=gw_pay_id, gateway=gateway, raw_payload=payload)
+
+        elif event_type in ['payment.failed', 'payment_intent.payment_failed']:
+            gw_order_id = None
+            if isinstance(payload.get('payload'), dict):
+                p_entity = payload['payload'].get('payment', {}).get('entity', {})
+                gw_order_id = p_entity.get('order_id')
+            if gw_order_id:
+                from credits.models import CreditPurchase, PurchaseStatus
+                cp = CreditPurchase.objects.filter(payment_order_id=gw_order_id, status=PurchaseStatus.PENDING).first()
+                if cp:
+                    cp.status = PurchaseStatus.FAILED
+                    cp.save(update_fields=['status'])
+
+                order = PaymentOrder.objects.filter(gateway_order_id=gw_order_id, status=OrderStatus.CREATED).first()
+                if order:
+                    order.status = OrderStatus.FAILED
+                    order.save(update_fields=['status'])
 
         event.processed = True
         event.processed_at = timezone.now()

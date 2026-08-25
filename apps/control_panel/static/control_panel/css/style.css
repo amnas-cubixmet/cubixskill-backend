@@ -203,6 +203,93 @@ body {
   font-weight: 600;
 }
 
+/* Submenu / Accordion Navigation */
+.cp-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cp-nav-parent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--cp-text-secondary);
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cp-nav-parent:hover {
+  background-color: var(--cp-border-subtle);
+  color: var(--cp-text-primary);
+}
+
+.cp-nav-parent.active {
+  color: var(--cp-primary);
+  font-weight: 600;
+}
+
+.cp-nav-parent .cp-chevron {
+  transition: transform 0.2s ease;
+}
+
+.cp-nav-group.expanded .cp-nav-parent .cp-chevron {
+  transform: rotate(180deg);
+}
+
+.cp-nav-submenu {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 28px;
+}
+
+.cp-nav-group.expanded .cp-nav-submenu {
+  display: flex;
+}
+
+.cp-nav-subitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--cp-text-secondary);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 12.5px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cp-nav-subitem svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  stroke: currentColor;
+  display: block;
+}
+
+.cp-nav-subitem:hover {
+  background-color: var(--cp-border-subtle);
+  color: var(--cp-text-primary);
+}
+
+.cp-nav-subitem.active {
+  background-color: var(--cp-primary-light);
+  color: var(--cp-primary);
+  font-weight: 600;
+}
+
 .cp-content {
   flex: 1;
   min-width: 0;

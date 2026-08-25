@@ -8,6 +8,8 @@ from fees.views import (
     WaiveFeeView,
     SendFeeReminderView,
     CourseFeePaymentsLedgerView,
+    GlobalFeeSummaryView,
+    GlobalStudentFeeAccountListView,
 )
 
 # --------------------------------------------------------------
@@ -17,6 +19,10 @@ from fees.views import (
 # --------------------------------------------------------------
 
 urlpatterns = [
+    # Global Academy endpoints
+    path('summary/', GlobalFeeSummaryView.as_view(), name='global-fee-summary'),
+    path('accounts/', GlobalStudentFeeAccountListView.as_view(), name='global-fee-accounts'),
+
     # Course-level endpoints
     path('courses/<uuid:course_id>/summary/', CourseFeeSummaryView.as_view(), name='fee-summary'),
     path('courses/<uuid:course_id>/fee-summary/', CourseFeeSummaryView.as_view(), name='fee-summary-legacy'),

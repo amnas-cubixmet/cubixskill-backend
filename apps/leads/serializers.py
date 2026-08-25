@@ -71,7 +71,10 @@ class LeadActivitySerializer(serializers.ModelSerializer):
 # --------------------------------------------------------------
 
 class LeadSerializer(serializers.ModelSerializer):
+    assigned_to_id = serializers.UUIDField(source='assigned_to.id', read_only=True)
+    assigned_to_name = serializers.CharField(source='assigned_to.full_name', read_only=True)
     assigned_to_email = serializers.EmailField(source='assigned_to.email', read_only=True)
+    converted_student_id = serializers.UUIDField(source='converted_student.id', read_only=True)
     course_interests = LeadCourseInterestSerializer(many=True, read_only=True)
     tags = LeadTagSerializer(many=True, read_only=True)
     notes = LeadNoteSerializer(many=True, read_only=True)
@@ -89,7 +92,10 @@ class LeadSerializer(serializers.ModelSerializer):
             'source',
             'source_detail',
             'preferred_contact_method',
+            'assigned_to_id',
+            'assigned_to_name',
             'assigned_to_email',
+            'converted_student_id',
             'next_follow_up_at',
             'last_contacted_at',
             'converted_at',

@@ -9,13 +9,41 @@ from django.db import transaction
 from django.utils import timezone
 from storage.models import (
     MediaFile, UploadSession, AcademyStorageAccount, StorageUsageEvent,
-    StorageUsageSnapshot, StoragePricingRule, MediaStatus, UploadSessionStatus,
+    StorageUsageRollup, StorageMonthlyBilling, StoragePricingRule, MediaStatus, UploadSessionStatus,
     UsageEventType, MediaType
 )
 from storage.s3_client import storage_client
 from core.utils import CubixSkillAPIException
 
 logger = logging.getLogger(__name__)
+
+import os
+from django.conf import settings
+
+def determine_media_category(mime_type: str) -> str:
+    mime = (mime_type or '').lower()
+    if 'image' in mime:
+        return 'images'
+    elif 'video' in mime:
+        return 'videos'
+    elif 'audio' in mime:
+        return 'audio'
+    elif 'pdf' in mime or 'document' in mime or 'word' in mime or 'excel' in mime or 'sheet' in mime or 'text' in mime:
+        return 'documents'
+    return 'other'
+
+def academy_media_upload_path(academy_uuid, mime_type: str, filename: str) -> tuple[str, str, str]:
+    """
+    Returns (storage_key, unique_filename, dest_path)
+    storage_key: relative Django media path, e.g. academies/<academy_uuid>/images/<uuid>.jpg
+    """
+    acad_str = str(academy_uuid) if academy_uuid else 'global'
+    category = determine_media_category(mime_type)
+    safe_ext = (filename.split('.')[-1] if '.' in filename else 'bin').lower()
+    unique_filename = f"{uuid.uuid4().hex}.{safe_ext}"
+    storage_key = f"academies/{acad_str}/{category}/{unique_filename}"
+    dest_path = os.path.join(settings.MEDIA_ROOT, storage_key)
+    return storage_key, unique_filename, dest_path
 
 #--------------------------------------------------------------
 # Storage Service
@@ -44,71 +72,38 @@ class StorageService:
 
     @classmethod
     @transaction.atomic
-    def create_upload_session(cls, academy_uuid, user_uuid, original_name: str, mime_type: str, file_size_bytes: int, purpose: str = 'GENERAL') -> dict:
-        """
-        Create upload session and generate S3/MinIO presigned upload URL.
-        """
-        account = cls.get_or_create_account(academy_uuid)
-
-        # Validate quota/limit if defined
-        if account.storage_limit_bytes and (account.current_usage_bytes + file_size_bytes > account.storage_limit_bytes):
-            raise CubixSkillAPIException("Academy storage limit exceeded.", code="STORAGE_LIMIT_EXCEEDED")
-
-        safe_ext = original_name.split('.')[-1] if '.' in original_name else 'bin'
-        unique_id = uuid.uuid4().hex
-        acad_str = str(academy_uuid) if academy_uuid else 'global'
-        storage_key = f"academies/{acad_str}/media/{unique_id}.{safe_ext}"
-
-        session = UploadSession.objects.create(
-            academy_uuid=academy_uuid,
-            requested_by_uuid=user_uuid,
-            storage_key=storage_key,
-            original_name=original_name,
-            mime_type=mime_type,
-            expected_size_bytes=file_size_bytes,
-            purpose=purpose,
-            expires_at=timezone.now() + timedelta(minutes=15)
-        )
-
-        presigned_url = storage_client.generate_presigned_upload_url(
-            object_key=storage_key,
-            mime_type=mime_type,
-            expires_in=900
-        )
-
-        return {
-            "session": session,
-            "upload_url": presigned_url,
-            "storage_key": storage_key,
-            "expires_in": 900
-        }
-
-    @classmethod
-    @transaction.atomic
     def upload_media_direct(cls, academy_uuid, user_uuid, file_obj, original_filename: str, mime_type: str, file_size_bytes: int) -> MediaFile:
         """
-        Directly upload binary media content to MinIO/S3 and record metadata in media database.
+        Directly upload binary media content to Django local MEDIA_ROOT folder inside per-Academy directory.
         """
         account = cls.get_or_create_account(academy_uuid)
 
         if account.storage_limit_bytes and (account.current_usage_bytes + file_size_bytes > account.storage_limit_bytes):
             raise CubixSkillAPIException("Academy storage limit exceeded.", code="STORAGE_LIMIT_EXCEEDED")
 
-        safe_ext = original_filename.split('.')[-1] if '.' in original_filename else 'bin'
-        unique_id = uuid.uuid4().hex
-        acad_str = str(academy_uuid) if academy_uuid else 'global'
-        storage_key = f"academies/{acad_str}/media/{unique_id}.{safe_ext}"
+        storage_key, unique_filename, dest_path = academy_media_upload_path(
+            academy_uuid=academy_uuid,
+            mime_type=mime_type,
+            filename=original_filename
+        )
 
-        # Upload file binary to MinIO S3 object storage
-        storage_client.upload_file(file_obj=file_obj, object_key=storage_key, content_type=mime_type)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        with open(dest_path, 'wb') as f:
+            if hasattr(file_obj, 'read'):
+                file_obj.seek(0)
+                f.write(file_obj.read())
+            elif isinstance(file_obj, (bytes, bytearray)):
+                f.write(file_obj)
 
         media_type = cls.deduce_media_type(mime_type)
+        safe_ext = unique_filename.split('.')[-1]
 
         media_file = MediaFile.objects.create(
             academy_uuid=academy_uuid,
             uploaded_by_uuid=user_uuid,
             original_filename=original_filename,
-            stored_filename=storage_key.split('/')[-1],
+            display_name=original_filename,
+            stored_filename=unique_filename,
             storage_key=storage_key,
             relative_path=storage_key,
             mime_type=mime_type,
@@ -116,97 +111,31 @@ class StorageService:
             file_type=media_type.lower(),
             file_extension=safe_ext,
             storage_provider='local',
-            storage_path=storage_key,
+            storage_path=dest_path,
             file_url=f"/media/{storage_key}",
             media_type=media_type,
             status=MediaStatus.ACTIVE,
             uploaded_at=timezone.now()
         )
 
-        # Update Storage Account usage
-        account.current_usage_bytes += media_file.size_bytes
-        account.save(update_fields=['current_usage_bytes'])
-
-        # Log Usage Event
-        StorageUsageEvent.objects.create(
-            academy_uuid=academy_uuid,
-            media_file=media_file,
-            event_type=UsageEventType.FILE_ADDED,
-            delta_bytes=media_file.size_bytes,
-            usage_after_bytes=account.current_usage_bytes,
-            occurred_at=timezone.now()
-        )
-
-        return media_file
-
-    @classmethod
-    @transaction.atomic
-    def confirm_upload(cls, upload_session: UploadSession) -> MediaFile:
-        if upload_session.status == UploadSessionStatus.CONFIRMED:
-            return MediaFile.objects.get(storage_key=upload_session.storage_key)
-
-        if timezone.now() > upload_session.expires_at:
-            upload_session.status = UploadSessionStatus.EXPIRED
-            upload_session.save(update_fields=['status'])
-            raise CubixSkillAPIException("Upload session expired.", code="SESSION_EXPIRED")
-
-        media_type = cls.deduce_media_type(upload_session.mime_type)
-        safe_ext = upload_session.original_name.split('.')[-1] if '.' in upload_session.original_name else 'bin'
-
-        media_file = MediaFile.objects.create(
-            academy_uuid=upload_session.academy_uuid,
-            uploaded_by_uuid=upload_session.requested_by_uuid,
-            original_filename=upload_session.original_name,
-            stored_filename=upload_session.storage_key.split('/')[-1],
-            storage_key=upload_session.storage_key,
-            relative_path=upload_session.storage_key,
-            mime_type=upload_session.mime_type,
-            size_bytes=upload_session.expected_size_bytes,
-            file_type=media_type.lower(),
-            file_extension=safe_ext,
-            storage_provider='local',
-            storage_path=upload_session.storage_key,
-            file_url=f"/media/{upload_session.storage_key}",
-            media_type=media_type,
-            status=MediaStatus.ACTIVE,
-            uploaded_at=timezone.now()
-        )
-
-        upload_session.status = UploadSessionStatus.CONFIRMED
-        upload_session.confirmed_at = timezone.now()
-        upload_session.save(update_fields=['status', 'confirmed_at'])
-
-        # Update Storage Account
-        account = cls.get_or_create_account(upload_session.academy_uuid)
-        account.current_usage_bytes += media_file.size_bytes
-        account.save(update_fields=['current_usage_bytes'])
-
-        # Log Usage Event
-        StorageUsageEvent.objects.create(
-            academy_uuid=upload_session.academy_uuid,
-            media_file=media_file,
-            event_type=UsageEventType.FILE_ADDED,
-            delta_bytes=media_file.size_bytes,
-            usage_after_bytes=account.current_usage_bytes,
-            occurred_at=timezone.now()
-        )
+        # Delegate UPLOAD event creation and storage account update to StorageMeteringService
+        from storage.metering import StorageMeteringService
+        StorageMeteringService.record_upload(media_file)
 
         return media_file
 
     @classmethod
     def get_media_access_url(cls, media_file: MediaFile, expires_in: int = 3600) -> str:
         """
-        Generate access URL for media file.
+        Generate access URL for local media file.
         """
-        if media_file.file_url:
-            return media_file.file_url
         if not media_file.storage_key:
             return ""
-        return storage_client.generate_presigned_download_url(object_key=media_file.storage_key, expires_in=expires_in)
+        return f"/media/{media_file.storage_key.lstrip('/')}"
 
     @classmethod
     @transaction.atomic
-    def update_media_file(cls, media_file: MediaFile, file_obj=None, original_filename: str = None, mime_type: str = None) -> MediaFile:
+    def update_media_file(cls, media_file: MediaFile, file_obj=None, original_filename: str = None, display_name: str = None, mime_type: str = None) -> MediaFile:
         """
         Update existing media file: replace binary if new content provided, and update metadata.
         """
@@ -214,33 +143,51 @@ class StorageService:
         new_size = old_size
 
         if file_obj is not None:
-            # Delete old file from MinIO
+            # Delete old local file if present
             if media_file.storage_key:
-                storage_client.delete_file(media_file.storage_key)
-
-            # Generate new key or reuse
-            if original_filename:
-                safe_ext = original_filename.split('.')[-1] if '.' in original_filename else 'bin'
-                unique_id = uuid.uuid4().hex
-                acad_str = str(media_file.academy_uuid) if media_file.academy_uuid else 'global'
-                media_file.storage_key = f"academies/{acad_str}/media/{unique_id}.{safe_ext}"
-                media_file.stored_filename = media_file.storage_key.split('/')[-1]
-                media_file.relative_path = media_file.storage_key
-                media_file.file_extension = safe_ext
+                old_dest = os.path.join(settings.MEDIA_ROOT, media_file.storage_key)
+                if os.path.exists(old_dest):
+                    try:
+                        os.remove(old_dest)
+                    except Exception as e:
+                        logger.warning(f"Failed to remove old local media file {old_dest}: {e}")
 
             effective_mime = mime_type or media_file.mime_type
-            storage_client.upload_file(file_obj=file_obj, object_key=media_file.storage_key, content_type=effective_mime)
+            effective_filename = original_filename or media_file.original_filename
+
+            storage_key, unique_filename, dest_path = academy_media_upload_path(
+                academy_uuid=media_file.academy_uuid,
+                mime_type=effective_mime,
+                filename=effective_filename
+            )
+
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            with open(dest_path, 'wb') as f:
+                if hasattr(file_obj, 'read'):
+                    file_obj.seek(0)
+                    f.write(file_obj.read())
+                elif isinstance(file_obj, (bytes, bytearray)):
+                    f.write(file_obj)
 
             if hasattr(file_obj, 'size'):
                 new_size = file_obj.size
             elif isinstance(file_obj, (bytes, bytearray)):
                 new_size = len(file_obj)
 
+            media_file.storage_key = storage_key
+            media_file.stored_filename = unique_filename
+            media_file.relative_path = storage_key
+            media_file.storage_path = dest_path
             media_file.size_bytes = new_size
-            media_file.file_url = f"/media/{media_file.storage_key}"
+            media_file.file_url = f"/media/{storage_key}"
+            media_file.file_extension = unique_filename.split('.')[-1]
 
         if original_filename:
             media_file.original_filename = original_filename
+            if not display_name:
+                media_file.display_name = original_filename
+        if display_name:
+            media_file.display_name = display_name
         if mime_type:
             media_file.mime_type = mime_type
             media_file.media_type = cls.deduce_media_type(mime_type)
@@ -248,21 +195,10 @@ class StorageService:
 
         media_file.save()
 
-        # Update storage usage accounting if size changed
-        if media_file.academy_uuid and new_size != old_size:
-            delta = new_size - old_size
-            account = cls.get_or_create_account(media_file.academy_uuid)
-            account.current_usage_bytes = max(0, account.current_usage_bytes + delta)
-            account.save(update_fields=['current_usage_bytes'])
-
-            StorageUsageEvent.objects.create(
-                academy_uuid=media_file.academy_uuid,
-                media_file=media_file,
-                event_type=UsageEventType.FILE_REPLACED,
-                delta_bytes=delta,
-                usage_after_bytes=account.current_usage_bytes,
-                occurred_at=timezone.now()
-            )
+        # Record UPLOAD event for updated file size if binary changed
+        if media_file.academy_uuid and file_obj is not None:
+            from storage.metering import StorageMeteringService
+            StorageMeteringService.record_upload(media_file)
 
         return media_file
 
@@ -270,32 +206,24 @@ class StorageService:
     @transaction.atomic
     def delete_media_file(cls, media_file: MediaFile, hard_delete: bool = False) -> None:
         """
-        Safely delete media file from storage and database.
+        Safely delete local media file from filesystem and database.
         """
         if media_file.status == MediaStatus.DELETED and not hard_delete:
             return
 
-        # 1. Safely remove object binary from storage
+        # 1. Delegate DELETE event creation and storage account update to StorageMeteringService
+        from storage.metering import StorageMeteringService
+        StorageMeteringService.record_delete(media_file)
+
+        # 2. Safely remove physical local file from MEDIA_ROOT
         if media_file.storage_key:
-            try:
-                storage_client.delete_file(media_file.storage_key)
-            except Exception as e:
-                logger.warning(f"Failed to delete object key {media_file.storage_key}: {e}")
-
-        # 2. Update Storage usage account
-        account = cls.get_or_create_account(media_file.academy_uuid) if media_file.academy_uuid else None
-        if account:
-            account.current_usage_bytes = max(0, account.current_usage_bytes - media_file.size_bytes)
-            account.save(update_fields=['current_usage_bytes'])
-
-            StorageUsageEvent.objects.create(
-                academy_uuid=media_file.academy_uuid,
-                media_file=media_file if not hard_delete else None,
-                event_type=UsageEventType.FILE_REMOVED,
-                delta_bytes=-media_file.size_bytes,
-                usage_after_bytes=account.current_usage_bytes,
-                occurred_at=timezone.now()
-            )
+            local_path = os.path.join(settings.MEDIA_ROOT, media_file.storage_key)
+            if os.path.exists(local_path):
+                try:
+                    os.remove(local_path)
+                    logger.info(f"Removed local media file '{local_path}'.")
+                except Exception as e:
+                    logger.warning(f"Failed to remove local file '{local_path}': {e}")
 
         # 3. Update record
         if hard_delete:
@@ -304,3 +232,19 @@ class StorageService:
             media_file.status = MediaStatus.DELETED
             media_file.deleted_at = timezone.now()
             media_file.save(update_fields=['status', 'deleted_at'])
+
+    @classmethod
+    def get_media_usage(cls, media_file: MediaFile) -> dict:
+        """
+        Delegate to MediaUsageSelector.
+        """
+        from storage.selectors import MediaUsageSelector
+        return MediaUsageSelector.get_usage(media_file)
+
+    @classmethod
+    def get_storage_usage_summary(cls, academy_uuid) -> dict:
+        """
+        Delegate to StorageSummarySelector.
+        """
+        from storage.selectors import StorageSummarySelector
+        return StorageSummarySelector.get_summary(academy_uuid)

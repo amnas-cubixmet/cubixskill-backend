@@ -8,5 +8,6 @@ router.register(r'roles', RoleViewSet, basename='role')
 router.register(r'permissions', PermissionViewSet, basename='permission')
 
 urlpatterns = [
+    path('users/summary/', UserViewSet.as_view({'get': 'summary'}), name='user-summary'),
     path('', include(router.urls)),
 ]

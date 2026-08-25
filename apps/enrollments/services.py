@@ -120,6 +120,32 @@ class EnrollmentService:
         )
 
         if created:
+            # Deduct per-student course credit cost from Academy wallet
+            from decimal import Decimal
+            from credits.services import CreditsService, CreditPricingService
+
+            pricing = CreditPricingService.calculate_course_per_student_pricing(course)
+            per_student_credits = Decimal(str(pricing.get('total_credits_per_student', 1)))
+
+            if per_student_credits > Decimal('0.000000') and course.academy:
+                idempotency_key = f"enrollment_credit_charge:{course.id}:{student.id}"
+                CreditsService.debit(
+                    academy=course.academy,
+                    amount=per_student_credits,
+                    source_type="OTHER",
+                    idempotency_key=idempotency_key,
+                    description=f"Course Student Access for '{course.title or course.id}' ({student.email or student.id}) - {per_student_credits} Credits",
+                    reference_type="ENROLLMENT",
+                    reference_id=str(student.id),
+                    created_by=created_by,
+                    metadata={
+                        "course_id": str(course.id),
+                        "student_id": str(student.id),
+                        "per_student_credits": str(per_student_credits),
+                        "pricing_breakdown": pricing.get('breakdown', [])
+                    }
+                )
+
             # Create Initial Access Period & Event
             EnrollmentAccessPeriod.objects.create(
                 enrollment=enrollment,

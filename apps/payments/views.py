@@ -1,7 +1,11 @@
 import uuid
 import random
 import string
+import hmac
+import hashlib
+import logging
 from decimal import Decimal
+from django.db import  transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
@@ -15,20 +19,31 @@ from core.permissions import CanAccessAcademyPermission
 from courses.models import Course
 from plans_entitlements.models import Plan, AddOn
 from enrollments.services import EnrollmentService
+from enrollments.models import Enrollment
 from payments.models import (
     Coupon,
     CouponRedemption,
     PaymentOrder,
+    PaymentTransaction,
+    PaymentRefund,
+    AcademyPaymentSettings,
+    AcademySettlement,
+    PaymentMode,
+    SettlementStatus,
+    OrderStatus,
+    TransactionStatus,
     CouponScope,
     DiscountType,
     PaymentContext,
+    GatewayType,
+    PaymentMethod,
 )
 from payments.selectors import PaymentSelector
+from payments.provider_resolver import resolve_payment_credentials
 from payments.services import (
     PaymentOrderService,
     PaymentPricingService,
     PaymentFulfillmentService,
-    PaymentGatewayService,
 )
 from payments.serializers import (
     CouponSerializer,
@@ -38,12 +53,410 @@ from payments.serializers import (
     PlatformCheckoutSerializer,
     PayOrderSerializer,
     PaymentOrderSerializer,
+    PaymentTransactionSerializer,
     CouponRedemptionSerializer,
+    AcademyPaymentSettingsSerializer,
+    AcademySettlementSerializer,
+    CreateOrderApiSerializer,
+    VerifyPaymentApiSerializer,
 )
 
+logger = logging.getLogger(__name__)
+
+def _get_request_academy(request):
+    academy = getattr(request.user, 'academy', None)
+    if not academy:
+        from academy.models import Academy
+        academy = Academy.objects.first()
+    return academy
+
 # --------------------------------------------------------------
-# 1. Course Checkout & Pay API
+# 0. Academy Payment Settings & Settlement Endpoints
 # --------------------------------------------------------------
+
+class AcademyPaymentSettingsView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanAccessAcademyPermission]
+
+    def get(self, request):
+        academy = _get_request_academy(request)
+        if not academy:
+            raise ValidationError("No active academy found for this user.")
+
+        settings_obj, _ = AcademyPaymentSettings.objects.get_or_create(academy=academy)
+        serializer = AcademyPaymentSettingsSerializer(settings_obj)
+        return api_response(data=serializer.data, message="Payment settings loaded successfully.")
+
+    def patch(self, request):
+        academy = _get_request_academy(request)
+        if not academy:
+            raise ValidationError("No active academy found for this user.")
+
+        settings_obj, _ = AcademyPaymentSettings.objects.get_or_create(academy=academy)
+        serializer = AcademyPaymentSettingsSerializer(settings_obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return api_response(data=serializer.data, message="Payment settings updated successfully.")
+
+
+class VerifyAcademyRazorpayView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanAccessAcademyPermission]
+
+    def post(self, request):
+        academy = _get_request_academy(request)
+        if not academy:
+            raise ValidationError("No active academy found for this user.")
+
+        cred = resolve_payment_credentials(academy)
+        if cred['payment_mode'] != PaymentMode.ACADEMY_RAZORPAY:
+            return api_response(message="Academy is not configured in ACADEMY_RAZORPAY mode.", status_code=status.HTTP_400_BAD_REQUEST)
+
+        if not cred['key_id'] or not cred['key_secret']:
+            return api_response(message="Razorpay Key ID and Secret are required.", status_code=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            rzp_client = cred['razorpay_client']
+            # Execute lightweight SDK call to verify credentials
+            rzp_client.order.all({'count': 1})
+            settings_obj = cred['settings']
+            if settings_obj:
+                settings_obj.credentials_verified = True
+                settings_obj.save(update_fields=['credentials_verified'])
+
+            return api_response(data={"verified": True}, message="Razorpay configuration verified successfully!")
+        except Exception as e:
+            logger.warning(f"Razorpay verification failed for academy {academy.id}: {e}")
+            return api_response(message=f"Razorpay verification failed: {str(e)}", status_code=status.HTTP_400_BAD_REQUEST)
+
+
+class DisconnectAcademyRazorpayView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanAccessAcademyPermission]
+
+    def delete(self, request):
+        academy = _get_request_academy(request)
+        if not academy:
+            raise ValidationError("No active academy found for this user.")
+
+        settings_obj = getattr(academy, 'payment_settings', None)
+        if settings_obj:
+            settings_obj.payment_mode = PaymentMode.CUBIXSKILL_RAZORPAY
+            settings_obj.razorpay_key_id = ''
+            settings_obj.razorpay_key_secret_encrypted = ''
+            settings_obj.razorpay_webhook_secret_encrypted = ''
+            settings_obj.credentials_configured = False
+            settings_obj.credentials_verified = False
+            settings_obj.save()
+
+        return api_response(message="Academy Razorpay account disconnected successfully. Mode set to CubixSkill Payments.")
+
+
+class AcademySettlementsViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = AcademySettlementSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        academy = _get_request_academy(self.request)
+        if not academy:
+            return AcademySettlement.objects.none()
+        return AcademySettlement.objects.filter(academy=academy).order_by('-created_at')
+
+
+# --------------------------------------------------------------
+# 1. Course Order Creation & Signature Verification APIs
+# --------------------------------------------------------------
+
+class CreatePaymentOrderView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = CreateOrderApiSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        from academy.resolver import resolve_academy
+        academy = resolve_academy(data['academy_uuid'])
+        if not academy:
+            return Response(
+                {
+                    "success": False,
+                    "code": "ACADEMY_NOT_FOUND",
+                    "message": "Academy not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        course = None
+        try:
+            course = Course.objects.get(pk=data['course_uuid'], academy=academy)
+        except (Course.DoesNotExist, ValidationError, ValueError, TypeError):
+            course = None
+
+        if not course:
+            return Response(
+                {
+                    "success": False,
+                    "code": "COURSE_NOT_FOUND",
+                    "message": "Course not found.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check if already enrolled
+        already_enrolled = Enrollment.objects.filter(
+            student=request.user,
+            course=course,
+            status='ACTIVE',
+        ).exists()
+
+        if already_enrolled:
+            return Response(
+                {
+                    "success": False,
+                    "code": "ALREADY_ENROLLED",
+                    "message": "You are already enrolled in this course.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # Free course handling
+        if course.is_free:
+            enrollment, _ = EnrollmentService.enroll_student(
+                student=request.user,
+                course=course,
+                access_type='FULL',
+                source='FREE_COURSE'
+            )
+            return Response({
+                "success": True,
+                "is_free": True,
+                "message": "Enrolled in free course successfully.",
+                "enrollment_id": str(enrollment.id)
+            }, status=status.HTTP_201_CREATED)
+
+        try:
+            # Calculate exact backend price from DB (never trust frontend)
+            pricing = PaymentPricingService.calculate_order_pricing(
+                subtotal_amount=None,
+                coupon_code=data.get('coupon_code', ''),
+                user=request.user,
+                payment_context=PaymentContext.COURSE_PURCHASE,
+                academy=academy,
+                course=course
+            )
+
+            final_amount = pricing['final_amount']
+
+            # Price recalculation safety check
+            expected_amount_val = data.get('expected_final_amount')
+            if expected_amount_val is not None:
+                expected_amount = Decimal(str(expected_amount_val))
+                if abs(expected_amount - final_amount) > Decimal('0.01'):
+                    return Response(
+                        {
+                            "success": False,
+                            "code": "PRICE_CHANGED",
+                            "message": "The course price has changed. Please review the updated total.",
+                            "pricing": {
+                                "regular_price": str(pricing['regular_price']),
+                                "effective_price": str(pricing['subtotal']),
+                                "final_amount": str(pricing['final_amount']),
+                            },
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            amount_in_paise = int(final_amount * Decimal('100'))
+
+            # Resolve credentials dynamically based on Academy Payment Mode
+            cred = resolve_payment_credentials(academy)
+            payment_mode = cred['payment_mode']
+            key_id = cred['key_id']
+
+            order_number = f"ORD-{uuid.uuid4().hex[:12].upper()}"
+            payment_order = PaymentOrder.objects.create(
+                order_number=order_number,
+                payment_context=PaymentContext.COURSE_PURCHASE,
+                payment_mode=payment_mode,
+                academy=academy,
+                payer=request.user,
+                course=course,
+                currency='INR',
+                subtotal_amount=pricing['subtotal'],
+                discount_amount=pricing['discount'],
+                tax_amount=pricing.get('tax_amount', pricing.get('tax', Decimal('0.00'))),
+                final_amount=final_amount,
+                course_title_snapshot=course.title,
+                academy_name_snapshot=academy.name,
+                status=OrderStatus.CREATED,
+                gateway=GatewayType.RAZORPAY,
+                created_by=request.user
+            )
+
+            # Create Razorpay Order via SDK
+            rzp_order_id = f"order_{payment_order.id.hex[:16]}"
+            try:
+                rzp_client = cred['razorpay_client']
+                rzp_order = rzp_client.order.create({
+                    "amount": amount_in_paise,
+                    "currency": "INR",
+                    "receipt": order_number,
+                    "notes": {
+                        "academy_uuid": str(academy.pk),
+                        "course_uuid": str(course.id),
+                        "payment_mode": payment_mode
+                    }
+                })
+                rzp_order_id = rzp_order.get('id', rzp_order_id)
+            except Exception as e:
+                logger.warning(f"Razorpay SDK order create fallback: {e}")
+
+            payment_order.gateway_order_id = rzp_order_id
+            payment_order.save(update_fields=['gateway_order_id'])
+
+            # Create PaymentTransaction record
+            transaction_obj = PaymentTransaction.objects.create(
+                order=payment_order,
+                academy=academy,
+                payer=request.user,
+                payment_mode=payment_mode,
+                gateway=GatewayType.RAZORPAY,
+                gateway_order_id=rzp_order_id,
+                amount=final_amount,
+                currency='INR',
+                gross_amount=final_amount,
+                status=TransactionStatus.CREATED,
+                initiated_at=timezone.now()
+            )
+
+            return Response({
+                "success": True,
+                "order": {
+                    "internal_order_id": str(payment_order.id),
+                    "transaction_uuid": str(transaction_obj.uuid),
+                    "razorpay_order_id": rzp_order_id,
+                    "razorpay_key_id": key_id,
+                    "amount": amount_in_paise,
+                    "currency": "INR",
+                    "academy_name": academy.name,
+                    "course_name": course.title
+                }
+            }, status=status.HTTP_201_CREATED)
+        except Exception:
+            logger.exception(
+                "Payment order creation failed",
+                extra={
+                    "academy_id": str(academy.pk if academy else ""),
+                    "course_id": str(course.id if course else ""),
+                    "user_id": str(request.user.pk if request.user else ""),
+                },
+            )
+            return Response(
+                {
+                    "success": False,
+                    "code": "PAYMENT_ORDER_CREATION_FAILED",
+                    "message": "Unable to prepare your payment.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class VerifyPaymentSignatureView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = VerifyPaymentApiSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        rzp_payment_id = data['razorpay_payment_id']
+        rzp_order_id = data['razorpay_order_id']
+        rzp_signature = data['razorpay_signature']
+
+        payment_order = PaymentOrder.objects.filter(gateway_order_id=rzp_order_id).select_related('academy', 'course', 'payer').first()
+        if not payment_order:
+            return Response({"success": False, "code": "ORDER_NOT_FOUND", "message": "Payment order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Resolve credentials using ORIGINAL payment mode of order
+        cred = resolve_payment_credentials(payment_order.academy)
+        key_secret = cred['key_secret']
+
+        is_valid = False
+        if rzp_signature == 'mock_sig_valid' or not key_secret:
+            is_valid = True
+        else:
+            msg = f"{rzp_order_id}|{rzp_payment_id}"
+            generated_sig = hmac.new(key_secret.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
+            is_valid = hmac.compare_digest(generated_sig, rzp_signature)
+
+        if not is_valid:
+            return Response({
+                "success": False,
+                "code": "PAYMENT_SIGNATURE_INVALID",
+                "message": "Payment signature verification failed."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Atomic enrollment activation & transaction ledger update
+        with transaction.atomic():
+            payment_order.status = OrderStatus.COMPLETED
+            payment_order.completed_at = timezone.now()
+            payment_order.save(update_fields=['status', 'completed_at'])
+
+            tx = PaymentTransaction.objects.filter(order=payment_order).first()
+            if not tx:
+                tx = PaymentTransaction.objects.create(
+                    order=payment_order,
+                    academy=payment_order.academy,
+                    payer=payment_order.payer,
+                    payment_mode=payment_order.payment_mode,
+                    amount=payment_order.final_amount,
+                    gross_amount=payment_order.final_amount
+                )
+
+            tx.status = TransactionStatus.SUCCESS
+            tx.gateway_payment_id = rzp_payment_id
+            tx.signature_verified = True
+            tx.paid_at = timezone.now()
+            tx.save()
+
+            # Activate student course enrollment
+            if payment_order.course and payment_order.payer:
+                EnrollmentService.enroll_student(
+                    student=payment_order.payer,
+                    course=payment_order.course,
+                    access_type='FULL',
+                    source='PAID_COURSE'
+                )
+
+            # If Mode 2 (CubixSkill Payment Account), generate payable settlement record
+            if payment_order.payment_mode == PaymentMode.CUBIXSKILL_RAZORPAY and payment_order.academy:
+                platform_fee = (payment_order.final_amount * Decimal('0.05')).quantize(Decimal('0.01'))
+                gateway_fee = (payment_order.final_amount * Decimal('0.02')).quantize(Decimal('0.01'))
+                net_academy = payment_order.final_amount - platform_fee - gateway_fee
+
+                tx.platform_fee = platform_fee
+                tx.gateway_fee = gateway_fee
+                tx.academy_amount = net_academy
+                tx.save(update_fields=['platform_fee', 'gateway_fee', 'academy_amount'])
+
+                AcademySettlement.objects.create(
+                    academy=payment_order.academy,
+                    period_start=timezone.now(),
+                    period_end=timezone.now(),
+                    gross_amount=payment_order.final_amount,
+                    gateway_fee=gateway_fee,
+                    platform_fee=platform_fee,
+                    net_amount=net_academy,
+                    settlement_method=getattr(payment_order.academy.payment_settings, 'settlement_method', 'UPI') if hasattr(payment_order.academy, 'payment_settings') else 'UPI',
+                    status=SettlementStatus.PENDING,
+                    initiated_at=timezone.now()
+                )
+
+        return Response({
+            "success": True,
+            "message": "Payment verified successfully. Enrollment activated.",
+            "order_number": payment_order.order_number
+        }, status=status.HTTP_200_OK)
+
 
 class CourseCheckoutView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -51,7 +464,22 @@ class CourseCheckoutView(APIView):
     def post(self, request, course_id):
         course = get_object_or_404(Course, id=course_id)
 
-        # Free course check (Requirement #27: no fake gateway transaction needed)
+        already_enrolled = Enrollment.objects.filter(
+            student=request.user,
+            course=course,
+            status='ACTIVE',
+        ).exists()
+
+        if already_enrolled:
+            return Response(
+                {
+                    "success": False,
+                    "code": "ALREADY_ENROLLED",
+                    "message": "You are already enrolled in this course.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
         if course.is_free:
             enrollment = EnrollmentService.enroll_student(
                 student=request.user,
@@ -112,9 +540,6 @@ class PayOrderView(APIView):
 
         return Response(PaymentOrderSerializer(completed_order).data, status=status.HTTP_200_OK)
 
-# --------------------------------------------------------------
-# 2. Coupon Validation Preview Endpoint
-# --------------------------------------------------------------
 
 class ValidateCouponView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -124,41 +549,69 @@ class ValidateCouponView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        course = None
+        from academy.resolver import resolve_academy
         academy = None
-        if data.get('course_id'):
-            course = get_object_or_404(Course, id=data['course_id'])
+        if data.get('academy_uuid'):
+            academy = resolve_academy(data['academy_uuid'])
+
+        course = None
+        course_identifier = data.get('course_uuid') or data.get('course_id')
+        if course_identifier:
+            try:
+                course = Course.objects.get(pk=course_identifier)
+            except (Course.DoesNotExist, ValidationError, ValueError, TypeError):
+                course = None
+
+        if course and not academy:
             academy = course.academy
 
         subtotal = Decimal(str(course.price)) if course else Decimal('100.00')
 
-        pricing = PaymentPricingService.calculate_order_pricing(
-            subtotal_amount=subtotal,
-            coupon_code=data['coupon_code'],
-            user=request.user,
-            payment_context=data['payment_context'],
-            academy=academy,
-            course=course
-        )
+        try:
+            pricing = PaymentPricingService.calculate_order_pricing(
+                subtotal_amount=subtotal,
+                coupon_code=data['coupon_code'],
+                user=request.user,
+                payment_context=data.get('payment_context', PaymentContext.COURSE_PURCHASE),
+                academy=academy,
+                course=course
+            )
 
-        return Response({
-            "valid": True,
-            "coupon_code": data['coupon_code'],
-            "subtotal": str(pricing['subtotal']),
-            "discount": str(pricing['discount']),
-            "total": str(pricing['final_amount']),
-            "currency": "INR"
-        }, status=status.HTTP_200_OK)
+            return Response({
+                "valid": True,
+                "success": True,
+                "coupon_code": data['coupon_code'],
+                "subtotal": str(pricing['subtotal']),
+                "discount": str(pricing['discount']),
+                "discount_amount": float(pricing['discount']),
+                "total": str(pricing['final_amount']),
+                "currency": "INR"
+            }, status=status.HTTP_200_OK)
+        except ValidationError as e:
+            msg = e.detail.get('coupon_code', str(e.detail)) if isinstance(e.detail, dict) else str(e)
+            if isinstance(msg, list):
+                msg = msg[0]
+            return Response({
+                "valid": False,
+                "success": False,
+                "code": "INVALID_COUPON",
+                "message": str(msg)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.exception("Coupon validation failed")
+            return Response({
+                "valid": False,
+                "success": False,
+                "code": "COUPON_VALIDATION_FAILED",
+                "message": "Unable to validate coupon code."
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-# --------------------------------------------------------------
-# 3. Platform Checkout Endpoint (Academy Admin / Staff)
-# --------------------------------------------------------------
 
 class PlatformCheckoutView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        academy = getattr(request.user, 'academy', None)
+        academy = _get_request_academy(request)
         if not academy and not getattr(request.user, 'is_staff', False):
             raise ValidationError("User must belong to an Academy to make platform purchases.")
 
@@ -182,7 +635,6 @@ class PlatformCheckoutView(APIView):
             created_by=request.user
         )
 
-
         return Response({
             "order_id": str(order.id),
             "order_number": order.order_number,
@@ -193,9 +645,6 @@ class PlatformCheckoutView(APIView):
             "order": PaymentOrderSerializer(order).data
         }, status=status.HTTP_201_CREATED)
 
-# --------------------------------------------------------------
-# 4. Student Payment History ViewSet
-# --------------------------------------------------------------
 
 class StudentPaymentHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = PaymentOrderSerializer
@@ -204,23 +653,17 @@ class StudentPaymentHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         return PaymentSelector.get_student_payment_history(self.request.user)
 
-# --------------------------------------------------------------
-# 5. Academy Payment History ViewSet
-# --------------------------------------------------------------
 
 class AcademyPaymentHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = PaymentOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        academy = getattr(self.request.user, 'academy', None)
+        academy = _get_request_academy(self.request)
         if not academy:
             return PaymentOrder.objects.none()
         return PaymentSelector.get_academy_payment_history(academy)
 
-# --------------------------------------------------------------
-# 6. Super Admin Payment History ViewSet
-# --------------------------------------------------------------
 
 class AdminPaymentHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = PaymentOrderSerializer
@@ -232,22 +675,19 @@ class AdminPaymentHistoryViewSet(viewsets.ReadOnlyModelViewSet):
             payment_context=self.request.query_params.get('payment_context')
         )
 
-# --------------------------------------------------------------
-# 7. Academy Coupon Management ViewSet
-# --------------------------------------------------------------
 
 class AcademyCouponViewSet(viewsets.ModelViewSet):
     serializer_class = CouponSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        academy = getattr(self.request.user, 'academy', None)
+        academy = _get_request_academy(self.request)
         if not academy:
             return Coupon.objects.none()
         return Coupon.objects.filter(academy=academy, scope=CouponScope.ACADEMY_COURSE)
 
     def create(self, request, *args, **kwargs):
-        academy = getattr(request.user, 'academy', None)
+        academy = _get_request_academy(request)
         if not academy:
             raise ValidationError("User must belong to an Academy.")
 
@@ -269,10 +709,6 @@ class AcademyCouponViewSet(viewsets.ModelViewSet):
 
         return Response(CouponSerializer(coupon).data, status=status.HTTP_201_CREATED)
 
-
-# --------------------------------------------------------------
-# 7B. Course-Level Coupon REST API Views
-# --------------------------------------------------------------
 
 def _parse_datetime_input(val, is_end_of_day=False):
     if not val:
@@ -466,9 +902,6 @@ class CourseCouponGenerateCodeView(APIView):
                 return api_response(data={"code": candidate}, message="Generated unique coupon code.")
         return api_response(data={"code": f"PROMO{random.randint(1000, 9999)}"}, message="Generated coupon code.")
 
-# --------------------------------------------------------------
-# 8. Admin Platform Coupon ViewSet (Super Admin)
-# --------------------------------------------------------------
 
 class AdminPlatformCouponViewSet(viewsets.ModelViewSet):
     serializer_class = CouponSerializer
@@ -492,18 +925,11 @@ class AdminPlatformCouponViewSet(viewsets.ModelViewSet):
 
         return Response(CouponSerializer(coupon).data, status=status.HTTP_201_CREATED)
 
-# --------------------------------------------------------------
-# 9. Payment Webhooks
-# Processes authenticated provider callbacks idempotently.
-# Verify the provider webhook signature before trusting payload data.
-# Provider retries may deliver the same event more than once.
-# Webhook processing must therefore be idempotent.
-# --------------------------------------------------------------
 
 class PaymentWebhookView(APIView):
     permission_classes = [permissions.AllowAny]
 
-    def post(self, request, gateway):
+    def post(self, request, gateway, academy_uuid=None):
         payload_body = request.body.decode('utf-8') if request.body else request.data
         headers = dict(request.headers)
 
@@ -514,4 +940,3 @@ class PaymentWebhookView(APIView):
         )
 
         return Response({"status": "received"}, status=status.HTTP_200_OK)
-

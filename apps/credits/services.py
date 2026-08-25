@@ -39,12 +39,56 @@ class CreditPricingService:
 
     DEFAULT_RATES = [
         {
+            'feature_key': 'CREDIT_PURCHASE_500',
+            'name': '500 Credits',
+            'description': 'Starter Credit Pack for small academies.',
+            'billing_type': BillingType.FIXED,
+            'unit_size': Decimal('1.0000'),
+            'credit_cost': Decimal('500.0000'),
+            'price': Decimal('499.00'),
+            'credits': Decimal('500.000000'),
+            'currency': 'INR',
+            'is_purchasable': True,
+            'is_active': True,
+        },
+        {
+            'feature_key': 'CREDIT_PURCHASE_1000',
+            'name': '1000 Credits',
+            'description': 'Standard Credit Pack for growing academies.',
+            'billing_type': BillingType.FIXED,
+            'unit_size': Decimal('1.0000'),
+            'credit_cost': Decimal('1000.0000'),
+            'price': Decimal('899.00'),
+            'credits': Decimal('1000.000000'),
+            'currency': 'INR',
+            'is_purchasable': True,
+            'is_active': True,
+        },
+        {
+            'feature_key': 'CREDIT_PURCHASE_2500',
+            'name': '2500 Credits',
+            'description': 'Value Credit Pack for established institutions.',
+            'billing_type': BillingType.FIXED,
+            'unit_size': Decimal('1.0000'),
+            'credit_cost': Decimal('2500.0000'),
+            'price': Decimal('1999.00'),
+            'credits': Decimal('2500.000000'),
+            'currency': 'INR',
+            'is_purchasable': True,
+            'is_active': True,
+        },
+        {
             'feature_key': 'EMAIL_SEND',
             'name': 'Email Sending Service',
             'description': 'Credit cost per billable recipient email sent.',
             'billing_type': BillingType.PER_UNIT,
             'unit_size': Decimal('1.0000'),
             'credit_cost': Decimal('1.0000'),
+            'price': Decimal('0.00'),
+            'credits': Decimal('0.000000'),
+            'currency': 'INR',
+            'is_purchasable': False,
+            'is_active': True,
         },
         {
             'feature_key': 'STORAGE_MONTHLY',
@@ -53,39 +97,31 @@ class CreditPricingService:
             'billing_type': BillingType.PER_UNIT,
             'unit_size': Decimal('1.0000'),
             'credit_cost': Decimal('10.0000'),
-        },
-        {
-            'feature_key': 'SMS_SEND',
-            'name': 'SMS Notification Service',
-            'description': 'Credit cost per SMS text message.',
-            'billing_type': BillingType.PER_UNIT,
-            'unit_size': Decimal('1.0000'),
-            'credit_cost': Decimal('2.0000'),
-        },
-        {
-            'feature_key': 'AI_USAGE',
-            'name': 'AI Content & Quiz Generation',
-            'description': 'Credit cost per AI generation request.',
-            'billing_type': BillingType.PER_UNIT,
-            'unit_size': Decimal('1.0000'),
-            'credit_cost': Decimal('5.0000'),
+            'price': Decimal('0.00'),
+            'credits': Decimal('0.000000'),
+            'currency': 'INR',
+            'is_purchasable': False,
+            'is_active': True,
         },
     ]
 
     @classmethod
     def ensure_default_rates(cls):
-        for rate_data in cls.DEFAULT_RATES:
-            CreditRate.objects.get_or_create(
-                feature_key=rate_data['feature_key'],
-                defaults=rate_data
-            )
+        # Default mock rates seeding disabled so Super Admin has total control over rates in database
+        pass
+
+    @classmethod
+    def list_purchasable_rates(cls):
+        return CreditRate.objects.filter(
+            is_active=True,
+            is_purchasable=True
+        ).order_by('price')
 
     @classmethod
     def get_rate(cls, feature_key: str) -> CreditRate:
         cls.ensure_default_rates()
         rate = CreditRate.objects.filter(feature_key=feature_key, is_active=True).first()
         if not rate:
-            # Fallback default
             return CreditRate(
                 feature_key=feature_key,
                 name=feature_key,
@@ -115,6 +151,74 @@ class CreditPricingService:
             gb_units = Decimal('0.0001')
         cost = (gb_units / rate.unit_size) * rate.credit_cost
         return gb_units, cost.quantize(Decimal('0.000001'))
+
+    @classmethod
+    def calculate_course_per_student_pricing(cls, course) -> dict:
+        """
+        Calculates per-student credit price for a course based on Base Student Access + enabled features.
+        Authoritative formula: Total = Base + SUM(enabled billable feature credit rates).
+        """
+        if not course:
+            return {
+                "base_credits_per_student": 1,
+                "total_credits_per_student": 1,
+                "enabled_features_count": 0,
+                "breakdown": []
+            }
+
+        from control_panel.models import PricingRule
+        from features.services import CourseFeatureService
+
+        pricing_rules = {
+            pr.code.strip().upper(): pr for pr in PricingRule.objects.filter(is_active=True)
+        }
+
+        base_rule = pricing_rules.get('STUDENT_BASE') or pricing_rules.get('COURSE_BASE')
+        base_credits = int(base_rule.credit_cost) if base_rule else 15
+
+        breakdown = [{
+            "key": "STUDENT_BASE",
+            "name": "Student Base Price",
+            "credits_per_student": base_credits,
+            "is_base": True,
+            "enabled": True
+        }]
+
+        features = CourseFeatureService.get_features(course)
+        enabled_features_count = 0
+        feature_credits_sum = 0
+        per_student_codes = {'LESSONS', 'FEE_COLLECTION', 'LIVE_CLASS', 'COURSE_DISCUSSION', 'ONE_TO_ONE_SESSION'}
+
+        for f in features:
+            is_enabled = f.get('effective_enabled', False) or f.get('is_enabled', False)
+            is_per_student = f.get('is_per_student', False) or f.get('code') in per_student_codes or f.get('billing_unit') == 'PER_STUDENT'
+
+            if is_enabled:
+                enabled_features_count += 1
+                if is_per_student:
+                    cost = f.get('credit_cost', 0)
+                    feature_credits_sum += cost
+                    if cost > 0:
+                        breakdown.append({
+                            "key": f['code'],
+                            "name": f['name'],
+                            "credits_per_student": cost,
+                            "is_base": False,
+                            "enabled": True
+                        })
+
+        total_credits = base_credits + feature_credits_sum
+
+        return {
+            "student_base_price": str(Decimal(base_credits).quantize(Decimal('0.000000'))),
+            "feature_student_total": str(Decimal(feature_credits_sum).quantize(Decimal('0.000000'))),
+            "total_per_student": str(Decimal(total_credits).quantize(Decimal('0.000000'))),
+            "base_credits_per_student": base_credits,
+            "feature_credits_sum": feature_credits_sum,
+            "total_credits_per_student": total_credits,
+            "enabled_features_count": enabled_features_count,
+            "breakdown": breakdown
+        }
 
 
 # --------------------------------------------------------------
@@ -258,16 +362,39 @@ class CreditPurchaseService:
     def create_purchase_order(
         cls,
         academy: Academy,
-        package_id: str,
+        rate_id: str = None,
+        package_id: str = None,
         coupon_code: str = "",
         user: User = None
     ) -> CreditPurchase:
-        try:
-            package = CreditPackage.objects.get(pk=package_id, is_active=True)
-        except CreditPackage.DoesNotExist:
-            raise ValidationError({"package_id": "Selected credit package is unavailable."})
+        rate = None
+        package = None
 
-        raw_price = package.price
+        if rate_id:
+            try:
+                rate = CreditRate.objects.get(pk=rate_id, is_active=True, is_purchasable=True)
+            except CreditRate.DoesNotExist:
+                raise ValidationError({"rate_id": "Selected credit rate option is unavailable or inactive."})
+            raw_price = rate.price
+            base_credits = rate.credits if rate.credits > 0 else (rate.credit_cost if rate.credit_cost > 0 else Decimal('100.000000'))
+            bonus_credits = Decimal('0.000000')
+            from core.utils import normalize_currency
+            currency = normalize_currency(rate.currency)
+            product_name = f"Credit Rate: {rate.name} ({int(base_credits)} Credits)"
+        elif package_id:
+            try:
+                package = CreditPackage.objects.get(pk=package_id, is_active=True)
+            except CreditPackage.DoesNotExist:
+                raise ValidationError({"package_id": "Selected credit package is unavailable."})
+            raw_price = package.price
+            base_credits = package.credits
+            bonus_credits = package.bonus_credits
+            from core.utils import normalize_currency
+            currency = normalize_currency(package.currency)
+            product_name = f"Credit Package: {package.name} ({package.credits} Credits)"
+        else:
+            raise ValidationError({"rate_id": "Either rate_id or package_id must be provided."})
+
         coupon = None
         discount_amount = Decimal('0.00')
 
@@ -280,80 +407,84 @@ class CreditPurchaseService:
 
         purchase = CreditPurchase.objects.create(
             academy=academy,
+            rate=rate,
             package=package,
             coupon=coupon,
-            base_credits=package.credits,
-            bonus_credits=package.bonus_credits,
-            total_credits=package.credits + package.bonus_credits,
+            base_credits=base_credits,
+            bonus_credits=bonus_credits,
+            total_credits=base_credits + bonus_credits,
             original_price=raw_price,
             discount_amount=discount_amount,
             final_price=final_price,
-            currency=package.currency,
+            currency=currency,
             payment_order_id=order_id,
             status=PurchaseStatus.PENDING,
             created_by=user
         )
-        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
-        success_url = f"{frontend_url}/credits?payment=success&purchase={purchase.id}"
-        cancel_url = f"{frontend_url}/credits/buy?payment=cancelled"
+        from payments.models import PaymentOrder, OrderStatus
+        from payments.services import PaymentGatewayService, PaymentOrderService
+        
+        # Build underlying PaymentOrder for gateway handling
+        order_number = PaymentOrderService.generate_order_number()
+        payment_order = PaymentOrder.objects.create(
+            order_number=order_number,
+            payment_context='PLATFORM_PURCHASE',
+            academy=academy,
+            payer=user,
+            currency=currency,
+            subtotal_amount=raw_price,
+            discount_amount=discount_amount,
+            tax_amount=Decimal('0.00'),
+            final_amount=final_price,
+            product_name_snapshot=product_name,
+            academy_name_snapshot=academy.name if academy else '',
+            gateway='RAZORPAY',
+            status=OrderStatus.CREATED,
+            created_by=user
+        )
 
-        checkout_url = f"https://checkout.stripe.com/c/pay/cs_test_{purchase.id.hex[:16]}"
-        stripe_session_id = f"cs_test_{purchase.id.hex[:16]}"
+        provider_order_data = PaymentGatewayService.create_gateway_order(payment_order)
+        gateway_order_id = provider_order_data.get('gateway_order_id', f"order_{purchase.id.hex[:16]}")
 
-        stripe_secret = getattr(settings, 'STRIPE_SECRET_KEY', None)
-        if stripe_secret and not stripe_secret.startswith('sk_test_mock'):
-            try:
-                import stripe
-                stripe.api_key = stripe_secret
-                amount_cents = int((final_price * Decimal('100')).quantize(Decimal('1')))
-                session = stripe.checkout.Session.create(
-                    payment_method_types=['card'],
-                    line_items=[{
-                        'price_data': {
-                            'currency': package.currency.lower(),
-                            'product_data': {
-                                'name': f"CubixSkill Credit Package: {package.name} ({package.credits} Credits)",
-                                'description': f"Academy Credit Package Purchase: {package.credits} Credits",
-                            },
-                            'unit_amount': amount_cents,
-                        },
-                        'quantity': 1,
-                    }],
-                    mode='payment',
-                    success_url=success_url,
-                    cancel_url=cancel_url,
-                    client_reference_id=str(purchase.id),
-                    metadata={
-                        'purchase_id': str(purchase.id),
-                        'academy_id': str(academy.id),
-                        'package_id': str(package.id),
-                    }
-                )
-                checkout_url = session.url or checkout_url
-                stripe_session_id = session.id
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(f"Stripe API session creation warning: {e}")
+        payment_order.gateway_order_id = gateway_order_id
+        payment_order.save(update_fields=['gateway_order_id'])
 
-        purchase.payment_order_id = stripe_session_id
+        purchase.payment_order_id = gateway_order_id
         purchase.save(update_fields=['payment_order_id'])
 
-        return purchase, checkout_url
+        return purchase, provider_order_data
 
     @classmethod
     @transaction.atomic
-    def fulfill_purchase(cls, payment_order_id: str, transaction_id: str = "") -> CreditPurchase:
+    def finalize_credit_purchase(
+        cls,
+        payment_order_id: str,
+        transaction_id: str = "",
+        razorpay_order_id: str = "",
+        source: str = "frontend_verify"
+    ) -> tuple[CreditPurchase, bool]:
         """
-        Idempotent fulfillment: adds credits to academy wallet ONLY once.
+        Single canonical shared finalization service for Credit Purchases.
+        Used by both frontend POST /verify/ and Razorpay Webhook.
+        Idempotent: adds credits to academy wallet ONLY once.
+        Returns (CreditPurchase, already_processed_boolean).
         """
-        try:
-            purchase = CreditPurchase.objects.select_for_update().get(payment_order_id=payment_order_id)
-        except CreditPurchase.DoesNotExist:
-            raise ValidationError({"payment_order_id": "Purchase order not found."})
+        from payments.models import PaymentOrder, OrderStatus, PaymentTransaction, TransactionStatus
 
-        if purchase.status == PurchaseStatus.FULFILLED:
+        lookup_id = razorpay_order_id or payment_order_id
+        try:
+            purchase = CreditPurchase.objects.select_for_update().get(payment_order_id=lookup_id)
+        except CreditPurchase.DoesNotExist:
+            purchase = CreditPurchase.objects.select_for_update().filter(payment_order_id=payment_order_id).first()
+            if not purchase:
+                raise ValidationError({"detail": "Credit purchase order not found."})
+
+        if razorpay_order_id and purchase.payment_order_id != razorpay_order_id:
+            raise ValidationError({"detail": "Payment order does not match this purchase."})
+
+        if purchase.status == PurchaseStatus.FULFILLED or purchase.status == PurchaseStatus.PAID:
             # Already fulfilled idempotently
-            return purchase
+            return purchase, True
 
         idempotency_key = f"purchase_fulfillment:{purchase.payment_order_id}"
 
@@ -362,7 +493,7 @@ class CreditPurchaseService:
             amount=purchase.total_credits,
             source_type=CreditSourceType.PURCHASE,
             idempotency_key=idempotency_key,
-            description=f"Purchased {purchase.package.name if purchase.package else 'Credit Bundle'}",
+            description=f"Purchased {purchase.rate.name if purchase.rate else (purchase.package.name if purchase.package else 'Credit Bundle')}",
             reference_type="CREDIT_PURCHASE",
             reference_id=str(purchase.id),
             created_by=purchase.created_by,
@@ -372,6 +503,7 @@ class CreditPurchaseService:
                 "base_credits": str(purchase.base_credits),
                 "bonus_credits": str(purchase.bonus_credits),
                 "final_price": str(purchase.final_price),
+                "source": source,
             }
         )
 
@@ -381,10 +513,34 @@ class CreditPurchaseService:
         purchase.ledger_entry = ledger_entry
         purchase.save(update_fields=['status', 'payment_transaction_id', 'fulfilled_at', 'ledger_entry'])
 
+        # Update linked PaymentOrder status and PaymentTransaction
+        payment_order = PaymentOrder.objects.select_for_update().filter(gateway_order_id=purchase.payment_order_id).first()
+        if payment_order:
+            payment_order.status = OrderStatus.COMPLETED
+            payment_order.completed_at = timezone.now()
+            payment_order.save(update_fields=['status', 'completed_at'])
+
+            PaymentTransaction.objects.get_or_create(
+                order=payment_order,
+                gateway_payment_id=transaction_id or f"pay_{uuid.uuid4().hex[:14]}",
+                defaults={
+                    'gateway': 'RAZORPAY',
+                    'status': TransactionStatus.SUCCESS,
+                    'amount': purchase.final_price,
+                    'currency': purchase.currency,
+                    'raw_reference': {'status': 'captured', 'transaction_id': transaction_id, 'source': source}
+                }
+            )
+
         if purchase.coupon:
             purchase.coupon.current_usage_count += 1
             purchase.coupon.save(update_fields=['current_usage_count'])
 
+        return purchase, False
+
+    @classmethod
+    def fulfill_purchase(cls, payment_order_id: str, transaction_id: str = "") -> CreditPurchase:
+        purchase, _ = cls.finalize_credit_purchase(payment_order_id=payment_order_id, transaction_id=transaction_id)
         return purchase
 
 
@@ -738,3 +894,6 @@ class CreditsService:
 
         is_valid = (expected_balance == actual_balance)
         return is_valid, expected_balance, actual_balance
+
+
+CreditService = CreditsService

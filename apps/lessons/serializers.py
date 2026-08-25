@@ -120,6 +120,8 @@ class AssignmentSerializer(serializers.ModelSerializer):
 
 class LessonSerializer(serializers.ModelSerializer):
     media_files = LessonMediaSerializer(many=True, read_only=True)
+    primary_media = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
     rich_text = LessonRichTextSerializer(read_only=True)
     quiz = QuizSerializer(read_only=True)
     assignment = AssignmentSerializer(read_only=True)
@@ -129,12 +131,27 @@ class LessonSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = [
             'id', 'module', 'title', 'lesson_type', 'description', 'duration_minutes',
-            'is_demo', 'allow_download', 'external_url', 'order_index', 'is_active',
-            'media_files', 'rich_text', 'quiz', 'assignment', 'resources', 'created_at'
+            'is_demo', 'allow_download', 'external_url', 'video_url', 'order_index', 'is_active',
+            'media_files', 'primary_media', 'rich_text', 'quiz', 'assignment', 'resources', 'created_at'
         ]
         read_only_fields = ['id', 'module', 'created_at']
 
+    def get_primary_media(self, obj):
+        primary = obj.media_files.filter(media_role='PRIMARY').first()
+        if primary and primary.media_file:
+            return MediaFileSerializer(primary.media_file).data
+        return None
+
+    def get_video_url(self, obj):
+        primary = obj.media_files.filter(media_role='PRIMARY').first()
+        if primary and primary.media_file:
+            return primary.media_file.file_url or f"/media/{primary.media_file.storage_key.lstrip('/')}"
+        return obj.external_url or ""
+
 class LessonCreateSerializer(serializers.ModelSerializer):
+    media_file_id = serializers.UUIDField(required=False, allow_null=True)
+
     class Meta:
         model = Lesson
-        fields = ['title', 'lesson_type', 'description', 'duration_minutes', 'is_demo', 'allow_download', 'external_url']
+        fields = ['title', 'lesson_type', 'description', 'duration_minutes', 'is_demo', 'allow_download', 'external_url', 'media_file_id']
+

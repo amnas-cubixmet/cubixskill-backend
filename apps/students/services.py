@@ -71,6 +71,42 @@ class StudentService:
         return profile
 
     @staticmethod
+    @transaction.atomic
+    def update_student(student_profile: StudentProfile, **kwargs) -> StudentProfile:
+        user = student_profile.user
+        if 'full_name' in kwargs and kwargs['full_name']:
+            clean_name = kwargs['full_name'].strip()
+            user.full_name = clean_name
+            student_profile.display_name = clean_name
+        if 'email' in kwargs and kwargs['email']:
+            new_email = kwargs['email'].strip().lower()
+            if User.objects.filter(email=new_email, academy=user.academy).exclude(id=user.id).exists():
+                raise CubixSkillAPIException("Another user with this email already exists in this academy.", code="EMAIL_EXISTS", status_code=400)
+            user.email = new_email
+        if 'phone' in kwargs:
+            user.phone = kwargs['phone'].strip()
+        user.save()
+
+        if 'display_name' in kwargs and kwargs['display_name']:
+            student_profile.display_name = kwargs['display_name'].strip()
+        if 'date_of_birth' in kwargs:
+            student_profile.date_of_birth = kwargs['date_of_birth']
+        if 'bio' in kwargs:
+            student_profile.bio = kwargs['bio']
+        if 'status' in kwargs and kwargs['status']:
+            new_status = kwargs['status'].upper()
+            student_profile.status = new_status
+            if new_status in [StudentStatus.INACTIVE, StudentStatus.SUSPENDED, StudentStatus.ARCHIVED]:
+                user.is_active = False
+                user.save(update_fields=['is_active'])
+            elif new_status in [StudentStatus.ACTIVE, StudentStatus.PENDING]:
+                user.is_active = True
+                user.save(update_fields=['is_active'])
+
+        student_profile.save()
+        return student_profile
+
+    @staticmethod
     def resend_activation_email(student_profile: StudentProfile, academy=None) -> bool:
         user = student_profile.user
         if not user:

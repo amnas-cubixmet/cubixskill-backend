@@ -482,3 +482,95 @@ class CourseFeePaymentsLedgerView(APIView):
         ]
 
         return api_response(data=records, message="Course payment ledger fetched successfully.")
+
+
+# --------------------------------------------------------------
+# 8. Global Academy Fee Summary API
+# --------------------------------------------------------------
+
+class GlobalFeeSummaryView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanAccessAcademyPermission]
+
+    def get(self, request):
+        user = request.user
+        academy = getattr(user, 'academy', None)
+        summary = FeeCollectionAnalyticsSelector.get_academy_fee_summary(academy)
+        return api_response(data=summary, message="Academy fee summary fetched successfully.")
+
+
+# --------------------------------------------------------------
+# 9. Global Academy Student Fee Account List API
+# --------------------------------------------------------------
+
+class GlobalStudentFeeAccountListView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanAccessAcademyPermission]
+
+    def get(self, request):
+        user = request.user
+        academy = getattr(user, 'academy', None)
+
+        qs = StudentFeeAccount.objects.select_related('student', 'student__student_profile', 'course').prefetch_related('installments', 'payments')
+        if academy:
+            qs = qs.filter(academy=academy)
+
+        search = (request.query_params.get('search') or '').strip().lower()
+        status_filter = (request.query_params.get('status') or '').strip()
+        if status_filter.lower() == 'all':
+            status_filter = ''
+
+        records = []
+        today = timezone.now().date()
+
+        for acc in qs:
+            student = acc.student
+            if not student:
+                continue
+
+            full_name = student.full_name or student.email.split('@')[0]
+            email = student.email
+            phone = getattr(student, 'phone_number', '') or ''
+            student_code = getattr(getattr(student, 'student_profile', None), 'student_code', f"STU-{student.id.hex[:6].upper()}")
+            avatar_url = getattr(getattr(student, 'student_profile', None), 'profile_picture_url', '') or 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'
+
+            if search:
+                if not (search in full_name.lower() or search in email.lower() or search in student_code.lower() or search in acc.course.title.lower()):
+                    continue
+
+            if status_filter and acc.status.lower() != status_filter.lower():
+                continue
+
+            total_fee = float(acc.total_fee_amount)
+            effective_fee = float(acc.effective_fee_amount)
+            payments = [p for p in acc.payments.all() if p.status == 'COMPLETED']
+            total_paid = float(sum(p.amount for p in payments)) if payments else 0.0
+            balance = max(0.0, effective_fee - total_paid)
+
+            upcoming_insts = [i for i in acc.installments.all() if i.status in [InstallmentStatus.UPCOMING, InstallmentStatus.DUE, InstallmentStatus.OVERDUE, InstallmentStatus.PARTIAL]]
+            upcoming_insts.sort(key=lambda i: i.due_date)
+            next_due_date = str(upcoming_insts[0].due_date) if upcoming_insts else None
+
+            overdue_insts = [i for i in acc.installments.all() if i.status == InstallmentStatus.OVERDUE or (i.due_date < today and float(i.amount - i.paid_amount - i.waived_amount) > 0)]
+            overdue_amount = float(sum(max(Decimal('0.00'), i.amount - i.paid_amount - i.waived_amount) for i in overdue_insts)) if overdue_insts else 0.0
+
+            records.append({
+                "student_id": str(student.id),
+                "student_code": student_code,
+                "student_name": full_name,
+                "student_email": email,
+                "student_phone": phone,
+                "avatar_url": avatar_url,
+                "fee_account_id": str(acc.id),
+                "course_id": str(acc.course.id),
+                "course_title": acc.course.title,
+                "plan_type": acc.plan_type,
+                "total_fee": total_fee,
+                "effective_fee": effective_fee,
+                "paid_amount": total_paid,
+                "balance": balance,
+                "next_due_date": next_due_date,
+                "overdue_amount": overdue_amount,
+                "status": acc.status,
+                "currency": acc.currency
+            })
+
+        return api_response(data=records, message="Global student fee accounts fetched successfully.")

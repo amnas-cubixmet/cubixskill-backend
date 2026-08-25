@@ -1,3 +1,5 @@
+import logging
+from django.utils import timezone
 from rest_framework import viewsets, status, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -5,17 +7,20 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 
 from courses.models import Course
-from live_classes.models import LiveSession
+from live_classes.models import LiveSession, LiveSessionAttendance, LiveSessionParticipant, ParticipantRole
 from live_classes.selectors import LiveSessionSelector
 from live_classes.services import LiveSessionService
 from live_classes.serializers import (
     LiveSessionSerializer,
     LiveSessionCreateSerializer,
     LiveSessionUpdateSerializer,
+    LiveSessionAttendanceSerializer,
     EndSessionRequestSerializer,
     CancelSessionRequestSerializer,
     StudentLiveClassesResponseSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 #--------------------------------------------------------------
@@ -45,16 +50,18 @@ class StudentLiveClassesView(APIView):
 class LiveSessionViewSet(viewsets.ModelViewSet):
     """
     Academy staff and student endpoints to manage and access live sessions.
-    GET /api/v1/live-sessions/
-    POST /api/v1/live-sessions/
-    GET /api/v1/live-sessions/{id}/
-    PATCH /api/v1/live-sessions/{id}/
-    DELETE /api/v1/live-sessions/{id}/
-    POST /api/v1/live-sessions/{id}/start/
-    POST /api/v1/live-sessions/{id}/end/
-    POST /api/v1/live-sessions/{id}/cancel/
-    POST /api/v1/live-sessions/{id}/join/
-    POST /api/v1/live-sessions/{id}/leave/
+    GET /api/v1/live-classes/live-sessions/
+    POST /api/v1/live-classes/live-sessions/
+    GET /api/v1/live-classes/live-sessions/{id}/
+    PATCH /api/v1/live-classes/live-sessions/{id}/
+    DELETE /api/v1/live-classes/live-sessions/{id}/
+    GET /api/v1/live-classes/live-sessions/summary/
+    POST /api/v1/live-classes/live-sessions/{id}/start/
+    POST /api/v1/live-classes/live-sessions/{id}/end/
+    POST /api/v1/live-classes/live-sessions/{id}/cancel/
+    POST /api/v1/live-classes/live-sessions/{id}/join/
+    POST /api/v1/live-classes/live-sessions/{id}/leave/
+    GET /api/v1/live-classes/live-sessions/{id}/attendance/
     """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = LiveSessionSerializer
@@ -77,30 +84,38 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
         user = request.user
         academy = getattr(user, 'academy', None)
 
-        course_id = serializer.validated_data['course_id']
-        try:
-            if academy:
-                course = Course.objects.get(id=course_id, academy=academy)
-            else:
-                course = Course.objects.get(id=course_id)
-        except Course.DoesNotExist:
-            raise ValidationError({"course_id": ["Course not found or does not belong to your academy."]})
+        course_id = serializer.validated_data.get('course_id')
+        course = None
+        if course_id:
+            try:
+                if academy:
+                    course = Course.objects.get(id=course_id, academy=academy)
+                else:
+                    course = Course.objects.get(id=course_id)
+            except Course.DoesNotExist:
+                raise ValidationError({"course_id": ["Course not found or does not belong to your academy."]})
 
-        session = LiveSessionService.create_session(
-            course=course,
-            title=serializer.validated_data['title'],
-            scheduled_start=serializer.validated_data['scheduled_start'],
-            scheduled_end=serializer.validated_data['scheduled_end'],
-            created_by=user,
-            description=serializer.validated_data.get('description', ''),
-            session_mode=serializer.validated_data.get('session_mode', 'EXTERNAL'),
-            provider=serializer.validated_data.get('provider', 'GOOGLE_MEET'),
-            meeting_url=serializer.validated_data.get('meeting_url', ''),
-            max_participants=serializer.validated_data.get('max_participants', 100),
-            recording_enabled=serializer.validated_data.get('recording_enabled', False),
-            send_email=serializer.validated_data.get('send_email', False),
-            status=serializer.validated_data.get('status', 'SCHEDULED')
-        )
+        try:
+            session = LiveSessionService.create_session(
+                course=course,
+                title=serializer.validated_data['title'],
+                scheduled_start=serializer.validated_data['scheduled_start'],
+                scheduled_end=serializer.validated_data['scheduled_end'],
+                created_by=user,
+                description=serializer.validated_data.get('description', ''),
+                session_mode=serializer.validated_data.get('session_mode', 'EXTERNAL'),
+                provider=serializer.validated_data.get('provider', 'GOOGLE_MEET'),
+                meeting_url=serializer.validated_data.get('meeting_url', ''),
+                max_participants=serializer.validated_data.get('max_participants', 100),
+                recording_enabled=serializer.validated_data.get('recording_enabled', False),
+                send_email=serializer.validated_data.get('send_email', False),
+                reminders_minutes_before=serializer.validated_data.get('reminders_minutes_before', [60]),
+                announce_on_create=serializer.validated_data.get('announce_on_create', False),
+                status=serializer.validated_data.get('status', 'SCHEDULED')
+            )
+        except Exception as exc:
+            logger.exception(f"Live session creation failed for course {course_id}: {exc}")
+            raise
 
         session_data = LiveSessionSerializer(session).data
         response_data = {
@@ -111,7 +126,6 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
             "email_status": "queued" if serializer.validated_data.get('send_email', False) else "disabled",
             "reminder_status": "scheduled"
         }
-        # Copy direct properties at top level for backward compatibility
         response_data.update(session_data)
 
         return Response(response_data, status=status.HTTP_201_CREATED)
@@ -128,6 +142,53 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
         )
 
         return Response(LiveSessionSerializer(updated_session).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        qs = self.get_queryset()
+        now = timezone.now()
+
+        total = qs.count()
+        live_now = 0
+        upcoming = 0
+        completed = 0
+        cancelled = 0
+        recorded = 0
+
+        for session in qs:
+            st = session.calculate_effective_status(now)
+            if st == 'LIVE':
+                live_now += 1
+            elif st == 'SCHEDULED':
+                upcoming += 1
+            elif st == 'COMPLETED':
+                completed += 1
+            elif st == 'CANCELLED':
+                cancelled += 1
+            if session.recording_enabled or session.recordings.exists():
+                recorded += 1
+
+        avg_attendance_rate = 0
+        completed_sessions = [s for s in qs if s.calculate_effective_status(now) == 'COMPLETED']
+        if completed_sessions:
+            rates = []
+            for s in completed_sessions:
+                part_count = s.participants.filter(role=ParticipantRole.ATTENDEE).count()
+                if part_count > 0:
+                    joined_count = LiveSessionAttendance.objects.filter(participant__session=s).values('participant').distinct().count()
+                    rates.append((joined_count / part_count) * 100)
+            if rates:
+                avg_attendance_rate = round(sum(rates) / len(rates))
+
+        return Response({
+            "total": total,
+            "live_now": live_now,
+            "upcoming": upcoming,
+            "completed": completed,
+            "cancelled": cancelled,
+            "recorded": recorded,
+            "avg_attendance_rate": avg_attendance_rate,
+        }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'])
     def start(self, request, pk=None):
@@ -179,3 +240,10 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         LiveSessionService.leave_session(session=session, user=request.user)
         return Response({"detail": "Successfully left the session."}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'])
+    def attendance(self, request, pk=None):
+        session = self.get_object()
+        attendances = LiveSessionSelector.get_session_attendance_summary(session)
+        serializer = LiveSessionAttendanceSerializer(attendances, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)

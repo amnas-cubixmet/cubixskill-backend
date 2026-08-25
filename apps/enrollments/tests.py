@@ -194,15 +194,15 @@ class EnrollmentsAppTests(TestCase):
 
         # Student GET own enrollments
         self.client.force_authenticate(user=self.student_a)
-        res = self.client.get('/api/v1/student/enrollments/')
+        res = self.client.get('/api/v1/enrollments/student/enrollments/')
         self.assertEqual(res.status_code, 200)
 
         # Student CANNOT suspend enrollment
-        res_suspend = self.client.post(f'/api/v1/enrollments/{enrollment.id}/suspend/', {'reason': 'illegal'})
+        res_suspend = self.client.post(f'/api/v1/enrollments/enrollments/{enrollment.id}/suspend/', {'reason': 'illegal'})
         self.assertEqual(res_suspend.status_code, 403)
 
         # Admin CAN suspend enrollment
         self.client.force_authenticate(user=self.admin_a)
-        res_admin_suspend = self.client.post(f'/api/v1/enrollments/{enrollment.id}/suspend/', {'reason': 'Admin action'})
+        res_admin_suspend = self.client.post(f'/api/v1/enrollments/enrollments/{enrollment.id}/suspend/', {'reason': 'Admin action'})
         self.assertEqual(res_admin_suspend.status_code, 200)
         self.assertEqual(res_admin_suspend.data['status'], EnrollmentStatus.SUSPENDED)

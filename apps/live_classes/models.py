@@ -112,13 +112,14 @@ class LiveSession(BaseModel):
 
     recording_enabled = models.BooleanField(default=False)
     is_recording_active = models.BooleanField(default=False)
+    send_email_notification = models.BooleanField(default=True)
 
     created_by = models.ForeignKey(
         'users_roles.User',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='+'
+        related_name='created_live_sessions'
     )
 
     class Meta:
@@ -127,6 +128,22 @@ class LiveSession(BaseModel):
 
     def __str__(self):
         return f"{self.title} ({self.status})"
+
+    @property
+    def start_at(self):
+        return self.scheduled_start
+
+    @property
+    def end_at(self):
+        return self.scheduled_end
+
+    @property
+    def meeting_link(self):
+        return self.meeting_url
+
+    @property
+    def end_at(self):
+        return self.scheduled_end
 
     def calculate_effective_status(self, now=None) -> str:
         """

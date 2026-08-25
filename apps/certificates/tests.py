@@ -181,7 +181,7 @@ class CertificateAppTestCase(TestCase):
             issued_by=self.staff_a
         )
 
-        url = f"/api/v1/certificates/verify/{cert.verification_code}/"
+        url = f"/api/v1/certificates/certificates/verify/{cert.verification_code}/"
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -194,7 +194,7 @@ class CertificateAppTestCase(TestCase):
         self.assertEqual(data['status'], "ISSUED")
 
         # Non-existent code returns 404
-        bad_response = self.client.get("/api/v1/certificates/verify/INVALID-CODE-999/")
+        bad_response = self.client.get("/api/v1/certificates/certificates/verify/INVALID-CODE-999/")
         self.assertEqual(bad_response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_student_certificates_api(self):
@@ -207,13 +207,13 @@ class CertificateAppTestCase(TestCase):
         self.client.force_authenticate(user=self.student)
 
         # 1. List certificates
-        list_url = "/api/v1/student/certificates/"
+        list_url = "/api/v1/certificates/student/certificates/"
         response = self.client.get(list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()['results']), 1)
 
         # 2. Download certificate PDF
-        download_url = f"/api/v1/student/certificates/{cert.id}/download/"
+        download_url = f"/api/v1/certificates/student/certificates/{cert.id}/download/"
         dl_response = self.client.get(download_url)
         self.assertEqual(dl_response.status_code, status.HTTP_200_OK)
         self.assertEqual(dl_response['Content-Type'], 'application/pdf')
@@ -228,19 +228,19 @@ class CertificateAppTestCase(TestCase):
 
         # Staff A can see Academy A's certificates
         self.client.force_authenticate(user=self.staff_a)
-        res_a = self.client.get("/api/v1/certificates/")
+        res_a = self.client.get("/api/v1/certificates/certificates/")
         self.assertEqual(res_a.status_code, status.HTTP_200_OK)
         self.assertEqual(len(res_a.json()['results']), 1)
 
         # Staff B from Academy B CANNOT see Academy A's certificates
         self.client.force_authenticate(user=self.staff_b)
-        res_b = self.client.get("/api/v1/certificates/")
+        res_b = self.client.get("/api/v1/certificates/certificates/")
         self.assertEqual(res_b.status_code, status.HTTP_200_OK)
         self.assertEqual(len(res_b.json()['results']), 0)
 
     def test_template_preview_api(self):
         self.client.force_authenticate(user=self.staff_a)
-        preview_url = f"/api/v1/certificate-templates/{self.template.id}/preview/"
+        preview_url = f"/api/v1/certificates/certificate-templates/{self.template.id}/preview/"
 
         response = self.client.post(preview_url, {
             'sample_student_name': 'Test Student',

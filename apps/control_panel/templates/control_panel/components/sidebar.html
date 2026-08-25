@@ -43,11 +43,19 @@ Clean, permission-aware Sidebar component for CubixSkill Control Panel with stan
   </div>
 
   <div class="cp-nav-section">
-    <div class="cp-nav-title">MONETIZATION &amp; PRICING</div>
-    <a href="{% url 'control_panel:plans_list' %}" class="cp-nav-item {% if active_nav == 'plans' %}active{% endif %}" {% if active_nav == 'plans' %}aria-current="page"{% endif %}>
-      {% include "control_panel/components/icon.html" with name="plans" size="17" %}
-      <span>Plans</span>
+    <div class="cp-nav-title">COMMERCE &amp; CREDITS</div>
+    <a href="{% url 'control_panel:credit_rates' %}" class="cp-nav-item {% if active_nav == 'package' or active_nav == 'credit_rates' or request.resolver_match.url_name in 'credit_rates,credit_rate_create,credit_rate_detail,credit_rate_edit,credit_rate_delete,credit_rate_enable,credit_rate_disable' %}active{% endif %}">
+      {% include "control_panel/components/icon.html" with name="package" size="17" %}
+      <span>Package</span>
     </a>
+    <a href="{% url 'control_panel:credit_coupons' %}" class="cp-nav-item {% if active_nav == 'coupons' or active_nav == 'coupon' or active_nav == 'credit_coupons' or request.resolver_match.url_name in 'credit_coupons,credit_coupon_create,credit_coupon_detail,credit_coupon_edit,credit_coupon_delete,credit_coupon_enable,credit_coupon_disable' %}active{% endif %}">
+      {% include "control_panel/components/icon.html" with name="tag" size="17" %}
+      <span>Coupons</span>
+    </a>
+  </div>
+
+  <div class="cp-nav-section">
+    <div class="cp-nav-title">MONETIZATION &amp; PRICING</div>
     <a href="{% url 'control_panel:pricing_rules_list' %}" class="cp-nav-item {% if active_nav == 'pricing' %}active{% endif %}" {% if active_nav == 'pricing' %}aria-current="page"{% endif %}>
       {% include "control_panel/components/icon.html" with name="pricing" size="17" %}
       <span>Pricing</span>
@@ -67,10 +75,6 @@ Clean, permission-aware Sidebar component for CubixSkill Control Panel with stan
     <a href="{% url 'control_panel:payments_list' %}" class="cp-nav-item {% if active_nav == 'payments' %}active{% endif %}" {% if active_nav == 'payments' %}aria-current="page"{% endif %}>
       {% include "control_panel/components/icon.html" with name="payments" size="17" %}
       <span>Payments</span>
-    </a>
-    <a href="{% url 'control_panel:media_library' %}" class="cp-nav-item {% if active_nav == 'media' %}active{% endif %}" {% if active_nav == 'media' %}aria-current="page"{% endif %}>
-      {% include "control_panel/components/icon.html" with name="media" size="17" %}
-      <span>Media</span>
     </a>
   </div>
 

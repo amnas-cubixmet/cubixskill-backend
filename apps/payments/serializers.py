@@ -8,9 +8,146 @@ from payments.models import (
     PaymentRefund,
     PaymentInvoice,
     PaymentContext,
+    AcademyPaymentSettings,
+    AcademySettlement,
     GatewayType,
     PaymentMethod,
 )
+from payments.encryption_service import encrypt_secret, decrypt_secret
+
+# --------------------------------------------------------------
+# 0. Academy Payment Settings & Settlement Serializers
+# --------------------------------------------------------------
+
+class AcademyPaymentSettingsSerializer(serializers.ModelSerializer):
+    key_secret_preview = serializers.SerializerMethodField()
+    webhook_secret_preview = serializers.SerializerMethodField()
+    settlement_vpa_preview = serializers.SerializerMethodField()
+    settlement_account_preview = serializers.SerializerMethodField()
+
+    # Write-only fields for updating secrets safely
+    razorpay_key_secret = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    razorpay_webhook_secret = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    settlement_vpa = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    settlement_account = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    settlement_ifsc = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
+    class Meta:
+        model = AcademyPaymentSettings
+        fields = [
+            'id',
+            'payment_mode',
+            'razorpay_key_id',
+            'razorpay_environment',
+            'credentials_configured',
+            'credentials_verified',
+            'settlement_method',
+            'beneficiary_name',
+            'razorpay_linked_account_id',
+            'settlement_enabled',
+            'kyc_status',
+            'key_secret_preview',
+            'webhook_secret_preview',
+            'settlement_vpa_preview',
+            'settlement_account_preview',
+            'razorpay_key_secret',
+            'razorpay_webhook_secret',
+            'settlement_vpa',
+            'settlement_account',
+            'settlement_ifsc',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'credentials_configured', 'credentials_verified', 'created_at', 'updated_at']
+
+    def get_key_secret_preview(self, obj):
+        decrypted = decrypt_secret(obj.razorpay_key_secret_encrypted)
+        if not decrypted:
+            return ''
+        return '••••••••••••••••'
+
+    def get_webhook_secret_preview(self, obj):
+        decrypted = decrypt_secret(obj.razorpay_webhook_secret_encrypted)
+        if not decrypted:
+            return ''
+        return '••••••••••••••••'
+
+    def get_settlement_vpa_preview(self, obj):
+        decrypted = decrypt_secret(obj.settlement_vpa_encrypted)
+        if not decrypted:
+            return ''
+        parts = decrypted.split('@')
+        if len(parts) == 2:
+            handle = parts[0]
+            masked_handle = handle[:2] + '***' if len(handle) > 2 else handle + '***'
+            return f"{masked_handle}@{parts[1]}"
+        return '***@upi'
+
+    def get_settlement_account_preview(self, obj):
+        decrypted = decrypt_secret(obj.settlement_account_encrypted)
+        if not decrypted:
+            return ''
+        return f"XXXX XXXX {decrypted[-4:]}" if len(decrypted) >= 4 else 'XXXX XXXX ****'
+
+    def update(self, instance, validated_data):
+        # Extract secret inputs and encrypt before storing
+        key_secret = validated_data.pop('razorpay_key_secret', None)
+        webhook_secret = validated_data.pop('razorpay_webhook_secret', None)
+        settlement_vpa = validated_data.pop('settlement_vpa', None)
+        settlement_account = validated_data.pop('settlement_account', None)
+        settlement_ifsc = validated_data.pop('settlement_ifsc', None)
+
+        if key_secret is not None and key_secret != '••••••••••••••••':
+            instance.razorpay_key_secret_encrypted = encrypt_secret(key_secret)
+        if webhook_secret is not None and webhook_secret != '••••••••••••••••':
+            instance.razorpay_webhook_secret_encrypted = encrypt_secret(webhook_secret)
+        if settlement_vpa is not None and '***' not in settlement_vpa:
+            instance.settlement_vpa_encrypted = encrypt_secret(settlement_vpa)
+        if settlement_account is not None and 'XXXX' not in settlement_account:
+            instance.settlement_account_encrypted = encrypt_secret(settlement_account)
+        if settlement_ifsc is not None:
+            instance.settlement_ifsc_encrypted = encrypt_secret(settlement_ifsc)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        # Update configuration status flags
+        has_key = bool(instance.razorpay_key_id)
+        has_secret = bool(instance.razorpay_key_secret_encrypted)
+        instance.credentials_configured = has_key and has_secret
+
+        instance.save()
+        return instance
+
+class AcademySettlementSerializer(serializers.ModelSerializer):
+    academy_name = serializers.CharField(source='academy.name', read_only=True)
+
+    class Meta:
+        model = AcademySettlement
+        fields = [
+            'id',
+            'uuid',
+            'academy_name',
+            'period_start',
+            'period_end',
+            'gross_amount',
+            'refund_amount',
+            'gateway_fee',
+            'platform_fee',
+            'tax_amount',
+            'net_amount',
+            'settlement_method',
+            'provider',
+            'provider_transfer_id',
+            'provider_payout_id',
+            'status',
+            'failure_reason',
+            'initiated_at',
+            'processed_at',
+            'settled_at',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'uuid', 'created_at']
 
 # --------------------------------------------------------------
 # 1. Coupon Serializers
@@ -106,7 +243,20 @@ class CreateCouponSerializer(serializers.ModelSerializer):
 class ValidateCouponSerializer(serializers.Serializer):
     coupon_code = serializers.CharField(max_length=50)
     payment_context = serializers.ChoiceField(choices=PaymentContext.choices, default=PaymentContext.COURSE_PURCHASE)
+    academy_uuid = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    course_uuid = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     course_id = serializers.UUIDField(required=False, allow_null=True)
+
+class CreateOrderApiSerializer(serializers.Serializer):
+    academy_uuid = serializers.CharField(max_length=255)
+    course_uuid = serializers.CharField(max_length=255)
+    coupon_code = serializers.CharField(required=False, allow_blank=True, default='')
+    expected_final_amount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+
+class VerifyPaymentApiSerializer(serializers.Serializer):
+    razorpay_payment_id = serializers.CharField(max_length=255)
+    razorpay_order_id = serializers.CharField(max_length=255)
+    razorpay_signature = serializers.CharField(max_length=512)
 
 class CourseCheckoutSerializer(serializers.Serializer):
     coupon_code = serializers.CharField(required=False, allow_blank=True, default='')
@@ -134,12 +284,22 @@ class PaymentTransactionSerializer(serializers.ModelSerializer):
         model = PaymentTransaction
         fields = [
             'id',
+            'uuid',
+            'payment_mode',
             'gateway',
             'payment_method',
             'gateway_payment_id',
+            'gateway_order_id',
             'amount',
             'currency',
+            'gross_amount',
+            'platform_fee',
+            'gateway_fee',
+            'tax_amount',
+            'academy_amount',
             'status',
+            'signature_verified',
+            'webhook_verified',
             'paid_at',
             'initiated_at',
         ]
@@ -188,6 +348,7 @@ class PaymentOrderSerializer(serializers.ModelSerializer):
             'id',
             'order_number',
             'payment_context',
+            'payment_mode',
             'academy_name',
             'payer_email',
             'course_title_snapshot',
@@ -207,7 +368,6 @@ class PaymentOrderSerializer(serializers.ModelSerializer):
             'completed_at',
             'created_at',
         ]
-
 
 class CouponRedemptionSerializer(serializers.ModelSerializer):
     student_id = serializers.UUIDField(source='user.id', read_only=True)
@@ -250,4 +410,3 @@ class CouponRedemptionSerializer(serializers.ModelSerializer):
             return None
         profile = getattr(obj.user, 'profile', None) or getattr(obj.user, 'student_profile', None)
         return getattr(profile, 'profile_picture_url', None) or getattr(obj.user, 'avatar_url', None)
-        read_only_fields = fields

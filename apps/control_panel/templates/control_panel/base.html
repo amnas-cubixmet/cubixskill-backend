@@ -161,7 +161,7 @@
       const sidebar = document.getElementById('cp-sidebar');
       if (!sidebar) return;
 
-      const activeItem = sidebar.querySelector('.cp-nav-item.active');
+      const activeItem = sidebar.querySelector('.cp-nav-subitem.active, .cp-nav-item.active, .cp-nav-parent.active');
       if (!activeItem) return;
 
       const sidebarHeight = sidebar.clientHeight;

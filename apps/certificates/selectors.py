@@ -69,16 +69,64 @@ class CertificateSelector:
         ).first()
 
     @classmethod
-    def get_academy_certificates(cls, academy) -> QuerySet[Certificate]:
+    def get_academy_certificates(cls, academy, search: str = None, status_filter: str = None, course_id: str = None, ordering: str = None) -> QuerySet[Certificate]:
         """
-        Queries all certificates issued for a given academy.
+        Queries all certificates issued for a given academy with filtering and sorting.
         """
-        return Certificate.objects.filter(course__academy=academy).select_related(
+        from django.db.models import Q
+        qs = Certificate.objects.filter(course__academy=academy).select_related(
             'student',
             'course',
             'template',
             'issued_by'
-        ).order_by('-issued_at')
+        )
+
+        if status_filter and status_filter.upper() != 'ALL':
+            qs = qs.filter(status=status_filter.upper())
+        if course_id and course_id.lower() != 'all':
+            qs = qs.filter(course_id=course_id)
+        if search:
+            qs = qs.filter(
+                Q(certificate_number__icontains=search) |
+                Q(student_name_snapshot__icontains=search) |
+                Q(student__email__icontains=search) |
+                Q(course_name_snapshot__icontains=search)
+            )
+
+        SORT_MAP = {
+            'recent': '-issued_at',
+            'newest': '-issued_at',
+            '-issued_at': '-issued_at',
+            'oldest': 'issued_at',
+            'issued_at': 'issued_at',
+            'student_asc': 'student_name_snapshot',
+            'student_desc': '-student_name_snapshot',
+            'course_asc': 'course_name_snapshot',
+            'course_desc': '-course_name_snapshot',
+        }
+        order_field = SORT_MAP.get(ordering, '-issued_at') if ordering else '-issued_at'
+        return qs.order_by(order_field)
+
+    @classmethod
+    def get_dashboard_metrics(cls, academy) -> dict:
+        """
+        Calculates summary metrics for an Academy's certificate domain.
+        """
+        from django.utils import timezone
+        now = timezone.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        total = Certificate.objects.filter(course__academy=academy).count()
+        issued_this_month = Certificate.objects.filter(course__academy=academy, issued_at__gte=month_start).count()
+        active = Certificate.objects.filter(course__academy=academy, status='ISSUED').count()
+        revoked = Certificate.objects.filter(course__academy=academy, status='REVOKED').count()
+
+        return {
+            'total_certificates': total,
+            'issued_this_month': issued_this_month,
+            'active_certificates': active,
+            'revoked_certificates': revoked,
+        }
 
     @classmethod
     def get_academy_templates(cls, academy) -> QuerySet[CertificateTemplate]:

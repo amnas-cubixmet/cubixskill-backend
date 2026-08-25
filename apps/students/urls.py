@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from students.views import (
     StudentViewSet, StudentSelfServiceViewSet, StudentGuardianViewSet,
-    StudentDocumentViewSet, StudentNoteViewSet, StudentTagViewSet
+    StudentDocumentViewSet, StudentNoteViewSet, StudentTagViewSet, StudentCustomFieldViewSet
 )
 
 #--------------------------------------------------------------
@@ -15,6 +15,7 @@ router.register(r'student-guardians', StudentGuardianViewSet, basename='student-
 router.register(r'student-documents', StudentDocumentViewSet, basename='student-document')
 router.register(r'student-notes', StudentNoteViewSet, basename='student-note')
 router.register(r'student-tags', StudentTagViewSet, basename='student-tag')
+router.register(r'custom-fields', StudentCustomFieldViewSet, basename='custom-field')
 
 urlpatterns = [
     path('student/profile/', StudentSelfServiceViewSet.as_view({'get': 'profile', 'patch': 'update_profile'}), name='student-self-profile'),

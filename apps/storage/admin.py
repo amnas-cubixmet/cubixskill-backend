@@ -5,7 +5,7 @@
 from django.contrib import admin
 from storage.models import (
     MediaFile, UploadSession, AcademyStorageAccount, StorageUsageEvent,
-    StorageUsageSnapshot, StoragePricingRule
+    StorageUsageRollup, StorageMonthlyBilling, StoragePricingRule
 )
 
 #--------------------------------------------------------------
@@ -29,13 +29,18 @@ class AcademyStorageAccountAdmin(admin.ModelAdmin):
 
 @admin.register(StorageUsageEvent)
 class StorageUsageEventAdmin(admin.ModelAdmin):
-    list_display = ('event_type', 'delta_bytes', 'usage_after_bytes', 'academy_uuid', 'occurred_at')
+    list_display = ('event_type', 'delta_bytes', 'storage_before_bytes', 'storage_after_bytes', 'academy_uuid', 'occurred_at')
     list_filter = ('event_type',)
 
-@admin.register(StorageUsageSnapshot)
-class StorageUsageSnapshotAdmin(admin.ModelAdmin):
-    list_display = ('academy_uuid', 'period_start', 'period_end', 'gb_hours', 'status', 'calculated_at')
-    list_filter = ('status',)
+@admin.register(StorageUsageRollup)
+class StorageUsageRollupAdmin(admin.ModelAdmin):
+    list_display = ('academy_uuid', 'interval_type', 'period_start', 'period_end', 'byte_seconds', 'status')
+    list_filter = ('interval_type', 'status')
+
+@admin.register(StorageMonthlyBilling)
+class StorageMonthlyBillingAdmin(admin.ModelAdmin):
+    list_display = ('academy_uuid', 'billing_period', 'billable_units_gb_month', 'credits_charged', 'status', 'charged_at')
+    list_filter = ('status', 'billing_period')
 
 @admin.register(StoragePricingRule)
 class StoragePricingRuleAdmin(admin.ModelAdmin):

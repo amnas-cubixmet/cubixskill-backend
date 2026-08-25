@@ -50,6 +50,16 @@
 <svg width="{{ size|default:'16' }}" height="{{ size|default:'16' }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="{{ class }}"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
 {% elif name == "monitor" %}
 <svg width="{{ size|default:'16' }}" height="{{ size|default:'16' }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="{{ class }}"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+{% elif name == "tag" or name == "coupon" or name == "coupons" %}
+<svg width="{{ size|default:'16' }}" height="{{ size|default:'16' }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="{{ class }}"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><circle cx="7" cy="7" r="1.5"/></svg>
+{% elif name == "package" or name == "packages" %}
+<svg width="{{ size|default:'16' }}" height="{{ size|default:'16' }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="{{ class }}"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+{% elif name == "coins" or name == "credit_engine" %}
+<svg width="{{ size|default:'16' }}" height="{{ size|default:'16' }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="{{ class }}"><circle cx="8" cy="8" r="6"/><path d="M18 8a6 6 0 0 1-6 6"/><path d="M14 22a6 6 0 0 0 6-6"/></svg>
+{% elif name == "rate" or name == "rates" or name == "percent" %}
+<svg width="{{ size|default:'16' }}" height="{{ size|default:'16' }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="{{ class }}"><line x1="19" x2="5" y1="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
+{% elif name == "chevron-down" or name == "chevron_down" %}
+<svg width="{{ size|default:'14' }}" height="{{ size|default:'14' }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="{{ class }}"><path d="m6 9 6 6 6-6"/></svg>
 {% elif name == "arrow-left" or name == "arrow_left" %}
 <svg width="{{ size|default:'16' }}" height="{{ size|default:'16' }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="{{ class }}"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
 {% else %}

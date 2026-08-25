@@ -105,7 +105,7 @@ DATABASES = {
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'authentication.authentication.CookieJWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
@@ -131,6 +131,44 @@ CHANNEL_LAYERS = {
 
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+
+CELERY_TIMEZONE = 'UTC'
+CELERY_ENABLE_UTC = True
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_CONNECTION_MAX_RETRIES = 3
+CELERY_RESULT_BACKEND_MAX_RETRIES = 3
+
+CELERY_TASK_ROUTES = {
+    'emails.tasks.*': {'queue': 'email'},
+    'storage.tasks.*': {'queue': 'video_processing'},
+    'live_classes.tasks.*': {'queue': 'default'},
+}
+
+CELERY_BEAT_SCHEDULE = {
+    'dispatch-pending-email-jobs-every-minute': {
+        'task': 'emails.tasks.dispatch_pending_email_jobs',
+        'schedule': 60.0,
+    },
+    'process-pending-live-session-reminders-every-minute': {
+        'task': 'live_classes.tasks.process_pending_live_session_reminders',
+        'schedule': 60.0,
+    },
+    'update-live-session-statuses-every-minute': {
+        'task': 'live_classes.tasks.update_live_session_statuses',
+        'schedule': 60.0,
+    },
+    'cleanup-stuck-email-jobs-every-15-mins': {
+        'task': 'emails.tasks.cleanup_stuck_processing_jobs',
+        'schedule': 900.0,
+    },
+}
 
 # Storage Backend Selector (local vs s3/minio)
 STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'local' if DEBUG else 's3').lower()
@@ -160,12 +198,12 @@ USE_TZ = True
 STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Payment Gateway Configuration (Provider-Agnostic)
-PAYMENT_PROVIDER = os.getenv('PAYMENT_PROVIDER', 'stripe').lower()
-STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', '')
-STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
-STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
-STRIPE_CURRENCY = os.getenv('STRIPE_CURRENCY', 'USD')
+# Payment Gateway Configuration (Razorpay Only)
+PAYMENT_PROVIDER = os.getenv('PAYMENT_PROVIDER', 'razorpay').lower()
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', '')
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '')
+RAZORPAY_WEBHOOK_SECRET = os.getenv('RAZORPAY_WEBHOOK_SECRET', '')
+RAZORPAY_CURRENCY = os.getenv('RAZORPAY_CURRENCY', 'INR')
 
 # Email Configuration (Supports SMTP App Password via EMAIL_HOST_PASSWORD)
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend' if not DEBUG else 'django.core.mail.backends.console.EmailBackend')
@@ -177,8 +215,24 @@ EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply@cubixskill.com')
 
 # CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
+cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', '')
+if cors_origins_env:
+    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+else:
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:5174",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5173",
+    ]
+
+# Cookie Configuration for JWT Auth
+AUTH_COOKIE_SECURE = os.getenv('AUTH_COOKIE_SECURE', str(not DEBUG)).lower() in ('true', '1', 't')
+AUTH_COOKIE_SAMESITE = os.getenv('AUTH_COOKIE_SAMESITE', 'Lax')
+AUTH_COOKIE_PATH = os.getenv('AUTH_COOKIE_PATH', '/')
+AUTH_COOKIE_DOMAIN = os.getenv('AUTH_COOKIE_DOMAIN', None)
 
 # Frontend URL Configuration
 FRONTEND_ACADEMY_URL = os.getenv('FRONTEND_ACADEMY_URL', 'http://localhost:5173')
@@ -186,6 +240,7 @@ FRONTEND_ACADEMY_URL = os.getenv('FRONTEND_ACADEMY_URL', 'http://localhost:5173'
 # Authentication Settings
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
+
 
 
 

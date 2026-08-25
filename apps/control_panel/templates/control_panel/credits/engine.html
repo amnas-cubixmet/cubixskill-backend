@@ -8,16 +8,11 @@
   </div>
 </div>
 
-<div class="cp-grid-3" style="margin-bottom: 24px;">
+<div class="cp-grid-2" style="margin-bottom: 24px;">
   <div class="cp-card">
     <div style="font-size: 11px; color: var(--cp-text-muted);">Active Credit Rates</div>
     <div style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary);">{{ rates.count }} Configured</div>
     <a href="{% url 'control_panel:credit_rates' %}" class="cp-btn cp-btn-secondary" style="font-size: 11px; margin-top: 8px; display: inline-block;">Manage Rates &rarr;</a>
-  </div>
-  <div class="cp-card">
-    <div style="font-size: 11px; color: var(--cp-text-muted);">Active Packages</div>
-    <div style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary);">{{ packages.count }} Packages</div>
-    <a href="{% url 'control_panel:credit_packages' %}" class="cp-btn cp-btn-secondary" style="font-size: 11px; margin-top: 8px; display: inline-block;">Manage Packages &rarr;</a>
   </div>
   <div class="cp-card">
     <div style="font-size: 11px; color: var(--cp-text-muted);">Credit Purchase Coupons</div>

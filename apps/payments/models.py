@@ -1,3 +1,4 @@
+import uuid
 from decimal import Decimal
 from django.db import models
 from django.utils import timezone
@@ -9,6 +10,19 @@ from core.models import BaseModel
 # Monetary values must use Decimal. Float must never be used for
 # payment, discount, tax, refund, or credit calculations.
 # --------------------------------------------------------------
+
+class PaymentMode(models.TextChoices):
+    ACADEMY_RAZORPAY = 'ACADEMY_RAZORPAY', 'Academy Razorpay (Direct)'
+    CUBIXSKILL_RAZORPAY = 'CUBIXSKILL_RAZORPAY', 'CubixSkill Razorpay (Central)'
+
+class SettlementStatus(models.TextChoices):
+    PENDING = 'PENDING', 'Pending'
+    READY = 'READY', 'Ready'
+    PROCESSING = 'PROCESSING', 'Processing'
+    ON_HOLD = 'ON_HOLD', 'On Hold'
+    PAID = 'PAID', 'Paid'
+    FAILED = 'FAILED', 'Failed'
+    REVERSED = 'REVERSED', 'Reversed'
 
 class PaymentContext(models.TextChoices):
     PLATFORM_PURCHASE = 'PLATFORM_PURCHASE', 'Platform Purchase (Plan/Add-on/Credits)'
@@ -67,9 +81,50 @@ class RefundStatus(models.TextChoices):
     CANCELLED = 'CANCELLED', 'Cancelled'
 
 # --------------------------------------------------------------
+# 0. AcademyPaymentSettings Model
+# Tenant-isolated payment mode configuration and encrypted credentials
+# --------------------------------------------------------------
+
+class AcademyPaymentSettings(BaseModel):
+    academy = models.OneToOneField(
+        'academy.Academy',
+        on_delete=models.CASCADE,
+        related_name='payment_settings'
+    )
+    payment_mode = models.CharField(
+        max_length=50,
+        choices=PaymentMode.choices,
+        default=PaymentMode.CUBIXSKILL_RAZORPAY,
+        db_index=True
+    )
+
+    # Mode 1: Academy Own Razorpay Credentials (Encrypted at rest)
+    razorpay_key_id = models.CharField(max_length=255, blank=True, default='')
+    razorpay_key_secret_encrypted = models.TextField(blank=True, default='')
+    razorpay_webhook_secret_encrypted = models.TextField(blank=True, default='')
+    razorpay_environment = models.CharField(max_length=20, default='test')
+    credentials_configured = models.BooleanField(default=False)
+    credentials_verified = models.BooleanField(default=False)
+
+    # Mode 2: Settlement Configuration (Encrypted at rest)
+    settlement_method = models.CharField(max_length=50, default='UPI') # UPI | BANK_TRANSFER | ROUTE
+    beneficiary_name = models.CharField(max_length=255, blank=True, default='')
+    settlement_vpa_encrypted = models.TextField(blank=True, default='')
+    settlement_account_encrypted = models.TextField(blank=True, default='')
+    settlement_ifsc_encrypted = models.TextField(blank=True, default='')
+    razorpay_linked_account_id = models.CharField(max_length=255, blank=True, default='')
+    settlement_enabled = models.BooleanField(default=True)
+    kyc_status = models.CharField(max_length=30, default='NOT_REQUIRED') # NOT_REQUIRED | PENDING | APPROVED | REJECTED
+
+    class Meta:
+        db_table = 'academy_payment_settings'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"PaymentSettings for {self.academy.name} ({self.payment_mode})"
+
+# --------------------------------------------------------------
 # 1. Coupon Model
-# Platform coupons are created by Super Admin for platform purchases.
-# Course coupons are created by Academy Admin/Staff for course checkouts.
 # --------------------------------------------------------------
 
 class Coupon(BaseModel):
@@ -133,9 +188,6 @@ class Coupon(BaseModel):
 
 # --------------------------------------------------------------
 # 2. PaymentOrder Model
-# Represents the business payment request prior to gateway execution.
-# Stores immutable financial values used at checkout.
-# Monetary values use Decimal, never float.
 # --------------------------------------------------------------
 
 class PaymentOrder(BaseModel):
@@ -144,6 +196,12 @@ class PaymentOrder(BaseModel):
     payment_context = models.CharField(
         max_length=30,
         choices=PaymentContext.choices,
+        db_index=True
+    )
+    payment_mode = models.CharField(
+        max_length=50,
+        choices=PaymentMode.choices,
+        default=PaymentMode.CUBIXSKILL_RAZORPAY,
         db_index=True
     )
     academy = models.ForeignKey(
@@ -215,14 +273,20 @@ class PaymentOrder(BaseModel):
 
 # --------------------------------------------------------------
 # 3. PaymentTransaction Model
-# Represents an actual gateway transaction attempt.
-# Never stores sensitive card details or CVVs.
 # --------------------------------------------------------------
 
 class PaymentTransaction(BaseModel):
+    uuid = models.UUIDField(default=uuid.uuid4, editable=False, db_index=True)
     order = models.ForeignKey(
         PaymentOrder,
         on_delete=models.CASCADE,
+        related_name='transactions'
+    )
+    academy = models.ForeignKey(
+        'academy.Academy',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='transactions'
     )
     payer = models.ForeignKey(
@@ -232,6 +296,12 @@ class PaymentTransaction(BaseModel):
         blank=True
     )
 
+    payment_mode = models.CharField(
+        max_length=50,
+        choices=PaymentMode.choices,
+        default=PaymentMode.CUBIXSKILL_RAZORPAY,
+        db_index=True
+    )
     gateway = models.CharField(
         max_length=50,
         choices=GatewayType.choices,
@@ -250,12 +320,22 @@ class PaymentTransaction(BaseModel):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     currency = models.CharField(max_length=10, default='INR')
 
+    # Financial Ledger Breakdown
+    gross_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    platform_fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    gateway_fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    academy_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+
     status = models.CharField(
         max_length=30,
         choices=TransactionStatus.choices,
         default=TransactionStatus.CREATED,
         db_index=True
     )
+
+    signature_verified = models.BooleanField(default=False)
+    webhook_verified = models.BooleanField(default=False)
 
     failure_code = models.CharField(max_length=100, blank=True, default='')
     failure_message = models.TextField(blank=True, default='')
@@ -272,7 +352,7 @@ class PaymentTransaction(BaseModel):
         ordering = ['-initiated_at']
 
     def __str__(self):
-        return f"Transaction {self.gateway_payment_id or self.id} ({self.status})"
+        return f"Transaction {self.gateway_payment_id or self.uuid} ({self.status})"
 
 # --------------------------------------------------------------
 # 4. CouponRedemption Model
@@ -298,7 +378,6 @@ class CouponRedemption(BaseModel):
 
 # --------------------------------------------------------------
 # 5. PaymentRefund Model
-# Supports full and partial refunds without corrupting transaction history.
 # --------------------------------------------------------------
 
 class PaymentRefund(BaseModel):
@@ -329,9 +408,54 @@ class PaymentRefund(BaseModel):
         return f"Refund {self.refund_number} ({self.status}) - {self.amount}"
 
 # --------------------------------------------------------------
-# 6. PaymentInvoice Model
-# Stores finalized immutable snapshot data for customer billing.
-# Invoice PDF generated on demand or stored via MediaFile.
+# 6. AcademySettlement Model
+# Central settlement ledger for Mode 2 (CubixSkill Payment Account)
+# --------------------------------------------------------------
+
+class AcademySettlement(BaseModel):
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    academy = models.ForeignKey(
+        'academy.Academy',
+        on_delete=models.CASCADE,
+        related_name='settlements'
+    )
+
+    period_start = models.DateTimeField(null=True, blank=True)
+    period_end = models.DateTimeField(null=True, blank=True)
+
+    gross_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    refund_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    gateway_fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    platform_fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    net_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+
+    settlement_method = models.CharField(max_length=50, default='UPI')
+    provider = models.CharField(max_length=50, default='RAZORPAY')
+    provider_transfer_id = models.CharField(max_length=255, blank=True, default='')
+    provider_payout_id = models.CharField(max_length=255, blank=True, default='')
+
+    status = models.CharField(
+        max_length=30,
+        choices=SettlementStatus.choices,
+        default=SettlementStatus.PENDING,
+        db_index=True
+    )
+    failure_reason = models.TextField(blank=True, default='')
+
+    initiated_at = models.DateTimeField(null=True, blank=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    settled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'academy_settlements'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Settlement {self.uuid} ({self.academy.name}) - {self.net_amount} [{self.status}]"
+
+# --------------------------------------------------------------
+# 7. PaymentInvoice Model
 # --------------------------------------------------------------
 
 class PaymentInvoice(BaseModel):
@@ -362,14 +486,14 @@ class PaymentInvoice(BaseModel):
         return f"Invoice {self.invoice_number} for Order {self.order.order_number}"
 
 # --------------------------------------------------------------
-# 7. PaymentWebhookEvent Model
-# Stores signature-verified gateway webhooks for idempotent fulfillment.
+# 8. PaymentWebhookEvent Model
 # --------------------------------------------------------------
 
 class PaymentWebhookEvent(BaseModel):
     event_id = models.CharField(max_length=255, unique=True, db_index=True)
     gateway = models.CharField(max_length=50)
     event_type = models.CharField(max_length=100)
+    academy = models.ForeignKey('academy.Academy', on_delete=models.SET_NULL, null=True, blank=True, related_name='webhook_events')
 
     signature_valid = models.BooleanField(default=True)
     processed = models.BooleanField(default=False, db_index=True)
@@ -387,7 +511,7 @@ class PaymentWebhookEvent(BaseModel):
         return f"Webhook [{self.gateway}] {self.event_type} ({self.event_id})"
 
 # --------------------------------------------------------------
-# 8. Student Fee Collection Domain Models (re-exported from fees app)
+# 9. Student Fee Collection Domain Models (re-exported from fees app)
 # --------------------------------------------------------------
 from fees.models import (
     StudentFeePlanType,
@@ -400,4 +524,3 @@ from fees.models import (
     FeeAdjustment,
     CourseDefaultFeePlan,
 )
-

@@ -49,6 +49,8 @@ class CanAccessAcademyPermission(permissions.BasePermission):
     """
     def has_object_permission(self, request, view, obj):
         academy = getattr(obj, 'academy', None)
+        if academy is None and hasattr(obj, 'academy_uuid') and obj.academy_uuid:
+            academy = obj.academy_uuid
         if academy is None and hasattr(obj, 'course'):
             academy = getattr(obj.course, 'academy', None)
         if academy is None and hasattr(obj, 'module'):
@@ -58,6 +60,7 @@ class CanAccessAcademyPermission(permissions.BasePermission):
             course = getattr(module, 'course', None) if module else None
             academy = getattr(course, 'academy', None) if course else None
 
+        from academy.models import Academy
         if academy is None and isinstance(obj, Academy):
             academy = obj
 

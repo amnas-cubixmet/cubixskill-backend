@@ -140,7 +140,7 @@ class LiveSessionSerializer(serializers.ModelSerializer):
 # 6. Live Session Create Serializer
 #--------------------------------------------------------------
 class LiveSessionCreateSerializer(serializers.Serializer):
-    course_id = serializers.UUIDField()
+    course_id = serializers.UUIDField(required=False, allow_null=True, default=None)
     title = serializers.CharField(max_length=255)
     description = serializers.CharField(required=False, allow_blank=True, default='')
     scheduled_start = serializers.DateTimeField()

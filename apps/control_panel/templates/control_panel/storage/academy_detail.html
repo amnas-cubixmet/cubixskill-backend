@@ -1,0 +1,117 @@
+{% extends "control_panel/base.html" %}
+
+{% block title %}Academy Storage Details - {{ academy.name }}{% endblock %}
+
+{% block content %}
+<div class="cp-page-header">
+  <div>
+    <h1 class="cp-page-title">Storage Detail — {{ academy.name }}</h1>
+    <p class="cp-page-subtitle">Academy ID: {{ academy.id }}</p>
+  </div>
+  <div>
+    <a href="{% url 'control_panel:storage_control' %}" class="cp-btn cp-btn-secondary">&larr; Back to Storage Overview</a>
+  </div>
+</div>
+
+<!-- Header Cards -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
+  <div class="cp-card">
+    <div style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); text-transform: uppercase;">Current Storage</div>
+    <div style="font-size: 22px; font-weight: 600; color: var(--cp-text-primary); margin-top: 4px;">{{ current_display }}</div>
+    <div style="font-size: 11px; color: var(--cp-text-muted); margin-top: 4px;">Bytes: {{ account.current_usage_bytes }}</div>
+  </div>
+
+  <div class="cp-card">
+    <div style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); text-transform: uppercase;">Current Period ({{ current_billing.billing_period }})</div>
+    <div style="font-size: 22px; font-weight: 600; color: var(--cp-primary); margin-top: 4px;">{{ current_billing.credits_calculated }} Credits</div>
+    <div style="font-size: 11px; color: var(--cp-text-muted); margin-top: 4px;">GB-Month: {{ current_billing.billable_units_gb_month }}</div>
+  </div>
+
+  <div class="cp-card">
+    <div style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); text-transform: uppercase;">Time-Weighted Byte-Seconds</div>
+    <div style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin-top: 4px;">{{ current_billing.total_byte_seconds }}</div>
+    <div style="font-size: 11px; color: var(--cp-text-muted); margin-top: 4px;">Peak: {{ current_billing.peak_bytes }} bytes</div>
+  </div>
+</div>
+
+<!-- Daily Rollups Table -->
+<div class="cp-card" style="margin-bottom: 24px;">
+  <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 16px;">Daily Storage Rollups (Past 30 Days)</h3>
+  <div style="overflow-x: auto;">
+    <table class="cp-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Opening</th>
+          <th>Uploaded</th>
+          <th>Deleted</th>
+          <th>Peak</th>
+          <th>Closing</th>
+          <th>Byte-Seconds</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in daily_rollups %}
+        <tr>
+          <td><strong>{{ r.period_start|date:"Y-m-d" }}</strong></td>
+          <td>{{ r.opening_bytes }} B</td>
+          <td>+{{ r.uploaded_bytes }} B ({{ r.upload_count }})</td>
+          <td>-{{ r.deleted_bytes }} B ({{ r.delete_count }})</td>
+          <td>{{ r.peak_bytes }} B</td>
+          <td>{{ r.closing_bytes }} B</td>
+          <td><code>{{ r.byte_seconds }}</code></td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" style="text-align: center; color: var(--cp-text-muted); padding: 16px;">No daily rollups generated yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Immutable Event Log -->
+<div class="cp-card">
+  <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 16px;">Storage Usage Event Audit Log (Latest 50)</h3>
+  <div style="overflow-x: auto;">
+    <table class="cp-table">
+      <thead>
+        <tr>
+          <th>Occurred At</th>
+          <th>Event Type</th>
+          <th>File Snapshot</th>
+          <th>Delta Bytes</th>
+          <th>Storage Before &rarr; After</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ev in events %}
+        <tr>
+          <td>{{ ev.occurred_at|date:"Y-m-d H:i:s" }}</td>
+          <td>
+            <span class="cp-badge cp-badge-{% if ev.event_type == 'UPLOAD' %}success{% elif ev.event_type == 'DELETE' %}danger{% else %}info{% endif %}">
+              {{ ev.event_type }}
+            </span>
+          </td>
+          <td>
+            <span style="font-weight: 500;">{{ ev.original_filename_snapshot|default:"—" }}</span>
+            <div style="font-size: 10px; color: var(--cp-text-muted);">{{ ev.mime_type_snapshot }}</div>
+          </td>
+          <td style="font-weight: 600; color: {% if ev.delta_bytes >= 0 %}var(--cp-success){% else %}var(--cp-danger){% endif %};">
+            {% if ev.delta_bytes >= 0 %}+{% endif %}{{ ev.delta_bytes }} B
+          </td>
+          <td>{{ ev.storage_before_bytes }} B &rarr; <strong>{{ ev.storage_after_bytes }} B</strong></td>
+          <td><code>{{ ev.source }}</code></td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6" style="text-align: center; color: var(--cp-text-muted); padding: 16px;">No storage events recorded yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

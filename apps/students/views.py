@@ -1,14 +1,18 @@
+import logging
 from rest_framework import viewsets, permissions, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import action
 from students.models import  StudentGuardian, StudentDocument, StudentNote, StudentTag, StudentStatus
 from students.selectors import StudentSelector
 from students.services import StudentService
 from students.serializers import (
-    StudentProfileSerializer, StudentCreateSerializer, StudentSelfUpdateSerializer,
+    StudentProfileSerializer, StudentCreateSerializer, StudentUpdateSerializer, StudentSelfUpdateSerializer,
     StudentGuardianSerializer, StudentDocumentSerializer, StudentNoteSerializer, StudentTagSerializer
 )
 from core.permissions import CanAccessAcademyPermission
 from core.utils import CubixSkillAPIException, api_response
+
+logger = logging.getLogger(__name__)
 
 #--------------------------------------------------------------
 # Student Admin ViewSet
@@ -21,11 +25,29 @@ class StudentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         search_query = self.request.query_params.get('search')
         status_filter = self.request.query_params.get('status')
+        course_id = self.request.query_params.get('course') or self.request.query_params.get('course_id')
+        ordering = self.request.query_params.get('ordering') or self.request.query_params.get('sort_by')
         return StudentSelector.get_academy_students(
             user=self.request.user,
             search_query=search_query,
-            status_filter=status_filter
+            status_filter=status_filter,
+            course_id=course_id,
+            ordering=ordering
         )
+
+    def list(self, request, *args, **kwargs):
+        try:
+            return super().list(request, *args, **kwargs)
+        except Exception as exc:
+            academy_id = getattr(getattr(request.user, 'academy', None), 'id', None)
+            logger.exception(
+                "Failed to list students academy=%s page=%s page_size=%s sort_by=%s",
+                academy_id,
+                request.query_params.get("page"),
+                request.query_params.get("page_size"),
+                request.query_params.get("sort_by"),
+            )
+            raise exc
 
     def create(self, request, *args, **kwargs):
         serializer = StudentCreateSerializer(data=request.data)
@@ -39,12 +61,47 @@ class StudentViewSet(viewsets.ModelViewSet):
             phone=data.get('phone', ''),
             created_by=request.user
         )
+        if data.get('date_of_birth') or data.get('bio') or (data.get('status') and data['status'] != 'ACTIVE'):
+            student = StudentService.update_student(
+                student,
+                date_of_birth=data.get('date_of_birth'),
+                bio=data.get('bio', ''),
+                status=data.get('status')
+            )
 
         return api_response(
             data=StudentProfileSerializer(student).data,
             message="Student profile created successfully.",
             status_code=status.HTTP_201_CREATED
         )
+
+    def partial_update(self, request, *args, **kwargs):
+        student = self.get_object()
+        serializer = StudentUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        updated_student = StudentService.update_student(student, **serializer.validated_data)
+        return api_response(
+            data=StudentProfileSerializer(updated_student).data,
+            message="Student updated successfully."
+        )
+
+    def update(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        qs = StudentSelector.get_academy_students(user=request.user)
+        total = qs.count()
+        active = qs.filter(status=StudentStatus.ACTIVE).count()
+        inactive = qs.filter(status__in=[StudentStatus.INACTIVE, StudentStatus.SUSPENDED, StudentStatus.ARCHIVED]).count()
+        enrolled = qs.filter(user__enrollments__status='ACTIVE').distinct().count()
+        return api_response(data={
+            "total_students": total,
+            "active_students": active,
+            "inactive_students": inactive,
+            "enrolled_students": enrolled,
+        })
 
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
@@ -199,3 +256,31 @@ class StudentTagViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return StudentTag.objects.filter(academy=self.request.user.academy)
+
+#--------------------------------------------------------------
+# Student Custom Field ViewSet
+#--------------------------------------------------------------
+
+from students.models import StudentCustomFieldDefinition
+from students.serializers import StudentCustomFieldDefinitionSerializer
+
+class StudentCustomFieldViewSet(viewsets.ModelViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = StudentCustomFieldDefinitionSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        if hasattr(user, 'academy') and user.academy:
+            return StudentCustomFieldDefinition.objects.filter(academy=user.academy)
+        return StudentCustomFieldDefinition.objects.none()
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        academy = getattr(user, 'academy', None)
+        if not academy:
+            raise ValidationError("User is not associated with an Academy.")
+        key = serializer.validated_data.get('key', '').lower().replace(' ', '_')
+        if not key:
+            key = serializer.validated_data.get('label', '').lower().replace(' ', '_')
+        serializer.save(academy=academy, key=key)
+

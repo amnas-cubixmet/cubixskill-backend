@@ -1,0 +1,85 @@
+{% extends "control_panel/base.html" %}
+{% block title %}{% if is_edit %}Edit Credit Coupon | {{ coupon.code }}{% else %}Create Credit Coupon{% endif %} | Control Panel{% endblock %}
+{% block content %}
+<div style="max-width: 720px; margin: 0 auto;">
+  <div style="margin-bottom: 20px;">
+    <a href="{% url 'control_panel:credit_coupons' %}" class="cp-btn cp-btn-secondary" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="19" y1="12" x2="5" y2="12"></line>
+        <polyline points="12 19 5 12 12 5"></polyline>
+      </svg>
+      <span>Back to Coupons</span>
+    </a>
+  </div>
+
+  <div class="cp-card">
+    <h2 class="cp-card-title" style="margin-bottom: 16px;">
+      {% if is_edit %}Edit Coupon Code: {{ coupon.code }}{% else %}Create Credit Purchase Coupon{% endif %}
+    </h2>
+
+    <form method="POST">
+      {% csrf_token %}
+
+      {% if not is_edit %}
+      <div class="cp-form-group" style="margin-bottom: 16px;">
+        <label class="cp-label">Coupon Code *</label>
+        <input type="text" name="code" class="cp-input" value="{{ form_data.code|default:'' }}" required placeholder="e.g. SUMMER50">
+        {% if errors.code %}<span style="color: var(--cp-danger); font-size: 12px;">{{ errors.code }}</span>{% endif %}
+      </div>
+      {% else %}
+      <div class="cp-form-group" style="margin-bottom: 16px;">
+        <label class="cp-label">Coupon Code</label>
+        <input type="text" class="cp-input" value="{{ coupon.code }}" disabled readonly style="opacity: 0.7;">
+      </div>
+      {% endif %}
+
+      <div class="cp-form-group" style="margin-bottom: 16px;">
+        <label class="cp-label">Discount Type</label>
+        <select name="discount_type" class="cp-input">
+          {% for code, label in discount_types %}
+            <option value="{{ code }}" {% if is_edit and coupon.discount_type == code %}selected{% elif form_data.discount_type == code %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+        <div class="cp-form-group">
+          <label class="cp-label">Discount Value *</label>
+          <input type="text" name="discount_value" class="cp-input" value="{% if is_edit %}{{ coupon.discount_value }}{% else %}{{ form_data.discount_value|default:'0.00' }}{% endif %}" required placeholder="e.g. 15.00">
+          {% if errors.discount_value %}<span style="color: var(--cp-danger); font-size: 12px;">{{ errors.discount_value }}</span>{% endif %}
+        </div>
+        <div class="cp-form-group">
+          <label class="cp-label">Min Purchase Amount</label>
+          <input type="text" name="min_purchase_amount" class="cp-input" value="{% if is_edit %}{{ coupon.min_purchase_amount }}{% else %}{{ form_data.min_purchase_amount|default:'0.00' }}{% endif %}" placeholder="0.00">
+          {% if errors.min_purchase_amount %}<span style="color: var(--cp-danger); font-size: 12px;">{{ errors.min_purchase_amount }}</span>{% endif %}
+        </div>
+      </div>
+
+      <div class="cp-form-group" style="margin-bottom: 16px;">
+        <label class="cp-label">Usage Limit (Leave empty for unlimited)</label>
+        <input type="number" name="usage_limit" class="cp-input" value="{% if is_edit %}{{ coupon.usage_limit|default:'' }}{% else %}{{ form_data.usage_limit|default:'' }}{% endif %}" placeholder="e.g. 100">
+        {% if errors.usage_limit %}<span style="color: var(--cp-danger); font-size: 12px;">{{ errors.usage_limit }}</span>{% endif %}
+      </div>
+
+      <div class="cp-form-group" style="margin-bottom: 16px;">
+        <label class="cp-label">Description</label>
+        <textarea name="description" class="cp-input" rows="3" placeholder="Optional notes or promo conditions...">{% if is_edit %}{{ coupon.description }}{% else %}{{ form_data.description|default:'' }}{% endif %}</textarea>
+      </div>
+
+      <div class="cp-form-group" style="margin-bottom: 24px;">
+        <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" name="is_active" value="true" {% if is_edit %}{% if coupon.is_active %}checked{% endif %}{% else %}{% if form_data.is_active|default:True %}checked{% endif %}{% endif %}>
+          <span style="font-size: 14px; font-weight: 500;">Active Coupon Code</span>
+        </label>
+      </div>
+
+      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+        <a href="{% url 'control_panel:credit_coupons' %}" class="cp-btn cp-btn-secondary">Cancel</a>
+        <button type="submit" class="cp-btn cp-btn-primary">
+          {% if is_edit %}Save Changes{% else %}Create Coupon{% endif %}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -176,6 +176,68 @@ class CertificateTemplate(BaseModel, ActiveMixin):
         super().save(*args, **kwargs)
 
 #--------------------------------------------------------------
+# CertificateTemplateVersion
+#--------------------------------------------------------------
+
+class CertificateTemplateVersion(BaseModel):
+    template = models.ForeignKey(
+        CertificateTemplate,
+        on_delete=models.CASCADE,
+        related_name='versions'
+    )
+    version_number = models.IntegerField(default=1)
+    background_media = models.ForeignKey(
+        'storage.MediaFile',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+'
+    )
+    canvas_width = models.DecimalField(max_digits=8, decimal_places=2, default=1600.0)
+    canvas_height = models.DecimalField(max_digits=8, decimal_places=2, default=1131.0)
+    layout_json = models.JSONField(default=list)
+    created_by = models.ForeignKey(
+        'users_roles.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
+    class Meta:
+        db_table = 'certificate_template_versions'
+        unique_together = ('template', 'version_number')
+        ordering = ['-version_number']
+
+    def __str__(self):
+        return f"{self.template.name} (v{self.version_number})"
+
+#--------------------------------------------------------------
+# CourseCertificateConfig
+#--------------------------------------------------------------
+
+class CourseCertificateConfig(BaseModel):
+    course = models.OneToOneField(
+        'courses.Course',
+        on_delete=models.CASCADE,
+        related_name='certificate_config'
+    )
+    template = models.ForeignKey(
+        CertificateTemplate,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='course_configs'
+    )
+    auto_issue = models.BooleanField(default=True)
+    metadata_json = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = 'course_certificate_configs'
+
+    def __str__(self):
+        return f"Certificate Config for {self.course.title}"
+
+#--------------------------------------------------------------
 # Certificate
 #--------------------------------------------------------------
 
@@ -197,9 +259,15 @@ class Certificate(BaseModel):
         blank=True,
         related_name='certificates'
     )
-
     template = models.ForeignKey(
         CertificateTemplate,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='issued_certificates'
+    )
+    template_version = models.ForeignKey(
+        CertificateTemplateVersion,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -212,6 +280,7 @@ class Certificate(BaseModel):
     student_name_snapshot = models.CharField(max_length=255)
     course_name_snapshot = models.CharField(max_length=255)
     academy_name_snapshot = models.CharField(max_length=255)
+    custom_data_snapshot = models.JSONField(default=dict, blank=True)
 
     issued_at = models.DateTimeField(default=timezone.now, db_index=True)
     completed_at = models.DateTimeField(default=timezone.now)

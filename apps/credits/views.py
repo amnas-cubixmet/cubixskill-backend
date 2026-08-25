@@ -1,10 +1,29 @@
+import re
 from decimal import Decimal
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, PermissionDenied
+
+def normalize_indian_phone(phone: str) -> str:
+    if not phone:
+        return ""
+    clean = re.sub(r'[\s\-\(\)]', '', str(phone).strip())
+    if not clean:
+        return ""
+    if clean.startswith('+'):
+        return clean
+    if clean.startswith('91') and len(clean) == 12:
+        return f"+{clean}"
+    if clean.startswith('0') and len(clean) == 11:
+        return f"+91{clean[1:]}"
+    if len(clean) == 10:
+        return f"+91{clean}"
+    return f"+91{clean}"
+
 
 from academy.models import Academy
 from credits.models import (
@@ -93,12 +112,20 @@ class CreditUsageView(APIView):
         breakdown = CreditSelector.get_usage_breakdown(academy)
         return Response({"usage": breakdown}, status=status.HTTP_200_OK)
 
+class CreditPurchaseRatesView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        rates = CreditPricingService.list_purchasable_rates()
+        serializer = CreditRateSerializer(rates, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 class CreditPackageListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        packages = CreditPackageService.list_active_packages()
-        serializer = CreditPackageSerializer(packages, many=True)
+        rates = CreditPricingService.list_purchasable_rates()
+        serializer = CreditRateSerializer(rates, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 class CreditPurchaseViewSet(viewsets.GenericViewSet):
@@ -126,35 +153,57 @@ class CreditPurchaseViewSet(viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
 
         academy = getattr(request.user, 'academy', None)
-        package_id = serializer.validated_data['package_id']
+        rate_id = serializer.validated_data.get('rate_id')
+        package_id = serializer.validated_data.get('package_id')
         coupon_code = serializer.validated_data.get('coupon_code', '')
 
-        try:
-            package = CreditPackage.objects.get(pk=package_id, is_active=True)
-        except CreditPackage.DoesNotExist:
-            raise ValidationError({"package_id": "Selected credit package not found."})
+        rate = None
+        package = None
+        raw_price = Decimal('0.00')
+        credits_count = Decimal('0.00')
+        currency = 'INR'
+
+        if rate_id:
+            try:
+                rate = CreditRate.objects.get(pk=rate_id, is_active=True, is_purchasable=True)
+                raw_price = rate.price
+                credits_count = rate.credits if rate.credits > 0 else rate.credit_cost
+                currency = rate.currency
+            except CreditRate.DoesNotExist:
+                raise ValidationError({"rate_id": "Selected credit rate option is invalid or inactive."})
+        elif package_id:
+            try:
+                package = CreditPackage.objects.get(pk=package_id, is_active=True)
+                raw_price = package.price
+                credits_count = package.credits + package.bonus_credits
+                currency = package.currency
+            except CreditPackage.DoesNotExist:
+                raise ValidationError({"package_id": "Selected credit package not found."})
+        else:
+            raise ValidationError({"rate_id": "Either rate_id or package_id is required."})
 
         discount_amount = Decimal('0.00')
         coupon_obj = None
         if coupon_code and coupon_code.strip():
-            coupon_obj, discount_amount = CreditCouponService.validate_coupon(coupon_code, package.price, academy)
+            coupon_obj, discount_amount = CreditCouponService.validate_coupon(coupon_code, raw_price, academy)
 
-        final_price = max(package.price - discount_amount, Decimal('0.00'))
+        final_price = max(raw_price - discount_amount, Decimal('0.00'))
 
         return Response({
             "valid": True,
-            "package_id": str(package.id),
+            "rate_id": str(rate.id) if rate else "",
+            "package_id": str(package.id) if package else "",
             "coupon_code": coupon_obj.code if coupon_obj else "",
             "description": coupon_obj.description if coupon_obj else "",
             "discount_type": coupon_obj.discount_type if coupon_obj else "",
             "discount_value": str(coupon_obj.discount_value) if coupon_obj else "0.00",
-            "original_price": str(package.price),
+            "original_price": str(raw_price),
             "discount_amount": str(discount_amount),
             "final_price": str(final_price),
-            "credits": str(package.credits),
-            "bonus_credits": str(package.bonus_credits),
-            "total_credits": str(package.credits + package.bonus_credits),
-            "currency": package.currency,
+            "credits": str(credits_count),
+            "bonus_credits": "0.000000",
+            "total_credits": str(credits_count),
+            "currency": currency,
         })
 
     @action(detail=False, methods=['post'], url_path='create-order')
@@ -163,19 +212,96 @@ class CreditPurchaseViewSet(viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
 
         academy = getattr(request.user, 'academy', None)
+        if not academy and hasattr(request.user, 'academy_memberships'):
+            membership = request.user.academy_memberships.first()
+            if membership:
+                academy = membership.academy
         if not academy:
-            academy = CreditsService.get_or_create_account(None).academy
+            account = CreditsService.get_or_create_account(None)
+            academy = account.academy
 
-        purchase, checkout_url = CreditPurchaseService.create_purchase_order(
-            academy=academy,
-            package_id=str(serializer.validated_data['package_id']),
-            coupon_code=serializer.validated_data.get('coupon_code', ''),
-            user=request.user
-        )
+        rate_id = serializer.validated_data.get('rate_id')
+        package_id = serializer.validated_data.get('package_id')
+        coupon_code = serializer.validated_data.get('coupon_code', '')
+
+        if not rate_id and not package_id:
+            raise ValidationError({"detail": "Either rate_id or package_id must be provided."})
+
+        try:
+            purchase, gateway_data = CreditPurchaseService.create_purchase_order(
+                academy=academy,
+                rate_id=str(rate_id) if rate_id else None,
+                package_id=str(package_id) if package_id else None,
+                coupon_code=coupon_code,
+                user=request.user
+            )
+        except ValidationError as val_err:
+            raise val_err
+        except Exception as err:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in CreditPurchaseService.create_purchase_order: {err}", exc_info=True)
+            raise ValidationError({"detail": "Unable to initialize payment gateway order. Please try again."})
 
         data = CreditPurchaseSerializer(purchase).data
-        data['checkout_url'] = checkout_url
+        data['razorpay_order_id'] = gateway_data.get('gateway_order_id')
+        data['key_id'] = gateway_data.get('key_id') or getattr(settings, 'RAZORPAY_KEY_ID', '')
+        data['gateway_data'] = gateway_data
+
+        user_phone = getattr(request.user, 'phone', '') or (getattr(academy, 'phone', '') if academy else '')
+        data['customer'] = {
+            'name': getattr(request.user, 'full_name', '') or '',
+            'email': getattr(request.user, 'email', '') or '',
+            'contact': normalize_indian_phone(user_phone)
+        }
         return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='verify')
+    def verify(self, request, pk=None):
+        purchase = get_object_or_404(CreditPurchase, pk=pk)
+        academy = getattr(request.user, 'academy', None)
+        if academy and purchase.academy_id != academy.id and not getattr(request.user, 'is_staff', False):
+            raise PermissionDenied("Access denied to credit purchase order.")
+
+        razorpay_payment_id = (request.data.get('razorpay_payment_id') or '').strip()
+        razorpay_order_id = (request.data.get('razorpay_order_id') or '').strip()
+        razorpay_signature = (request.data.get('razorpay_signature') or '').strip()
+
+        if not razorpay_payment_id or not razorpay_order_id or not razorpay_signature:
+            raise ValidationError({"detail": "Razorpay payment verification data is incomplete."})
+
+        if purchase.payment_order_id != razorpay_order_id:
+            raise ValidationError({"detail": "Payment order does not match this purchase."})
+
+        from payments.services import PaymentGatewayService
+        verify_res = PaymentGatewayService.verify_payment('RAZORPAY', {
+            'razorpay_order_id': razorpay_order_id,
+            'razorpay_payment_id': razorpay_payment_id,
+            'razorpay_signature': razorpay_signature,
+        })
+
+        if not verify_res.get('is_success'):
+            raise ValidationError({"detail": "Payment signature verification failed."})
+
+        fulfilled_purchase, already_processed = CreditPurchaseService.finalize_credit_purchase(
+            payment_order_id=purchase.payment_order_id,
+            transaction_id=razorpay_payment_id,
+            razorpay_order_id=razorpay_order_id,
+            source="frontend_verify"
+        )
+
+        current_balance = CreditsService.get_balance(purchase.academy)
+
+        return Response({
+            "success": True,
+            "already_processed": already_processed,
+            "message": "Payment verified and credits added successfully." if not already_processed else "Payment already processed.",
+            "purchase_id": str(fulfilled_purchase.id),
+            "payment_status": "SUCCESS",
+            "credits_added": str(fulfilled_purchase.total_credits),
+            "wallet_balance": str(current_balance),
+            "purchase": CreditPurchaseSerializer(fulfilled_purchase).data
+        }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='fulfill')
     def fulfill(self, request, pk=None):

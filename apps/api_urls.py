@@ -2,7 +2,7 @@ from django.urls import path, include
 
 urlpatterns = [
     path('auth/', include('authentication.urls')),
-    path('users/', include('users_roles.urls')),
+    path('', include('users_roles.urls')),
     path('academy/', include('academy.urls')),
     path('courses/', include('courses.urls')),
     path('course-categories/', include('courses.urls')),
@@ -15,6 +15,8 @@ urlpatterns = [
     path('certificates/', include('certificates.urls')),
     path('live-classes/', include('live_classes.urls')),
     path('discussions/', include('discussions_chat.urls')),
+    path('chat/', include('discussions_chat.urls')),
+    path('courses/<uuid:course_id>/discussions/', include('discussions_chat.urls')),
     path('leads/', include('leads.urls')),
     path('payments/', include('payments.urls')),
     path('fees/', include('fees.urls')),
@@ -25,4 +27,5 @@ urlpatterns = [
     path('audit-logs/', include('audit_logs.urls')),
     path('settings/', include('settings.urls')),
     path('features/', include('features.urls')),
+    path('pricing/', include('features.urls')),
 ]

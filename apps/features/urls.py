@@ -6,6 +6,7 @@ from features.views import (
     student_course_features_view,
     student_available_features_view,
     academy_features_summary_view,
+    public_pricing_list_view,
 )
 
 router = DefaultRouter()
@@ -19,6 +20,9 @@ course_feature_save_bulk = CourseFeatureViewSet.as_view({'post': 'save_bulk'})
 urlpatterns = [
     path('', include(router.urls)),
     
+    # Pricing Rules public API
+    path('pricing/', public_pricing_list_view, name='public-pricing-list'),
+
     # Course Feature management APIs
     path('courses/<uuid:course_id>/features/', course_features_list, name='course-features-list'),
     path('courses/<uuid:course_id>/features/save-bulk/', course_feature_save_bulk, name='course-features-save-bulk'),

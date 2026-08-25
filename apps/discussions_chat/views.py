@@ -31,43 +31,56 @@ from discussions_chat.serializers import (
 # 1. Course Discussion ViewSet
 #--------------------------------------------------------------
 
+from rest_framework.pagination import PageNumberPagination
+
+class StandardPagination(PageNumberPagination):
+    page_size = 15
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
 class CourseDiscussionViewSet(viewsets.ModelViewSet):
     """
-    API viewset for Course Discussion Threads & Replies.
-    GET /api/v1/courses/{course_id}/discussions/
-    POST /api/v1/courses/{course_id}/discussions/
-    GET /api/v1/discussions/{id}/
-    PATCH /api/v1/discussions/{id}/
-    DELETE /api/v1/discussions/{id}/
-    GET /api/v1/discussions/{id}/replies/
-    POST /api/v1/discussions/{id}/replies/
-    POST /api/v1/discussions/{id}/pin/
-    POST /api/v1/discussions/{id}/lock/
-    POST /api/v1/discussions/{id}/accept-answer/
+    API viewset for Course & Academy Discussion Threads & Replies.
+    GET /api/v1/discussions/discussions/
+    POST /api/v1/discussions/discussions/
+    GET /api/v1/discussions/discussions/{id}/
+    PATCH /api/v1/discussions/discussions/{id}/
+    DELETE /api/v1/discussions/discussions/{id}/
+    GET /api/v1/discussions/discussions/{id}/replies/
+    POST /api/v1/discussions/discussions/{id}/replies/
+    POST /api/v1/discussions/discussions/{id}/pin/
+    POST /api/v1/discussions/discussions/{id}/lock/
     """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = DiscussionThreadSerializer
+    pagination_class = StandardPagination
 
     def get_queryset(self):
-        course_id = self.kwargs.get('course_id')
-        if course_id:
-            try:
-                course = Course.objects.get(id=course_id)
-                thread_type = self.request.query_params.get('thread_type')
-                search = self.request.query_params.get('search')
-                return DiscussionSelector.get_course_threads(course, thread_type=thread_type, search=search)
-            except Course.DoesNotExist:
-                return DiscussionThread.objects.none()
-        return DiscussionThread.objects.all()
+        course_id = self.kwargs.get('course_id') or self.request.query_params.get('course_id')
+        thread_type = self.request.query_params.get('thread_type')
+        search = self.request.query_params.get('search')
+        status_filter = self.request.query_params.get('status')
+        ordering = self.request.query_params.get('ordering', 'recent')
+
+        return DiscussionSelector.get_threads_for_user(
+            user=self.request.user,
+            course_id=course_id,
+            thread_type=thread_type,
+            search=search,
+            status_filter=status_filter,
+            ordering=ordering
+        )
 
     def create(self, request, course_id=None):
         if not course_id:
             course_id = request.data.get('course_id')
 
-        try:
-            course = Course.objects.get(id=course_id)
-        except Course.DoesNotExist:
-            raise ValidationError({"course_id": "Course not found."})
+        course = None
+        if course_id and course_id != 'general':
+            try:
+                course = Course.objects.get(id=course_id)
+            except (Course.DoesNotExist, ValueError):
+                raise ValidationError({"course_id": "Specified course was not found."})
 
         serializer = CreateThreadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -165,6 +178,8 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
     GET /api/v1/chat/rooms/{id}/
     GET /api/v1/chat/rooms/{id}/messages/
     POST /api/v1/chat/rooms/{id}/read/
+    POST /api/v1/chat/rooms/get-or-create-personal/
+    POST /api/v1/chat/rooms/{id}/send-message/
     """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = ChatRoomSerializer
@@ -173,10 +188,19 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
         return ChatRoom.objects.filter(is_active=True)
 
     def list(self, request, *args, **kwargs):
+        course_id = request.query_params.get('course_id')
+        room_type = request.query_params.get('room_type')
+
         room_dicts = ChatSelector.get_user_chat_rooms(request.user)
         results = []
         for r_dict in room_dicts:
-            data = ChatRoomSerializer(r_dict['room']).data
+            room = r_dict['room']
+            if course_id and str(room.course_id) != course_id:
+                continue
+            if room_type and room.room_type != room_type:
+                continue
+
+            data = ChatRoomSerializer(room).data
             data['unread_count'] = r_dict['unread_count']
             results.append(data)
         return Response(results, status=status.HTTP_200_OK)
@@ -211,6 +235,46 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
 
         unread = ChatService.mark_room_as_read(room, request.user)
         return Response({"unread_count": unread}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='get-or-create-personal')
+    def get_or_create_personal(self, request):
+        course_id = request.data.get('course_id')
+        student_id = request.data.get('student_id')
+
+        if not course_id or not student_id:
+            raise ValidationError({"detail": "course_id and student_id are required."})
+
+        try:
+            course = Course.objects.get(id=course_id)
+        except (Course.DoesNotExist, ValueError):
+            raise ValidationError({"course_id": "Specified course not found."})
+
+        from users_roles.models import User
+        try:
+            student = User.objects.get(id=student_id)
+        except (User.DoesNotExist, ValueError):
+            raise ValidationError({"student_id": "Specified student not found."})
+
+        room = ChatService.get_or_create_personal_room(course, student, request.user)
+        data = ChatRoomSerializer(room).data
+        data['unread_count'] = ChatService.get_unread_count(room, request.user)
+        return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='send-message')
+    def send_message(self, request, pk=None):
+        room = self.get_object()
+        content = request.data.get('content', '')
+        media_file_ids = request.data.get('media_file_ids', [])
+        message_type = request.data.get('message_type', 'TEXT')
+
+        msg = ChatService.send_message(
+            room=room,
+            user=request.user,
+            content=content,
+            message_type=message_type,
+            media_file_ids=media_file_ids
+        )
+        return Response(ChatMessageSerializer(msg).data, status=status.HTTP_201_CREATED)
 
 #--------------------------------------------------------------
 # 3. Communication Report ViewSet

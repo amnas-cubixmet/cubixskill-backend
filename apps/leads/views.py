@@ -84,6 +84,8 @@ class PublicLeadEnquiryView(APIView):
             "success": True
         }, status=status.HTTP_201_CREATED)
 
+from core.utils import StandardPagination
+
 # --------------------------------------------------------------
 # 2. Staff Lead ViewSet
 # Provides CRM management for authorized Academy Admin/Staff users.
@@ -92,6 +94,7 @@ class PublicLeadEnquiryView(APIView):
 class LeadViewSet(viewsets.ModelViewSet):
     serializer_class = LeadSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         user = self.request.user
@@ -119,6 +122,12 @@ class LeadViewSet(viewsets.ModelViewSet):
             if isinstance(response.data, dict):
                 response.data['metrics'] = metrics
         return response
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        academy = getattr(request.user, 'academy', None)
+        metrics = LeadSelector.get_dashboard_metrics(academy)
+        return Response(metrics, status=status.HTTP_200_OK)
 
     def create(self, request, *args, **kwargs):
         academy = getattr(request.user, 'academy', None)

@@ -1,0 +1,81 @@
+{% extends "control_panel/base.html" %}
+{% block title %}{% if is_edit %}Edit Package | {{ rate.name }}{% else %}Create Package{% endif %} | Control Panel{% endblock %}
+{% block content %}
+<div style="max-width: 720px; margin: 0 auto;">
+  <div style="margin-bottom: 20px;">
+    <a href="{% url 'control_panel:credit_rates' %}" class="cp-btn cp-btn-secondary" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="19" y1="12" x2="5" y2="12"></line>
+        <polyline points="12 19 5 12 12 5"></polyline>
+      </svg>
+      <span>Back to Packages</span>
+    </a>
+  </div>
+
+  <div class="cp-card">
+    <h2 class="cp-card-title" style="margin-bottom: 16px;">
+      {% if is_edit %}Edit Package: {{ rate.name }}{% else %}Create New Package{% endif %}
+    </h2>
+
+    <form method="POST">
+      {% csrf_token %}
+
+      <div class="cp-form-group" style="margin-bottom: 16px;">
+        <label class="cp-label">Package Name *</label>
+        <input type="text" name="name" class="cp-input" value="{% if is_edit %}{{ rate.name }}{% else %}{{ form_data.name|default:'' }}{% endif %}" required placeholder="e.g. Starter Credits">
+        {% if errors.name %}<span style="color: var(--cp-danger); font-size: 12px;">{{ errors.name }}</span>{% endif %}
+      </div>
+
+      <div class="cp-form-group" style="margin-bottom: 16px;">
+        <label class="cp-label">Feature Key</label>
+        <input type="text" class="cp-input" value="{% if is_edit %}{{ rate.feature_key }}{% else %}[ AUTO GENERATED ]{% endif %}" disabled readonly style="opacity: 0.7; font-family: monospace;">
+        <span style="font-size: 11px; color: var(--cp-text-muted);">Automatically generated from Package Name</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+        <div class="cp-form-group">
+          <label class="cp-label">Purchase Price (₹) *</label>
+          <input type="text" name="price" class="cp-input" value="{% if is_edit %}{{ rate.price }}{% else %}{{ form_data.price|default:'499.00' }}{% endif %}" required placeholder="499.00">
+        </div>
+        <div class="cp-form-group">
+          <label class="cp-label">Credits Granted *</label>
+          <input type="text" name="credits" class="cp-input" value="{% if is_edit %}{{ rate.credits }}{% else %}{{ form_data.credits|default:'500.000000' }}{% endif %}" required placeholder="500">
+        </div>
+        <div class="cp-form-group">
+          <label class="cp-label">Currency *</label>
+          <select name="currency" class="cp-input" required>
+            <option value="INR" selected>INR — Indian Rupee</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="cp-form-group" style="margin-bottom: 16px;">
+        <label class="cp-label">Description</label>
+        <textarea name="description" class="cp-input" rows="3" placeholder="Explain package benefits or details...">{% if is_edit %}{{ rate.description }}{% else %}{{ form_data.description|default:'' }}{% endif %}</textarea>
+      </div>
+
+      <div style="display: flex; gap: 24px; margin-bottom: 24px;">
+        <div class="cp-form-group">
+          <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" name="is_active" value="true" {% if is_edit %}{% if rate.is_active %}checked{% endif %}{% else %}{% if form_data.is_active|default:True %}checked{% endif %}{% endif %}>
+            <span style="font-size: 14px; font-weight: 500;">Active</span>
+          </label>
+        </div>
+        <div class="cp-form-group">
+          <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" name="is_purchasable" value="true" {% if is_edit %}{% if rate.is_purchasable %}checked{% endif %}{% else %}{% if form_data.is_purchasable|default:True %}checked{% endif %}{% endif %}>
+            <span style="font-size: 14px; font-weight: 500;">Purchasable on Academy (/credits/buy)</span>
+          </label>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+        <a href="{% url 'control_panel:credit_rates' %}" class="cp-btn cp-btn-secondary">Cancel</a>
+        <button type="submit" class="cp-btn cp-btn-primary">
+          {% if is_edit %}Save Changes{% else %}Create Package{% endif %}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

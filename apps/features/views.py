@@ -151,3 +151,29 @@ def academy_features_summary_view(request):
     academy = get_object_or_404(Academy, pk=academy_id)
     summary = AcademyFeatureService.get_academy_used_features(academy)
     return Response({"academy_id": str(academy.id), "features": summary})
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def public_pricing_list_view(request):
+    """
+    GET /api/v1/pricing/
+    Returns active pricing rules for feature credit costs.
+    """
+    from control_panel.models import PricingRule
+    rules = PricingRule.objects.filter(is_active=True).order_by('category', 'name')
+    data = [
+        {
+            "id": str(r.id),
+            "feature_key": r.code,
+            "code": r.code,
+            "name": r.name,
+            "description": r.description,
+            "category": r.category,
+            "billing_unit": r.billing_unit,
+            "credit_cost": int(r.credit_cost),
+            "is_active": r.is_active,
+        }
+        for r in rules
+    ]
+    return Response({"results": data})

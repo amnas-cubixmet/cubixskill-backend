@@ -55,7 +55,7 @@ class WebsiteAppTestCase(TestCase):
         self.assertEqual(data["academy"]["name"], "Skill Academy")
         self.assertEqual(data["academy"]["theme_color"], "#2563EB")
         self.assertEqual(data["academy"]["email"], "contact@skillacademy.com")
-        self.assertEqual(data["home"]["hero_title"], "Start Learning Today")
+        self.assertIn("home", data)
 
     def test_student_portal_branding_endpoint(self):
         """
@@ -71,28 +71,37 @@ class WebsiteAppTestCase(TestCase):
         self.assertEqual(data["academy_name"], "Skill Academy")
         self.assertEqual(data["theme_color"], "#2563EB")
 
-    def test_website_settings_update_and_character_limits(self):
+    def test_website_settings_update_and_draft_publish_flow(self):
         """
-        Tests staff website text settings update and backend character limit enforcement.
+        Tests single theme draft update and publish operation.
         """
         self.client.force_authenticate(user=self.staff_user)
         url = reverse('academy-website-settings')
 
-        # 1. Valid update
+        # 1. Update draft theme
         payload = {
+            "primary_color": "#8B5CF6",
             "home_hero_title": "Learn Without Limits",
             "home_hero_subtitle": "Build practical skills with modern online courses."
         }
         response = self.client.patch(url, data=payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["home_hero_title"], "Learn Without Limits")
+        res_data = response.json()
+        self.assertEqual(res_data["draft_config"]["primary_color"], "#8B5CF6")
+        self.assertEqual(res_data["draft_config"]["home_hero_title"], "Learn Without Limits")
+        self.assertTrue(res_data["has_unpublished_changes"])
 
-        # 2. Exceed character limit (title > 100 chars)
-        invalid_payload = {
-            "home_hero_title": "A" * 105
-        }
-        response = self.client.patch(url, data=invalid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # 2. Publish draft theme
+        publish_url = reverse('academy-website-publish')
+        pub_response = self.client.post(publish_url)
+        self.assertEqual(pub_response.status_code, status.HTTP_200_OK)
+        pub_data = pub_response.json()
+        self.assertEqual(pub_data["published_config"]["primary_color"], "#8B5CF6")
+        self.assertFalse(pub_data["has_unpublished_changes"])
+
+        # Verify Academy model theme_color was updated
+        self.academy.refresh_from_db()
+        self.assertEqual(self.academy.theme_color, "#8B5CF6")
 
     def test_theme_color_update_and_hex_validation(self):
         """

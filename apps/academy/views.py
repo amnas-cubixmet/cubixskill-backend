@@ -136,4 +136,16 @@ class AcademyProfileView(APIView):
         data['demo_status'] = academy.get_demo_status()
         return api_response(data=data)
 
+    def patch(self, request):
+        academy = request.user.academy
+        if not academy:
+            raise CubixSkillAPIException("No academy linked to current user.", code="ACADEMY_NOT_FOUND")
+        serializer = AcademySerializer(academy, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        data = dict(serializer.data)
+        data['features'] = academy.get_enabled_features()
+        data['demo_status'] = academy.get_demo_status()
+        return api_response(data=data, message="Academy profile updated successfully.")
+
 

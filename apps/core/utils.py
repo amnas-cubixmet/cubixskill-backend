@@ -23,6 +23,10 @@ class CubixSkillAPIException(APIException):
             self.default_code = code
         super().__init__(detail=detail, code=code)
 
+    @property
+    def code(self):
+        return getattr(self.detail, 'code', None) or self.default_code
+
 #--------------------------------------------------------------
 # Pagination
 #--------------------------------------------------------------
@@ -58,3 +62,19 @@ def api_response(data=None, message: str = "", status_code: int = status.HTTP_20
         "message": message,
         "data": data
     }, status=status_code)
+
+#--------------------------------------------------------------
+# Currency Normalization Helper
+#--------------------------------------------------------------
+
+def normalize_currency(value: str = None, default: str = "INR") -> str:
+    """
+    Normalizes currency values to standard uppercase 3-letter ISO code.
+    Raises ValidationError if value is invalid.
+    """
+    from rest_framework.exceptions import ValidationError
+    currency = str(value or default).strip().upper()
+    if len(currency) != 3 or not currency.isalpha():
+        raise ValidationError({"currency": f"Invalid currency code '{value}'. Currency must be a 3-letter code such as INR."})
+    return currency
+

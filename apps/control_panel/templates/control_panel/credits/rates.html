@@ -1,27 +1,104 @@
 {% extends "control_panel/base.html" %}
-{% block title %}Credit Rates | Control Panel{% endblock %}
+{% block title %}Credit Packages | Control Panel{% endblock %}
 {% block content %}
-<div class="cp-page-header">
-  <h1 class="cp-page-title">Credit Rates Configuration</h1>
+<div class="cp-page-header" style="display: flex; justify-content: space-between; align-items: center;">
+  <div>
+    <h1 class="cp-page-title">Credit Packages</h1>
+    <p class="cp-page-subtitle">Configure purchasable Credit package options for Academy credit purchases (/credits/buy).</p>
+  </div>
+  <a href="{% url 'control_panel:credit_rate_create' %}" class="cp-btn cp-btn-primary">
+    {% include "control_panel/components/icon.html" with name="plus" size="14" %}
+    <span>Create Package</span>
+  </a>
 </div>
-<div class="cp-card" style="padding: 0;">
+
+<div class="cp-card" style="padding: 0; margin-top: 16px;">
   <div class="cp-table-container">
     <table class="cp-table">
       <thead>
-        <tr><th>Feature Key</th><th>Name</th><th>Billing Type</th><th>Credit Cost</th><th>Status</th></tr>
+        <tr>
+          <th>Feature Key</th>
+          <th>Package Name</th>
+          <th>Purchase Price</th>
+          <th>Credits Granted</th>
+          <th>Currency</th>
+          <th>Status</th>
+          <th>Purchasable</th>
+          <th style="text-align: right;">Actions</th>
+        </tr>
       </thead>
       <tbody>
-        {% for r in rates %}
+        {% for r in rates_page %}
         <tr>
-          <td style="font-weight: 600; color: var(--cp-primary);">{{ r.feature_key }}</td>
-          <td>{{ r.name }}</td>
-          <td>{{ r.billing_type }}</td>
-          <td>{{ r.credit_cost }} Credits</td>
-          <td><span class="cp-badge cp-badge-active">ACTIVE</span></td>
+          <td style="font-weight: 600; color: var(--cp-primary);"><code>{{ r.feature_key }}</code></td>
+          <td style="font-weight: 500;">{{ r.name }}</td>
+          <td><span style="font-weight: 600;">₹{{ r.price|floatformat:-2 }}</span></td>
+          <td><span style="font-weight: 600; color: var(--cp-primary);">{{ r.credits|floatformat:0 }} Credits</span></td>
+          <td><code>{{ r.currency }}</code></td>
+          <td>
+            <span class="cp-badge {% if r.is_active %}cp-badge-success{% else %}cp-badge-neutral{% endif %}">
+              {% if r.is_active %}Active{% else %}Inactive{% endif %}
+            </span>
+          </td>
+          <td>
+            <span class="cp-badge {% if r.is_purchasable %}cp-badge-success{% else %}cp-badge-neutral{% endif %}">
+              {% if r.is_purchasable %}Purchasable{% else %}Disabled{% endif %}
+            </span>
+          </td>
+          <td style="text-align: right;">
+            <div style="display: inline-flex; gap: 6px; align-items: center;">
+              <a href="{% url 'control_panel:credit_rate_detail' pk=r.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">View</a>
+              <a href="{% url 'control_panel:credit_rate_edit' pk=r.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">Edit</a>
+              {% if r.is_active %}
+                <form method="POST" action="{% url 'control_panel:credit_rate_disable' pk=r.pk %}" style="display: inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-warning);">Disable</button>
+                </form>
+              {% else %}
+                <form method="POST" action="{% url 'control_panel:credit_rate_enable' pk=r.pk %}" style="display: inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-success);">Enable</button>
+                </form>
+              {% endif %}
+              <button type="button" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-danger);" onclick="openDeleteModal('{{ r.name|escapejs }}', '{% url 'control_panel:credit_rate_delete' pk=r.pk %}')">
+                Delete
+              </button>
+            </div>
+          </td>
         </tr>
+        {% empty %}
+        <tr><td colspan="8" style="text-align: center; color: var(--cp-text-muted); padding: 32px;">No credit packages configured.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+
+<!-- Custom Delete Confirmation Modal -->
+<div id="delete-rate-modal" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 9999; align-items: center; justify-content: center; padding: 16px;">
+  <div class="cp-card" style="max-width: 440px; width: 100%; padding: 24px; border-radius: 16px; background: var(--cp-card-bg, #ffffff); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+    <h3 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600; color: var(--cp-text-primary);">Delete Package?</h3>
+    <p style="margin: 0 0 16px 0; font-size: 13px; color: var(--cp-text-muted); leading-height: 1.5;">
+      Are you sure you want to delete package <strong id="delete-rate-name" style="color: var(--cp-text-primary);"></strong>? If it has existing purchase history, it will be safely disabled instead.
+    </p>
+    <form id="delete-rate-form" method="POST" action="">
+      {% csrf_token %}
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button type="button" class="cp-btn cp-btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+        <button type="submit" class="cp-btn cp-btn-primary" style="background-color: var(--cp-danger, #ef4444); border-color: var(--cp-danger, #ef4444); color: white;">Delete Package</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  function openDeleteModal(rateName, deleteUrl) {
+    document.getElementById('delete-rate-name').textContent = rateName;
+    document.getElementById('delete-rate-form').action = deleteUrl;
+    document.getElementById('delete-rate-modal').style.display = 'flex';
+  }
+  function closeDeleteModal() {
+    document.getElementById('delete-rate-modal').style.display = 'none';
+  }
+</script>
 {% endblock %}

@@ -83,3 +83,17 @@ def calculate_12hr_storage_usage():
                 )
             except Exception as exc:
                 logger.error(f"Failed to debit credits for academy {academy.id}: {exc}")
+
+
+@shared_task(bind=True, queue='video_processing', ignore_result=True, max_retries=3, default_retry_delay=60)
+def process_video_transcoding_task(self, media_file_id: str):
+    """
+    Celery task to execute background HLS video transcoding safely.
+    """
+    try:
+        from storage.transcoder import VideoTranscoder
+        VideoTranscoder.process_media_video(media_file_id)
+        return f"Completed video transcoding for media {media_file_id}"
+    except Exception as exc:
+        logger.error(f"Error in process_video_transcoding_task for media {media_file_id}: {exc}")
+        raise self.retry(exc=exc)

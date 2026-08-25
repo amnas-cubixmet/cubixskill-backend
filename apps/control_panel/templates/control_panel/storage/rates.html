@@ -1,0 +1,49 @@
+{% extends "control_panel/base.html" %}
+
+{% block title %}Storage Credit Rates Management{% endblock %}
+
+{% block content %}
+<div class="cp-page-header">
+  <div>
+    <h1 class="cp-page-title">Storage Credit Pricing Rate</h1>
+    <p class="cp-page-subtitle">Super Admin rate configuration for monthly storage credit billing.</p>
+  </div>
+  <div>
+    <a href="{% url 'control_panel:storage_control' %}" class="cp-btn cp-btn-secondary">&larr; Back to Storage Overview</a>
+  </div>
+</div>
+
+<div class="cp-card" style="max-width: 600px;">
+  <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 16px;">Edit Rate Configuration</h3>
+
+  <form method="post" style="display: flex; flex-direction: column; gap: 16px;">
+    {% csrf_token %}
+
+    <div>
+      <label style="font-size: 12px; font-weight: 500; color: var(--cp-text-secondary); display: block; margin-bottom: 6px;">Feature Key</label>
+      <input type="text" value="{{ rate.feature_key }}" readonly class="cp-input" style="background: var(--cp-bg-tertiary); font-family: monospace;">
+    </div>
+
+    <div>
+      <label style="font-size: 12px; font-weight: 500; color: var(--cp-text-secondary); display: block; margin-bottom: 6px;">Rate Name</label>
+      <input type="text" name="name" value="{{ rate.name }}" class="cp-input">
+    </div>
+
+    <div>
+      <label style="font-size: 12px; font-weight: 500; color: var(--cp-text-secondary); display: block; margin-bottom: 6px;">Credits per GB-Month</label>
+      <input type="number" step="0.0001" name="credit_cost" value="{{ rate.credit_cost }}" class="cp-input" required>
+      <p style="font-size: 11px; color: var(--cp-text-muted); margin-top: 4px;">Number of Credits deducted per 1 GB stored for 1 full billing month.</p>
+    </div>
+
+    <div>
+      <label style="font-size: 12px; font-weight: 500; color: var(--cp-text-secondary); display: block; margin-bottom: 6px;">Description</label>
+      <textarea name="description" class="cp-input" style="height: 80px;">{{ rate.description }}</textarea>
+    </div>
+
+    <div style="display: flex; gap: 12px; margin-top: 8px;">
+      <button type="submit" class="cp-btn cp-btn-primary">Save Rate Settings</button>
+      <a href="{% url 'control_panel:storage_control' %}" class="cp-btn cp-btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

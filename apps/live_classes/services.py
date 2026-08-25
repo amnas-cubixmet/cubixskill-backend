@@ -351,6 +351,7 @@ class LiveSessionService:
             meeting_url=meeting_url,
             max_participants=max_participants,
             recording_enabled=recording_enabled,
+            send_email_notification=send_email,
             host=host or created_by,
             created_by=created_by
         )
@@ -362,39 +363,40 @@ class LiveSessionService:
             payload={'title': title, 'scheduled_start': str(scheduled_start), 'send_email': send_email}
         )
 
-        # 4. Schedule 1-Hour Reminder Record
-        reminder_at = scheduled_start - timedelta(hours=1)
-        rem_status = ReminderStatus.PENDING if reminder_at > now else ReminderStatus.QUEUED
+        # 4. Create Durable Outbox EmailJobs (Immediate Creation Email + 1-Hour Scheduled Reminder)
+        from emails.outbox_service import EmailJobService
+        EmailJobService.create_live_session_jobs(session, send_email=send_email)
 
-        idempotency_key = f"rem_{session.id}_60_{int(session.scheduled_start.timestamp())}"
-        LiveSessionReminder.objects.get_or_create(
-            session=session,
-            minutes_before=60,
-            defaults={
-                'scheduled_for': reminder_at,
-                'send_email': send_email,
-                'status': rem_status,
-                'created_by': created_by,
-                'idempotency_key': idempotency_key
-            }
-        )
+        # 5. Schedule Reminder Records
+        if reminders_minutes_before:
+            cls.configure_session_reminders(session, reminders_minutes_before, created_by=created_by, send_email=send_email)
+        else:
+            reminder_at = scheduled_start - timedelta(hours=1)
+            rem_status = ReminderStatus.PENDING if reminder_at > now else ReminderStatus.QUEUED
 
-        # 5. Dispatch Immediate In-App Notifications & Optional Immediate Email Asynchronously
+            idempotency_key = f"rem_{session.id}_60_{int(session.scheduled_start.timestamp())}"
+            LiveSessionReminder.objects.get_or_create(
+                session=session,
+                minutes_before=60,
+                defaults={
+                    'scheduled_for': reminder_at,
+                    'send_email': send_email,
+                    'status': rem_status,
+                    'created_by': created_by,
+                    'idempotency_key': idempotency_key
+                }
+            )
+
+        # 6. Dispatch Immediate In-App Notifications Asynchronously (Non-blocking Celery nudge)
         if status == LiveStatus.SCHEDULED:
             session_id = str(session.id)
 
             def queue_notifications():
                 try:
                     from live_classes.tasks import dispatch_live_session_created_notifications
-                    dispatch_live_session_created_notifications.delay(session_id, send_email=send_email)
+                    dispatch_live_session_created_notifications.delay(session_id, send_email=False)
                 except Exception as e:
-                    logger.warning(f"Celery task dispatch failed, executing background thread fallback: {e}")
-                    import threading
-                    threading.Thread(
-                        target=LiveSessionNotificationService.notify_session_created,
-                        args=(session, send_email),
-                        daemon=True
-                    ).start()
+                    logger.warning(f"Celery notification nudge failed for session {session_id}; durable outbox will process emails: {e}")
 
             transaction.on_commit(queue_notifications)
 
@@ -493,13 +495,7 @@ class LiveSessionService:
                 dispatch_live_session_started_notifications.delay(session_id)
                 logger.info(f"Queued started notifications for {session_id}")
             except Exception as e:
-                logger.warning(f"Could not enqueue Celery start notification task, running thread fallback: {e}")
-                import threading
-                threading.Thread(
-                    target=LiveSessionNotificationService.notify_session_started,
-                    args=(session,),
-                    daemon=True
-                ).start()
+                logger.warning(f"Could not enqueue Celery start notification task: {e}")
 
         transaction.on_commit(queue_start_notifications)
 
@@ -553,6 +549,12 @@ class LiveSessionService:
             session=session,
             status=ReminderStatus.PENDING
         ).update(status=ReminderStatus.CANCELLED)
+
+        try:
+            from emails.outbox_service import EmailJobService
+            EmailJobService.cancel_session_reminder_jobs(session)
+        except Exception as e:
+            logger.error(f"Failed to cancel pending EmailJobs for session {session.id}: {e}")
 
         # Event & Announcement
         LiveSessionEvent.objects.create(

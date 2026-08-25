@@ -11,10 +11,10 @@ from live_classes.models import (
 
 logger = logging.getLogger(__name__)
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+@shared_task(bind=True, queue='default', ignore_result=True, max_retries=3, default_retry_delay=60)
 def dispatch_live_session_created_notifications(self, session_id: str, send_email: bool = False):
     """
-    Background task to dispatch live session creation in-app notifications and optional email.
+    Background task to dispatch live session creation in-app notifications.
     Executes asynchronously outside the HTTP request/response cycle.
     """
     try:
@@ -30,7 +30,7 @@ def dispatch_live_session_created_notifications(self, session_id: str, send_emai
         logger.error(f"Error in dispatch_live_session_created_notifications task for session {session_id}: {exc}")
         raise self.retry(exc=exc)
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+@shared_task(bind=True, queue='default', ignore_result=True, max_retries=3, default_retry_delay=60)
 def dispatch_live_session_started_notifications(self, session_id: str):
     """
     Background task to dispatch live session started in-app notifications to enrolled students.
@@ -49,7 +49,7 @@ def dispatch_live_session_started_notifications(self, session_id: str):
         logger.exception(f"Failed background start processing for session {session_id}: {exc}")
         raise self.retry(exc=exc)
 
-@shared_task
+@shared_task(queue='default', ignore_result=True)
 def update_live_session_statuses():
     """
     Periodic task to synchronize database session status with current time.
@@ -84,7 +84,7 @@ def update_live_session_statuses():
 
     return f"Updated {updated_count} live session statuses at {now}"
 
-@shared_task
+@shared_task(queue='default', ignore_result=True)
 def process_pending_live_session_reminders():
     """
     Periodic task to dispatch pending live session reminders (in-app + optional email).

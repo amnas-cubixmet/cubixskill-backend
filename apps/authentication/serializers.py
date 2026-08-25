@@ -7,10 +7,20 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 #--------------------------------------------------------------
 
 class RegisterStudentSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=255)
+    full_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    name = serializers.CharField(max_length=255, required=False, allow_blank=True)
     email = serializers.EmailField()
     phone = serializers.CharField(max_length=30, required=False, allow_blank=True, default='')
-    academy_slug = serializers.CharField(max_length=255)
+    academy_uuid = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    academy_slug = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    agree_to_terms = serializers.BooleanField(required=False, default=True)
+
+    def validate(self, data):
+        full_name = data.get('full_name') or data.get('name')
+        if not full_name:
+            raise serializers.ValidationError({"full_name": "Full name is required."})
+        data['resolved_name'] = full_name
+        return data
 
 class RegisterAcademySerializer(serializers.Serializer):
     academy_name = serializers.CharField(max_length=255)
@@ -26,6 +36,7 @@ class RegisterAcademySerializer(serializers.Serializer):
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
+    academy_uuid = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
 #--------------------------------------------------------------
 # Token Action Serializers
@@ -33,6 +44,16 @@ class LoginSerializer(serializers.Serializer):
 
 class TokenVerifySerializer(serializers.Serializer):
     token = serializers.CharField()
+
+class ResendVerificationSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    academy_uuid = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    academy_slug = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+class ResendSetupEmailSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    academy_uuid = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    academy_slug = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
 #--------------------------------------------------------------
 # Password Setup Serializer
@@ -54,6 +75,8 @@ class PasswordSetupSerializer(serializers.Serializer):
 
 class ForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
+    academy_uuid = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    academy_slug = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
 #--------------------------------------------------------------
 # Password Reset Serializer

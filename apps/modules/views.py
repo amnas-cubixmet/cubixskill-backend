@@ -1,11 +1,12 @@
 from rest_framework import viewsets, permissions, status
-from rest_framework.decorators import action
+from rest_framework.response import Response
 from courses.models import Course
 from modules.selectors import ModuleSelector
 from modules.services import ModuleService
-from modules.serializers import ModuleSerializer, ModuleCreateSerializer, ModuleReorderItemSerializer
+from modules.serializers import ModuleSerializer, ModuleCreateSerializer
 from core.permissions import CanAccessAcademyPermission
 from core.utils import api_response, CubixSkillAPIException
+from users_roles.models import SystemRoleCode
 
 #--------------------------------------------------------------
 # Course Nested Module ViewSet
@@ -17,10 +18,15 @@ class CourseModuleViewSet(viewsets.ModelViewSet):
 
     def get_course(self):
         course_id = self.kwargs.get('course_id')
+        user = self.request.user
         try:
-            return Course.objects.get(id=course_id)
+            if user.role_code in [SystemRoleCode.SUPER_ADMIN, SystemRoleCode.SUPER_ADMIN_STAFF]:
+                return Course.objects.get(id=course_id)
+            if hasattr(user, 'academy') and user.academy:
+                return Course.objects.get(id=course_id, academy=user.academy)
+            raise Course.DoesNotExist()
         except Course.DoesNotExist:
-            raise CubixSkillAPIException("Course not found.", code="NOT_FOUND", status_code=404)
+            raise CubixSkillAPIException("Course not found or access denied.", code="NOT_FOUND", status_code=status.HTTP_404_NOT_FOUND)
 
     def get_queryset(self):
         course = self.get_course()
@@ -48,9 +54,8 @@ class CourseModuleViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         module = self.get_object()
         ModuleService.delete_module(module)
-        return api_response(message="Module deleted successfully.")
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @action(detail=False, methods=['post'], url_path='reorder')
     def reorder(self, request, course_id=None):
         course = self.get_course()
         modules_order = request.data.get('modules', [])

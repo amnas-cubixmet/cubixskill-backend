@@ -18,6 +18,7 @@ class EnrollmentSelector:
     def get_academy_enrollments(
         user,
         course_id: str = None,
+        student_id: str = None,
         status: str = None,
         access_type: str = None,
         source: str = None,
@@ -39,6 +40,8 @@ class EnrollmentSelector:
 
         if course_id:
             qs = qs.filter(course_id=course_id)
+        if student_id:
+            qs = qs.filter(Q(student_id=student_id) | Q(student__student_profile__id=student_id))
         if status:
             qs = qs.filter(status=status)
         if access_type:

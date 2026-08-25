@@ -1,0 +1,108 @@
+{% extends "control_panel/base.html" %}
+
+{% block title %}Storage Usage Event Audit Ledger{% endblock %}
+
+{% block content %}
+<div class="cp-page-header">
+  <div>
+    <h1 class="cp-page-title">Storage Usage Event Ledger</h1>
+    <p class="cp-page-subtitle">Immutable event stream for all file uploads, deletions, baselines, and storage adjustments.</p>
+  </div>
+  <div>
+    <a href="{% url 'control_panel:storage_control' %}" class="cp-btn cp-btn-secondary">&larr; Back to Storage Overview</a>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="cp-card" style="margin-bottom: 24px;">
+  <form method="get" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+    <div>
+      <label style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); display: block; margin-bottom: 4px;">Filter by Academy</label>
+      <select name="academy_id" class="cp-select" style="height: 34px; font-size: 12px;">
+        <option value="">All Academies</option>
+        {% for a in academies %}
+          <option value="{{ a.id }}" {% if selected_academy_id == a.id|stringformat:"s" %}selected{% endif %}>{{ a.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); display: block; margin-bottom: 4px;">Filter by Event Type</label>
+      <select name="event_type" class="cp-select" style="height: 34px; font-size: 12px;">
+        <option value="">All Event Types</option>
+        <option value="UPLOAD" {% if selected_event_type == 'UPLOAD' %}selected{% endif %}>UPLOAD</option>
+        <option value="DELETE" {% if selected_event_type == 'DELETE' %}selected{% endif %}>DELETE</option>
+        <option value="BASELINE" {% if selected_event_type == 'BASELINE' %}selected{% endif %}>BASELINE</option>
+        <option value="RECONCILIATION" {% if selected_event_type == 'RECONCILIATION' %}selected{% endif %}>RECONCILIATION</option>
+      </select>
+    </div>
+
+    <button type="submit" class="cp-btn cp-btn-primary" style="height: 34px; font-size: 12px;">Filter</button>
+    <a href="{% url 'control_panel:storage_events' %}" class="cp-btn cp-btn-secondary" style="height: 34px; font-size: 12px;">Reset</a>
+  </form>
+</div>
+
+<!-- Event Table -->
+<div class="cp-card">
+  <div style="overflow-x: auto;">
+    <table class="cp-table">
+      <thead>
+        <tr>
+          <th>Occurred At</th>
+          <th>Academy</th>
+          <th>Type</th>
+          <th>File Snapshot</th>
+          <th>Delta Bytes</th>
+          <th>Before &rarr; After</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ev in page_obj %}
+        <tr>
+          <td>{{ ev.occurred_at|date:"Y-m-d H:i:s" }}</td>
+          <td>
+            <a href="{% url 'control_panel:academy_storage_detail' ev.academy_uuid %}" style="font-weight: 500; color: var(--cp-primary);">
+              {{ ev.academy_uuid }}
+            </a>
+          </td>
+          <td>
+            <span class="cp-badge cp-badge-{% if ev.event_type == 'UPLOAD' %}success{% elif ev.event_type == 'DELETE' %}danger{% else %}info{% endif %}">
+              {{ ev.event_type }}
+            </span>
+          </td>
+          <td>
+            <span style="font-weight: 500;">{{ ev.original_filename_snapshot|default:"—" }}</span>
+            <div style="font-size: 10px; color: var(--cp-text-muted);">{{ ev.mime_type_snapshot }}</div>
+          </td>
+          <td style="font-weight: 600; color: {% if ev.delta_bytes >= 0 %}var(--cp-success){% else %}var(--cp-danger){% endif %};">
+            {% if ev.delta_bytes >= 0 %}+{% endif %}{{ ev.delta_bytes }} B
+          </td>
+          <td>{{ ev.storage_before_bytes }} B &rarr; <strong>{{ ev.storage_after_bytes }} B</strong></td>
+          <td><code>{{ ev.source }}</code></td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" style="text-align: center; color: var(--cp-text-muted); padding: 24px;">No storage events found.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if page_obj.has_other_pages %}
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; font-size: 12px; color: var(--cp-text-secondary);">
+    <div>Showing page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</div>
+    <div style="display: flex; gap: 8px;">
+      {% if page_obj.has_previous %}
+        <a href="?page={{ page_obj.previous_page_number }}&event_type={{ selected_event_type }}&academy_id={{ selected_academy_id }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Prev</a>
+      {% endif %}
+      {% if page_obj.has_next %}
+        <a href="?page={{ page_obj.next_page_number }}&event_type={{ selected_event_type }}&academy_id={{ selected_academy_id }}" class="cp-btn cp-btn-secondary" style="height: 30px; font-size: 11px;">Next</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

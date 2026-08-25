@@ -109,6 +109,8 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel, ActiveMixin):
         db_index=True
     )
     assigned_role = models.ForeignKey(Role, on_delete=models.SET_NULL, null=True, blank=True, related_name='users')
+    course_access_scope = models.CharField(max_length=20, default='ALL')
+    assigned_courses = models.ManyToManyField('courses.Course', blank=True, related_name='assigned_staff')
 
     academy = models.ForeignKey(
         'academy.Academy',
@@ -271,12 +273,6 @@ def ensure_default_permissions_seeded():
         ("Create Enrollment", "enrollments.create", "Enrollments", "Enroll students"),
         ("Edit Enrollment", "enrollments.edit", "Enrollments", "Edit enrollment status"),
         ("Cancel Enrollment", "enrollments.cancel", "Enrollments", "Cancel or revoke enrollment"),
-
-        # Plans & Pricing
-        ("View Plans", "plans.view", "Plans & Pricing", "View subscription plans"),
-        ("Create Plan", "plans.create", "Plans & Pricing", "Create subscription plans"),
-        ("Edit Plan", "plans.edit", "Plans & Pricing", "Edit subscription plans"),
-        ("Delete Plan", "plans.delete", "Plans & Pricing", "Delete subscription plans"),
 
         # Pricing
         ("View Pricing", "pricing.view", "Pricing", "View credit usage pricing rules"),

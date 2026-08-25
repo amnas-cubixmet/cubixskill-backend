@@ -1,0 +1,106 @@
+{% extends "control_panel/base.html" %}
+
+{% block title %}Billing Detail Statement — {{ billing.billing_period }}{% endblock %}
+
+{% block content %}
+<div class="cp-page-header">
+  <div>
+    <h1 class="cp-page-title">Monthly Billing Breakdown: {{ billing.billing_period }}</h1>
+    <p class="cp-page-subtitle">Academy: {{ academy.name|default:billing.academy_uuid }} ({{ billing.academy_uuid }})</p>
+  </div>
+  <div style="display: flex; gap: 8px;">
+    {% if billing.status != 'CHARGED' %}
+      <a href="{% url 'control_panel:storage_billing_retry' billing.id %}" class="cp-btn cp-btn-primary">Retry Credit Debit</a>
+    {% endif %}
+    <a href="{% url 'control_panel:storage_billing_list' %}" class="cp-btn cp-btn-secondary">&larr; Back to Billing List</a>
+  </div>
+</div>
+
+<!-- Statement Metrics -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
+  <div class="cp-card">
+    <div style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); text-transform: uppercase;">Status</div>
+    <div style="margin-top: 6px;">
+      <span class="cp-badge cp-badge-{% if billing.status == 'CHARGED' %}success{% elif billing.status == 'INSUFFICIENT_CREDITS' %}warning{% else %}info{% endif %}" style="font-size: 13px;">
+        {{ billing.status }}
+      </span>
+    </div>
+    {% if billing.error_message %}
+      <div style="font-size: 11px; color: var(--cp-danger); margin-top: 4px;">{{ billing.error_message }}</div>
+    {% endif %}
+  </div>
+
+  <div class="cp-card">
+    <div style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); text-transform: uppercase;">Time-Weighted Usage</div>
+    <div style="font-size: 20px; font-weight: 600; color: var(--cp-text-primary); margin-top: 4px;">{{ billing.billable_units_gb_month }} GB-Month</div>
+    <div style="font-size: 11px; color: var(--cp-text-muted); margin-top: 4px;">Byte-Seconds: {{ billing.total_byte_seconds }}</div>
+  </div>
+
+  <div class="cp-card">
+    <div style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); text-transform: uppercase;">Rate Snapshot</div>
+    <div style="font-size: 20px; font-weight: 600; color: var(--cp-primary); margin-top: 4px;">{{ billing.rate_snapshot.credit_cost|default:"10.0" }} Credits/GB</div>
+    <div style="font-size: 11px; color: var(--cp-text-muted); margin-top: 4px;">Key: {{ billing.rate_snapshot.feature_key|default:"STORAGE_MONTHLY" }}</div>
+  </div>
+
+  <div class="cp-card">
+    <div style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); text-transform: uppercase;">Calculated / Charged</div>
+    <div style="font-size: 20px; font-weight: 600; color: var(--cp-primary); margin-top: 4px;">{{ billing.credits_calculated }} / {{ billing.credits_charged }}</div>
+    <div style="font-size: 11px; color: var(--cp-text-muted); margin-top: 4px;">Charged At: {{ billing.charged_at|date:"Y-m-d H:i"|default:"—" }}</div>
+  </div>
+</div>
+
+<!-- Calculation Breakdown -->
+<div class="cp-card" style="margin-bottom: 24px;">
+  <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 16px;">Period Accounting Breakdown</h3>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; font-size: 12px; background: var(--cp-bg-tertiary); padding: 16px; border-radius: 8px;">
+    <div><strong>Period Start:</strong> {{ billing.billing_period_start|date:"Y-m-d H:i:s UTC" }}</div>
+    <div><strong>Period End:</strong> {{ billing.billing_period_end|date:"Y-m-d H:i:s UTC" }}</div>
+    <div><strong>Opening Storage:</strong> {{ opening_display }}</div>
+    <div><strong>Closing Storage:</strong> {{ closing_display }}</div>
+    <div><strong>Peak Storage:</strong> {{ peak_display }}</div>
+    <div><strong>Total Uploaded:</strong> +{{ uploaded_display }}</div>
+    <div><strong>Total Deleted:</strong> -{{ deleted_display }}</div>
+    <div><strong>Ledger Entry Ref:</strong> {{ billing.credit_transaction_id|default:"—" }}</div>
+  </div>
+</div>
+
+<!-- Event Timeline for Period -->
+<div class="cp-card">
+  <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary); margin-bottom: 16px;">Events Occurring Inside Billing Period</h3>
+  <div style="overflow-x: auto;">
+    <table class="cp-table">
+      <thead>
+        <tr>
+          <th>Occurred At</th>
+          <th>Type</th>
+          <th>File Snapshot</th>
+          <th>Delta</th>
+          <th>Before &rarr; After</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ev in events %}
+        <tr>
+          <td>{{ ev.occurred_at|date:"Y-m-d H:i:s" }}</td>
+          <td>
+            <span class="cp-badge cp-badge-{% if ev.event_type == 'UPLOAD' %}success{% elif ev.event_type == 'DELETE' %}danger{% else %}info{% endif %}">
+              {{ ev.event_type }}
+            </span>
+          </td>
+          <td>{{ ev.original_filename_snapshot|default:"—" }}</td>
+          <td style="font-weight: 600; color: {% if ev.delta_bytes >= 0 %}var(--cp-success){% else %}var(--cp-danger){% endif %};">
+            {% if ev.delta_bytes >= 0 %}+{% endif %}{{ ev.delta_bytes }} B
+          </td>
+          <td>{{ ev.storage_before_bytes }} B &rarr; <strong>{{ ev.storage_after_bytes }} B</strong></td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="5" style="text-align: center; color: var(--cp-text-muted); padding: 16px;">No storage events occurred during this billing period. Opening level remained constant.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

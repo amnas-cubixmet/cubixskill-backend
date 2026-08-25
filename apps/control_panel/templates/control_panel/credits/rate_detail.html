@@ -1,0 +1,75 @@
+{% extends "control_panel/base.html" %}
+{% block title %}Package Details | {{ rate.name }} | Control Panel{% endblock %}
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto;">
+  <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+    <a href="{% url 'control_panel:credit_rates' %}" class="cp-btn cp-btn-secondary" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="19" y1="12" x2="5" y2="12"></line>
+        <polyline points="12 19 5 12 12 5"></polyline>
+      </svg>
+      <span>Back to Packages</span>
+    </a>
+    <div style="display: flex; gap: 8px;">
+      <a href="{% url 'control_panel:credit_rate_edit' pk=rate.pk %}" class="cp-btn cp-btn-secondary">Edit Package</a>
+      <button type="button" class="cp-btn cp-btn-secondary" style="color: var(--cp-danger);" onclick="document.getElementById('delete-modal').style.display='flex'">Delete Package</button>
+    </div>
+  </div>
+
+  <div class="cp-card" style="margin-bottom: 24px;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+      <div>
+        <h1 class="cp-page-title" style="margin: 0; font-size: 20px;">{{ rate.name }}</h1>
+        <p style="margin: 4px 0 0 0; color: var(--cp-text-muted); font-size: 13px;">Feature Key: <code>{{ rate.feature_key }}</code></p>
+      </div>
+      <div style="display: flex; gap: 6px;">
+        <span class="cp-badge {% if rate.is_active %}cp-badge-success{% else %}cp-badge-neutral{% endif %}">
+          {% if rate.is_active %}Active{% else %}Inactive{% endif %}
+        </span>
+        <span class="cp-badge {% if rate.is_purchasable %}cp-badge-success{% else %}cp-badge-neutral{% endif %}">
+          {% if rate.is_purchasable %}Purchasable{% else %}Disabled{% endif %}
+        </span>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; background: var(--cp-bg-surface); padding: 16px; border-radius: 6px; margin-bottom: 16px;">
+      <div>
+        <div style="font-size: 11px; text-transform: uppercase; color: var(--cp-text-muted); font-weight: 600;">Purchase Price</div>
+        <div style="font-size: 16px; font-weight: 600; margin-top: 2px;">₹{{ rate.price|floatformat:-2 }}</div>
+      </div>
+      <div>
+        <div style="font-size: 11px; text-transform: uppercase; color: var(--cp-text-muted); font-weight: 600;">Credits Granted</div>
+        <div style="font-size: 16px; font-weight: 600; margin-top: 2px; color: var(--cp-primary);">{{ rate.credits|floatformat:0 }} Credits</div>
+      </div>
+      <div>
+        <div style="font-size: 11px; text-transform: uppercase; color: var(--cp-text-muted); font-weight: 600;">Currency</div>
+        <div style="font-size: 16px; font-weight: 600; margin-top: 2px;">{{ rate.currency }}</div>
+      </div>
+    </div>
+
+    {% if rate.description %}
+    <div style="margin-top: 16px;">
+      <h3 style="font-size: 13px; font-weight: 600; color: var(--cp-text-muted); text-transform: uppercase; margin-bottom: 6px;">Description</h3>
+      <p style="font-size: 14px; line-height: 1.5; color: var(--cp-text-main); margin: 0;">{{ rate.description }}</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Modal Confirmation Popup -->
+<div id="delete-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 9999;">
+  <div class="cp-card" style="width: 100%; max-width: 440px; margin: 16px;">
+    <h3 class="cp-card-title" style="margin-bottom: 12px; color: var(--cp-danger);">Confirm Delete Rate</h3>
+    <p style="font-size: 14px; color: var(--cp-text-main); margin-bottom: 20px;">
+      Are you sure you want to delete the credit rate <strong>{{ rate.name }}</strong> (<code>{{ rate.feature_key }}</code>)? This operation cannot be undone.
+    </p>
+    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+      <button type="button" class="cp-btn cp-btn-secondary" onclick="document.getElementById('delete-modal').style.display='none'">Cancel</button>
+      <form method="POST" action="{% url 'control_panel:credit_rate_delete' pk=rate.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="cp-btn cp-btn-primary" style="background: var(--cp-danger); border-color: var(--cp-danger);">Delete Rate</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

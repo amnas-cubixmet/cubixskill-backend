@@ -5,6 +5,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import authenticate, login, logout
 from django.contrib import messages
 from django.db.models import Sum, Q, Count
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from django.core.paginator import Paginator
 from django.utils.text import slugify
@@ -724,7 +725,13 @@ def students_list_view(request):
     academy_id = request.GET.get('academy', '').strip()
     status_filter = request.GET.get('status', 'all').strip()
 
-    qs = User.objects.filter(role_code=SystemRoleCode.STUDENT).select_related('academy')
+    qs = (
+        User.objects.filter(Q(role_code=SystemRoleCode.STUDENT) | Q(student_profile__isnull=False))
+        .distinct()
+        .select_related('academy', 'student_profile')
+        .annotate(courses_count=Count('enrollments', distinct=True))
+        .order_by('-created_at')
+    )
 
     # Tenant restriction for Academy-level users
     if request.user.role_code in [SystemRoleCode.ACADEMY_ADMIN, SystemRoleCode.ACADEMY_STAFF]:
@@ -741,7 +748,13 @@ def students_list_view(request):
         qs = qs.filter(is_active=False)
 
     if q:
-        qs = qs.filter(Q(full_name__icontains=q) | Q(email__icontains=q) | Q(phone__icontains=q))
+        qs = qs.filter(
+            Q(full_name__icontains=q)
+            | Q(email__icontains=q)
+            | Q(phone__icontains=q)
+            | Q(student_profile__student_code__icontains=q)
+            | Q(student_profile__display_name__icontains=q)
+        )
 
     # Summary KPI cards
     total_students = qs.count()
@@ -754,10 +767,9 @@ def students_list_view(request):
 
     students_data = []
     for u in students_page:
-        courses_cnt = Enrollment.objects.filter(student=u).count()
         students_data.append({
             'user': u,
-            'courses_count': courses_cnt,
+            'courses_count': getattr(u, 'courses_count', 0),
         })
 
     academies = Academy.objects.all().order_by('name')
@@ -1450,244 +1462,9 @@ def enrollment_cancel_view(request, pk):
         messages.warning(request, f"Cancelled enrollment for '{enrollment.student.user.full_name}'.")
     return redirect('control_panel:enrollments_list')
 
-# --------------------------------------------------------------
-# Plans & Subscriptions Views
-# --------------------------------------------------------------
 
-@super_admin_required
-def plans_list_view(request):
-    q = request.GET.get('q', '').strip()
-    status_filter = request.GET.get('status', '').strip()
 
-    qs = Plan.objects.annotate(academies_count=Count('subscriptions')).order_by('-created_at')
 
-    if status_filter == 'active':
-        qs = qs.filter(is_active=True)
-    elif status_filter == 'inactive':
-        qs = qs.filter(is_active=False)
-
-    if q:
-        qs = qs.filter(Q(name__icontains=q) | Q(code__icontains=q) | Q(description__icontains=q))
-
-    total_plans = qs.count()
-    active_plans = qs.filter(is_active=True).count()
-    academies_using_plans = AcademySubscription.objects.values('academy').distinct().count()
-    total_package_credits = qs.filter(is_active=True).aggregate(total=Sum('credits'))['total'] or 0
-
-    paginator = Paginator(qs, 20)
-    plans_page = paginator.get_page(request.GET.get('page'))
-
-    context = {
-        'active_nav': 'plans',
-        'plans_page': plans_page,
-        'q': q,
-        'status_filter': status_filter,
-        'total_plans': total_plans,
-        'active_plans': active_plans,
-        'academies_using_plans': academies_using_plans,
-        'total_package_credits': total_package_credits,
-    }
-    return render(request, 'control_panel/plans/index.html', context)
-
-@super_admin_required
-def plan_create_view(request):
-    errors = {}
-    form_data = {}
-
-    if request.method == 'POST':
-        name = request.POST.get('name', '').strip()
-        code_input = request.POST.get('code', '').strip().upper()
-        description = request.POST.get('description', '').strip()
-        price_val = request.POST.get('price', '0.00').strip()
-        credits_val = request.POST.get('credits', '10000').strip()
-        is_active = request.POST.get('is_active') == 'true'
-
-        code = code_input or slugify(name).upper().replace('-', '_')
-
-        form_data = {
-            'name': name,
-            'code': code,
-            'description': description,
-            'price': price_val,
-            'credits': credits_val,
-            'is_active': is_active,
-        }
-
-        if not name:
-            errors['name'] = "Package Name is required."
-        if not code:
-            errors['code'] = "Package Code is required."
-        elif Plan.objects.filter(code=code).exists():
-            errors['code'] = f"The package code '{code}' is already in use."
-
-        price = Decimal('0.00')
-        try:
-            price = Decimal(price_val)
-        except Exception:
-            errors['price'] = "Enter a valid package price."
-
-        try:
-            credits = int(credits_val)
-        except Exception:
-            errors['credits'] = "Enter a valid number of credits."
-            credits = 10000
-
-        if not errors:
-            from django.db import transaction
-            with transaction.atomic():
-                plan = Plan.objects.create(
-                    name=name,
-                    code=code,
-                    description=description,
-                    price=price,
-                    credits=credits,
-                    is_active=is_active
-                )
-
-                AuditLog.objects.create(
-                    actor=request.user,
-                    actor_type='SUPER_ADMIN',
-                    action=AuditAction.ACADEMY_CREATED,
-                    category=AuditCategory.SYSTEM,
-                    target_type='Plan',
-                    target_id=str(plan.id),
-                    description=f"Created credit package '{plan.name}' ({plan.code}) with {credits} credits for ₹{price}."
-                )
-
-                messages.success(request, f"Credit Package '{plan.name}' created successfully.")
-                return redirect('control_panel:plan_detail', pk=plan.id)
-
-    return render(request, 'control_panel/plans/create.html', {
-        'active_nav': 'plans',
-        'errors': errors,
-        'form_data': form_data,
-    })
-
-@super_admin_required
-def plan_detail_view(request, pk):
-    plan = get_object_or_404(Plan, pk=pk)
-    subscriptions = AcademySubscription.objects.filter(plan=plan).select_related('academy')
-    recent_logs = AuditLog.objects.filter(target_id=str(pk)).order_by('-occurred_at')[:10]
-
-    context = {
-        'active_nav': 'plans',
-        'plan': plan,
-        'subscriptions': subscriptions,
-        'academies_count': subscriptions.count(),
-        'recent_logs': recent_logs,
-    }
-    return render(request, 'control_panel/plans/detail.html', context)
-
-@super_admin_required
-def plan_edit_view(request, pk):
-    plan = get_object_or_404(Plan, pk=pk)
-    errors = {}
-
-    if request.method == 'POST':
-        name = request.POST.get('name', '').strip()
-        description = request.POST.get('description', '').strip()
-        price_val = request.POST.get('price', str(plan.price)).strip()
-        credits_val = request.POST.get('credits', str(plan.credits)).strip()
-        is_active = request.POST.get('is_active') == 'true'
-
-        if not name:
-            errors['name'] = "Package Name cannot be empty."
-
-        price = Decimal('0.00')
-        try:
-            price = Decimal(price_val)
-        except Exception:
-            errors['price'] = "Enter a valid package price."
-
-        try:
-            credits = int(credits_val)
-        except Exception:
-            errors['credits'] = "Enter a valid number of credits."
-            credits = plan.credits
-
-        if not errors:
-            plan.name = name
-            plan.description = description
-            plan.price = price
-            plan.credits = credits
-            plan.is_active = is_active
-            plan.save()
-
-            AuditLog.objects.create(
-                actor=request.user,
-                actor_type='SUPER_ADMIN',
-                action=AuditAction.ACADEMY_UPDATED,
-                category=AuditCategory.SYSTEM,
-                target_type='Plan',
-                target_id=str(plan.id),
-                description=f"Updated credit package '{plan.name}' ({plan.code})."
-            )
-
-            messages.success(request, f"Credit Package '{plan.name}' updated successfully.")
-            return redirect('control_panel:plan_detail', pk=pk)
-
-    return render(request, 'control_panel/plans/edit.html', {
-        'active_nav': 'plans',
-        'plan': plan,
-        'errors': errors,
-    })
-
-@super_admin_required
-def plan_delete_view(request, pk):
-    plan = get_object_or_404(Plan, pk=pk)
-    academies_count = AcademySubscription.objects.filter(plan=plan).count()
-
-    if request.method == 'POST':
-        if academies_count > 0:
-            messages.error(request, f"Plan '{plan.name}' is assigned to {academies_count} academies and cannot be deleted.")
-            return redirect('control_panel:plan_detail', pk=pk)
-
-        name = plan.name
-        plan.delete()
-        messages.success(request, f"Plan '{name}' deleted successfully.")
-        return redirect('control_panel:plans_list')
-
-    return render(request, 'control_panel/plans/confirm_delete.html', {
-        'active_nav': 'plans',
-        'plan': plan,
-        'academies_count': academies_count,
-    })
-
-@super_admin_required
-def plan_enable_view(request, pk):
-    plan = get_object_or_404(Plan, pk=pk)
-    if request.method == 'POST':
-        plan.is_active = True
-        plan.save()
-        messages.success(request, f"Plan '{plan.name}' enabled successfully.")
-    return redirect('control_panel:plans_list')
-
-@super_admin_required
-def plan_disable_view(request, pk):
-    plan = get_object_or_404(Plan, pk=pk)
-    if request.method == 'POST':
-        plan.is_active = False
-        plan.save()
-        messages.warning(request, f"Plan '{plan.name}' disabled.")
-    return redirect('control_panel:plans_list')
-
-@super_admin_required
-def subscriptions_list_view(request):
-    subscriptions = AcademySubscription.objects.select_related('academy', 'plan').all()
-    context = {
-        'active_nav': 'plans',
-        'subscriptions': subscriptions,
-    }
-    return render(request, 'control_panel/plans/subscriptions.html', context)
-
-@super_admin_required
-def subscription_detail_view(request, pk):
-    subscription = get_object_or_404(AcademySubscription.objects.select_related('academy', 'plan'), pk=pk)
-    context = {
-        'active_nav': 'plans',
-        'subscription': subscription,
-    }
-    return render(request, 'control_panel/plans/subscription_detail.html', context)
 
 @super_admin_required
 def features_redirect_view(request):
@@ -1698,127 +1475,93 @@ def features_redirect_view(request):
 
 DEFAULT_PRICING_RULES = [
     {
-        'code': 'LIVE_SESSION',
-        'name': 'Live Sessions',
-        'category': 'LEARNING',
-        'icon': 'video',
-        'billing_unit': 'Per Session',
-        'credit_cost': 20,
-        'description': 'Schedule and manage live classes and interactive video sessions.',
-    },
-    {
-        'code': 'QUIZ_ASSESSMENT',
-        'name': 'Quizzes & Assessments',
-        'category': 'LEARNING',
-        'icon': 'help-circle',
-        'billing_unit': 'Per Assessment',
-        'credit_cost': 5,
-        'description': 'Create quizzes, mock tests and automated assessments.',
-    },
-    {
-        'code': 'ASSIGNMENT_SUBMISSION',
-        'name': 'Assignments & Submissions',
-        'category': 'LEARNING',
-        'icon': 'file-text',
-        'billing_unit': 'Per Submission',
-        'credit_cost': 5,
-        'description': 'Grade student assignments and file submissions.',
-    },
-    {
-        'code': 'COURSE_DISCUSSION',
-        'name': 'Course Discussions',
-        'category': 'LEARNING',
-        'icon': 'message-square',
-        'billing_unit': 'Per Action',
-        'credit_cost': 0,
-        'description': 'Interactive course discussion boards and Q&A.',
-    },
-    {
-        'code': 'COURSE_ANNOUNCEMENT',
-        'name': 'Course Announcements',
-        'category': 'COMMUNICATION',
-        'icon': 'bell',
-        'billing_unit': 'Per Announcement',
-        'credit_cost': 2,
-        'description': 'Broadcast course updates and announcements.',
-    },
-    {
-        'code': 'CERTIFICATE_GENERATION',
-        'name': 'Completion Certificates',
-        'category': 'CONTENT',
-        'icon': 'award',
-        'billing_unit': 'Per Certificate',
+        'code': 'STUDENT_BASE',
+        'name': 'Student Base Price',
+        'category': 'BASE PRICING',
+        'icon': 'users',
+        'billing_unit': 'PER_STUDENT',
         'credit_cost': 10,
-        'description': 'Issue verified digital completion certificates.',
+        'description': 'Base credit rate charged per enrolled student.',
     },
     {
-        'code': 'PROMOTIONAL_COUPON',
-        'name': 'Promotional Coupons',
-        'category': 'COMMERCE',
-        'icon': 'tag',
-        'billing_unit': 'Per Usage',
-        'credit_cost': 0,
-        'description': 'Create promotional discount codes and coupons.',
+        'code': 'LESSONS',
+        'name': 'Lessons',
+        'category': 'FEATURE PRICING',
+        'icon': 'book-open',
+        'billing_unit': 'PER_STUDENT',
+        'credit_cost': 2,
+        'description': 'Video, audio, documents, questions, assessments, assignments, and learning resources.',
     },
     {
         'code': 'FEE_COLLECTION',
-        'name': 'Student Fee Collection',
-        'category': 'COMMERCE',
+        'name': 'Fee Collection',
+        'category': 'FEATURE PRICING',
         'icon': 'wallet',
-        'billing_unit': 'Per Transaction',
-        'credit_cost': 2,
-        'description': 'Manage student tuition fee payments and installments.',
-    },
-    {
-        'code': 'RESOURCE_DOWNLOAD',
-        'name': 'Resource Downloads',
-        'category': 'CONTENT',
-        'icon': 'download',
-        'billing_unit': 'Per Download',
+        'billing_unit': 'PER_STUDENT',
         'credit_cost': 1,
-        'description': 'Host downloadable course study materials and resources.',
+        'description': 'Collect fees from students.',
     },
     {
-        'code': 'REPORT_EXPORT',
-        'name': 'Analytics & Reports',
-        'category': 'ANALYTICS',
-        'icon': 'bar-chart-2',
-        'billing_unit': 'Per Export',
-        'credit_cost': 5,
-        'description': 'Generate and export advanced platform analytics reports.',
+        'code': 'COURSE_ANNOUNCEMENT',
+        'name': 'Course Announcement',
+        'category': 'FEATURE PRICING',
+        'icon': 'bell',
+        'billing_unit': 'PER_ANNOUNCEMENT',
+        'credit_cost': 2,
+        'description': 'Send announcements to course students.',
+    },
+    {
+        'code': 'LIVE_CLASS',
+        'name': 'Live Class',
+        'category': 'FEATURE PRICING',
+        'icon': 'video',
+        'billing_unit': 'PER_STUDENT',
+        'credit_cost': 2,
+        'description': 'Run live classes for students.',
     },
     {
         'code': 'EMAIL_DELIVERY',
         'name': 'Email Delivery',
-        'category': 'COMMUNICATION',
+        'category': 'FEATURE PRICING',
         'icon': 'mail',
-        'billing_unit': 'Per Email',
+        'billing_unit': 'PER_EMAIL',
         'credit_cost': 1,
-        'description': 'Credit charge applied when a billable email is sent.',
+        'description': 'Send course-related emails.',
     },
     {
-        'code': 'STORAGE_USAGE',
-        'name': 'Storage Usage',
-        'category': 'INFRASTRUCTURE',
-        'icon': 'hard-drive',
-        'billing_unit': 'Per GB / Month',
-        'credit_cost': 100,
-        'description': 'Platform media and file storage consumption.',
+        'code': 'COMPLETION_CERTIFICATE',
+        'name': 'Completion Certificate',
+        'category': 'FEATURE PRICING',
+        'icon': 'award',
+        'billing_unit': 'PER_CERTIFICATE',
+        'credit_cost': 3,
+        'description': 'Issue course completion certificates.',
     },
     {
-        'code': 'MEDIA_PROCESSING',
-        'name': 'Media Processing',
-        'category': 'INFRASTRUCTURE',
-        'icon': 'film',
-        'billing_unit': 'Per File',
-        'credit_cost': 10,
-        'description': 'Video and audio transcoding and processing.',
+        'code': 'COURSE_DISCUSSION',
+        'name': 'Course Discussion',
+        'category': 'FEATURE PRICING',
+        'icon': 'message-square',
+        'billing_unit': 'PER_STUDENT',
+        'credit_cost': 1,
+        'description': 'Enable course discussions.',
+    },
+    {
+        'code': 'ONE_TO_ONE_SESSION',
+        'name': 'One-to-One Session',
+        'category': 'FEATURE PRICING',
+        'icon': 'user-check',
+        'billing_unit': 'PER_STUDENT',
+        'credit_cost': 2,
+        'description': 'Enable private student sessions.',
     },
 ]
 
 def ensure_default_pricing_rules_seeded():
+    canonical_codes = set()
     for data in DEFAULT_PRICING_RULES:
-        PricingRule.objects.get_or_create(
+        canonical_codes.add(data['code'])
+        rule, created = PricingRule.objects.get_or_create(
             code=data['code'],
             defaults={
                 'name': data['name'],
@@ -1830,6 +1573,11 @@ def ensure_default_pricing_rules_seeded():
                 'is_active': True,
             }
         )
+        if not created and not rule.is_active:
+            rule.is_active = True
+            rule.save(update_fields=['is_active'])
+
+    PricingRule.objects.exclude(code__in=canonical_codes).update(is_active=False)
 
 # --------------------------------------------------------------
 # Central Pricing Configuration Views
@@ -1894,8 +1642,18 @@ def pricing_rules_list_view(request):
     q = request.GET.get('q', '').strip()
     status_filter = request.GET.get('status', '').strip()
 
-    qs = PricingRule.objects.all().order_by('category', 'name')
-
+    canonical_codes = [
+        'STUDENT_BASE',
+        'LESSONS',
+        'FEE_COLLECTION',
+        'COURSE_ANNOUNCEMENT',
+        'LIVE_CLASS',
+        'EMAIL_DELIVERY',
+        'COMPLETION_CERTIFICATE',
+        'COURSE_DISCUSSION',
+        'ONE_TO_ONE_SESSION'
+    ]
+    qs = PricingRule.objects.filter(code__in=canonical_codes)
     if status_filter == 'active':
         qs = qs.filter(is_active=True)
     elif status_filter == 'inactive':
@@ -2307,19 +2065,503 @@ def credits_overview_view(request):
     return render(request, 'control_panel/credits/engine.html', context)
 
 @super_admin_required
-def credit_rates_view(request):
-    rates = CreditRate.objects.all()
-    return render(request, 'control_panel/credits/rates.html', {'rates': rates, 'active_nav': 'credit_engine'})
+def credit_rates_list_view(request):
+    if not (request.user.role_code == SystemRoleCode.SUPER_ADMIN or request.user.is_superuser or has_permission(request.user, 'credits.view')):
+        return render(request, 'control_panel/403.html', status=403)
+
+    q = request.GET.get('q', '').strip()
+    status_filter = request.GET.get('status', '').strip()
+
+    qs = CreditRate.objects.all().order_by('feature_key')
+
+    if status_filter == 'active':
+        qs = qs.filter(is_active=True)
+    elif status_filter == 'inactive':
+        qs = qs.filter(is_active=False)
+
+    if q:
+        qs = qs.filter(Q(name__icontains=q) | Q(feature_key__icontains=q) | Q(description__icontains=q))
+
+    total_rates = qs.count()
+    active_rates = qs.filter(is_active=True).count()
+
+    paginator = Paginator(qs, 20)
+    rates_page = paginator.get_page(request.GET.get('page'))
+
+    context = {
+        'active_nav': 'credit_rates',
+        'rates_page': rates_page,
+        'q': q,
+        'status_filter': status_filter,
+        'total_rates': total_rates,
+        'active_rates': active_rates,
+    }
+    return render(request, 'control_panel/credits/rates.html', context)
+
+credit_rates_view = credit_rates_list_view
 
 @super_admin_required
-def credit_packages_view(request):
-    packages = CreditPackage.objects.all()
-    return render(request, 'control_panel/credits/packages.html', {'packages': packages, 'active_nav': 'credit_engine'})
+def credit_rate_create_view(request):
+    if not (request.user.role_code == SystemRoleCode.SUPER_ADMIN or request.user.is_superuser or has_permission(request.user, 'credits.adjust')):
+        return render(request, 'control_panel/403.html', status=403)
+
+    errors = {}
+    form_data = {}
+
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        description = request.POST.get('description', '').strip()
+        price_val = request.POST.get('price', '499.00').strip()
+        credits_val = request.POST.get('credits', '500').strip()
+        currency_raw = request.POST.get('currency', 'INR').strip()
+        from core.utils import normalize_currency
+        try:
+            currency_val = normalize_currency(currency_raw)
+        except Exception:
+            errors['currency'] = "Currency must be a 3-letter code such as INR."
+            currency_val = 'INR'
+        is_purchasable_raw = request.POST.get('is_purchasable')
+        is_purchasable = is_purchasable_raw == 'true' if is_purchasable_raw is not None else True
+        is_active = request.POST.get('is_active') == 'true'
+
+        # Auto-generate unique feature key from Package Name
+        base_key = slugify(name).upper().replace('-', '_')
+        if not base_key:
+            base_key = "CREDIT_PACKAGE"
+        feature_key = base_key
+        counter = 1
+        while CreditRate.objects.filter(feature_key=feature_key).exists():
+            feature_key = f"{base_key}_{counter}"
+            counter += 1
+
+        form_data = {
+            'name': name,
+            'feature_key': feature_key,
+            'description': description,
+            'price': price_val,
+            'credits': credits_val,
+            'currency': currency_val,
+            'is_purchasable': is_purchasable,
+            'is_active': is_active,
+        }
+
+        if not name:
+            errors['name'] = "Package Name is required."
+
+        try:
+            price = Decimal(price_val)
+        except Exception:
+            errors['price'] = "Enter a valid purchase price."
+            price = Decimal('0.00')
+
+        try:
+            credits_num = Decimal(credits_val)
+        except Exception:
+            errors['credits'] = "Enter a valid credit quantity."
+            credits_num = Decimal('0.000000')
+
+        # Canonical backend defaults for internal model schema compatibility
+        billing_type = 'FIXED'
+        unit_size = Decimal('1.0000')
+        credit_cost = credits_num if credits_num > 0 else Decimal('1.0000')
+
+        if not errors:
+            rate = CreditRate.objects.create(
+                name=name,
+                feature_key=feature_key,
+                description=description,
+                billing_type=billing_type,
+                unit_size=unit_size,
+                credit_cost=credit_cost,
+                price=price,
+                credits=credits_num,
+                currency=currency_val,
+                is_purchasable=is_purchasable,
+                is_active=is_active
+            )
+
+            AuditLog.objects.create(
+                actor=request.user,
+                actor_type='SUPER_ADMIN',
+                action=AuditAction.ACADEMY_CREATED,
+                category=AuditCategory.SYSTEM,
+                target_type='CreditRate',
+                target_id=str(rate.id),
+                description=f"Created Credit Package '{rate.name}' ({rate.feature_key}) for ₹{price} ({credits_num} credits)."
+            )
+
+            messages.success(request, f"Credit Package '{rate.name}' created successfully.")
+            return redirect('control_panel:credit_rates')
+
+    return render(request, 'control_panel/credits/rate_form.html', {
+        'active_nav': 'credit_rates',
+        'is_edit': False,
+        'errors': errors,
+        'form_data': form_data,
+        'billing_types': [('PER_UNIT', 'Per Unit'), ('PER_BLOCK', 'Per Block'), ('FIXED', 'Fixed Rate')],
+    })
 
 @super_admin_required
-def credit_coupons_view(request):
-    coupons = CreditPurchaseCoupon.objects.all()
-    return render(request, 'control_panel/credits/coupons.html', {'coupons': coupons, 'active_nav': 'credit_engine'})
+def credit_rate_detail_view(request, pk):
+    if not (request.user.role_code == SystemRoleCode.SUPER_ADMIN or request.user.is_superuser or has_permission(request.user, 'credits.view')):
+        return render(request, 'control_panel/403.html', status=403)
+
+    rate = get_object_or_404(CreditRate, pk=pk)
+    recent_logs = AuditLog.objects.filter(target_id=str(pk)).order_by('-occurred_at')[:10]
+
+    context = {
+        'active_nav': 'credit_rates',
+        'rate': rate,
+        'recent_logs': recent_logs,
+    }
+    return render(request, 'control_panel/credits/rate_detail.html', context)
+
+@super_admin_required
+def credit_rate_edit_view(request, pk):
+    if not (request.user.role_code == SystemRoleCode.SUPER_ADMIN or request.user.is_superuser or has_permission(request.user, 'credits.adjust')):
+        return render(request, 'control_panel/403.html', status=403)
+
+    rate = get_object_or_404(CreditRate, pk=pk)
+    errors = {}
+
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        description = request.POST.get('description', '').strip()
+        price_val = request.POST.get('price', str(rate.price)).strip()
+        credits_val = request.POST.get('credits', str(rate.credits)).strip()
+        currency_raw = request.POST.get('currency', rate.currency).strip()
+        from core.utils import normalize_currency
+        try:
+            currency_val = normalize_currency(currency_raw)
+        except Exception:
+            errors['currency'] = "Currency must be a 3-letter code such as INR."
+            currency_val = 'INR'
+        is_purchasable = request.POST.get('is_purchasable') == 'true'
+        is_active = request.POST.get('is_active') == 'true'
+
+        if not name:
+            errors['name'] = "Package Name cannot be empty."
+
+        try:
+            price = Decimal(price_val)
+        except Exception:
+            errors['price'] = "Enter a valid purchase price."
+            price = rate.price
+
+        try:
+            credits_num = Decimal(credits_val)
+        except Exception:
+            errors['credits'] = "Enter a valid credit quantity."
+            credits_num = rate.credits
+
+        if not errors:
+            rate.name = name
+            rate.description = description
+            rate.price = price
+            rate.credits = credits_num
+            rate.credit_cost = credits_num if credits_num > 0 else Decimal('1.0000')
+            rate.currency = currency_val
+            rate.is_purchasable = is_purchasable
+            rate.is_active = is_active
+            rate.save()
+
+            AuditLog.objects.create(
+                actor=request.user,
+                actor_type='SUPER_ADMIN',
+                action=AuditAction.ACADEMY_UPDATED,
+                category=AuditCategory.SYSTEM,
+                target_type='CreditRate',
+                target_id=str(rate.id),
+                description=f"Updated Credit Package '{rate.name}' ({rate.feature_key}) to ₹{price} ({credits_num} credits)."
+            )
+
+            messages.success(request, f"Credit Package '{rate.name}' updated successfully.")
+            return redirect('control_panel:credit_rates')
+
+    return render(request, 'control_panel/credits/rate_form.html', {
+        'active_nav': 'credit_rates',
+        'is_edit': True,
+        'rate': rate,
+        'errors': errors,
+        'billing_types': [('PER_UNIT', 'Per Unit'), ('PER_BLOCK', 'Per Block'), ('FIXED', 'Fixed Rate')],
+    })
+
+@super_admin_required
+def credit_rate_delete_view(request, pk):
+    if not (request.user.role_code == SystemRoleCode.SUPER_ADMIN or request.user.is_superuser or has_permission(request.user, 'credits.adjust')):
+        return render(request, 'control_panel/403.html', status=403)
+
+    rate = get_object_or_404(CreditRate, pk=pk)
+    if request.method == 'POST':
+        name = rate.name
+        try:
+            rate.delete()
+            messages.success(request, f"Package '{name}' deleted successfully.")
+        except ProtectedError:
+            rate.is_active = False
+            rate.is_purchasable = False
+            rate.save()
+            messages.warning(request, f"Package '{name}' has existing purchase history and cannot be permanently deleted. It has been disabled instead.")
+        except Exception:
+            rate.is_active = False
+            rate.is_purchasable = False
+            rate.save()
+            messages.warning(request, f"Package '{name}' has associated records. It has been disabled and removed from purchase options.")
+        return redirect('control_panel:credit_rates')
+
+    return redirect('control_panel:credit_rates')
+
+@super_admin_required
+def credit_rate_enable_view(request, pk):
+    rate = get_object_or_404(CreditRate, pk=pk)
+    if request.method == 'POST':
+        rate.is_active = True
+        rate.save()
+        messages.success(request, f"Credit rate '{rate.name}' enabled successfully.")
+    return redirect('control_panel:credit_rates')
+
+@super_admin_required
+def credit_rate_disable_view(request, pk):
+    rate = get_object_or_404(CreditRate, pk=pk)
+    if request.method == 'POST':
+        rate.is_active = False
+        rate.save()
+        messages.warning(request, f"Credit rate '{rate.name}' disabled.")
+    return redirect('control_panel:credit_rates')
+
+@super_admin_required
+def credit_coupons_list_view(request):
+    if not (request.user.role_code == SystemRoleCode.SUPER_ADMIN or request.user.is_superuser or has_permission(request.user, 'credits.view')):
+        return render(request, 'control_panel/403.html', status=403)
+
+    q = request.GET.get('q', '').strip()
+    status_filter = request.GET.get('status', '').strip()
+
+    qs = CreditPurchaseCoupon.objects.all().order_by('-created_at')
+
+    if status_filter == 'active':
+        qs = qs.filter(is_active=True)
+    elif status_filter == 'inactive':
+        qs = qs.filter(is_active=False)
+
+    if q:
+        qs = qs.filter(Q(code__icontains=q) | Q(description__icontains=q))
+
+    total_coupons = qs.count()
+    active_coupons = qs.filter(is_active=True).count()
+
+    paginator = Paginator(qs, 20)
+    coupons_page = paginator.get_page(request.GET.get('page'))
+
+    context = {
+        'active_nav': 'credit_coupons',
+        'coupons_page': coupons_page,
+        'q': q,
+        'status_filter': status_filter,
+        'total_coupons': total_coupons,
+        'active_coupons': active_coupons,
+    }
+    return render(request, 'control_panel/credits/coupons.html', context)
+
+credit_coupons_view = credit_coupons_list_view
+
+@super_admin_required
+def credit_coupon_create_view(request):
+    if not (request.user.role_code == SystemRoleCode.SUPER_ADMIN or request.user.is_superuser or has_permission(request.user, 'credits.adjust')):
+        return render(request, 'control_panel/403.html', status=403)
+
+    errors = {}
+    form_data = {}
+
+    if request.method == 'POST':
+        code = request.POST.get('code', '').strip().upper()
+        description = request.POST.get('description', '').strip()
+        discount_type = request.POST.get('discount_type', 'PERCENTAGE').strip().upper()
+        discount_value_val = request.POST.get('discount_value', '0.00').strip()
+        min_purchase_val = request.POST.get('min_purchase_amount', '0.00').strip()
+        usage_limit_val = request.POST.get('usage_limit', '').strip()
+        is_active = request.POST.get('is_active') == 'true'
+
+        form_data = {
+            'code': code,
+            'description': description,
+            'discount_type': discount_type,
+            'discount_value': discount_value_val,
+            'min_purchase_amount': min_purchase_val,
+            'usage_limit': usage_limit_val,
+            'is_active': is_active,
+        }
+
+        if not code:
+            errors['code'] = "Coupon code is required."
+        elif CreditPurchaseCoupon.objects.filter(code=code).exists():
+            errors['code'] = f"The coupon code '{code}' already exists."
+
+        try:
+            discount_value = Decimal(discount_value_val)
+        except Exception:
+            errors['discount_value'] = "Enter a valid discount value."
+            discount_value = Decimal('0.00')
+
+        try:
+            min_purchase_amount = Decimal(min_purchase_val)
+        except Exception:
+            errors['min_purchase_amount'] = "Enter a valid minimum purchase amount."
+            min_purchase_amount = Decimal('0.00')
+
+        usage_limit = None
+        if usage_limit_val:
+            try:
+                usage_limit = int(usage_limit_val)
+            except Exception:
+                errors['usage_limit'] = "Enter a valid integer usage limit."
+
+        if not errors:
+            coupon = CreditPurchaseCoupon.objects.create(
+                code=code,
+                description=description,
+                discount_type=discount_type,
+                discount_value=discount_value,
+                min_purchase_amount=min_purchase_amount,
+                usage_limit=usage_limit,
+                is_active=is_active
+            )
+
+            AuditLog.objects.create(
+                actor=request.user,
+                actor_type='SUPER_ADMIN',
+                action=AuditAction.ACADEMY_CREATED,
+                category=AuditCategory.SYSTEM,
+                target_type='CreditPurchaseCoupon',
+                target_id=str(coupon.id),
+                description=f"Created credit coupon '{coupon.code}' ({discount_value} {discount_type})."
+            )
+
+            messages.success(request, f"Credit coupon '{coupon.code}' created successfully.")
+            return redirect('control_panel:credit_coupon_detail', pk=coupon.id)
+
+    return render(request, 'control_panel/credits/coupon_form.html', {
+        'active_nav': 'credit_engine',
+        'is_edit': False,
+        'errors': errors,
+        'form_data': form_data,
+        'discount_types': [('PERCENTAGE', 'Percentage Discount'), ('FIXED_AMOUNT', 'Fixed Currency Amount'), ('BONUS_CREDITS', 'Bonus Credits')],
+    })
+
+@super_admin_required
+def credit_coupon_detail_view(request, pk):
+    if not (request.user.role_code == SystemRoleCode.SUPER_ADMIN or request.user.is_superuser or has_permission(request.user, 'credits.view')):
+        return render(request, 'control_panel/403.html', status=403)
+
+    coupon = get_object_or_404(CreditPurchaseCoupon, pk=pk)
+    recent_logs = AuditLog.objects.filter(target_id=str(pk)).order_by('-occurred_at')[:10]
+
+    context = {
+        'active_nav': 'credit_engine',
+        'coupon': coupon,
+        'recent_logs': recent_logs,
+    }
+    return render(request, 'control_panel/credits/coupon_detail.html', context)
+
+@super_admin_required
+def credit_coupon_edit_view(request, pk):
+    if not (request.user.role_code == SystemRoleCode.SUPER_ADMIN or request.user.is_superuser or has_permission(request.user, 'credits.adjust')):
+        return render(request, 'control_panel/403.html', status=403)
+
+    coupon = get_object_or_404(CreditPurchaseCoupon, pk=pk)
+    errors = {}
+
+    if request.method == 'POST':
+        description = request.POST.get('description', '').strip()
+        discount_type = request.POST.get('discount_type', coupon.discount_type).strip().upper()
+        discount_value_val = request.POST.get('discount_value', str(coupon.discount_value)).strip()
+        min_purchase_val = request.POST.get('min_purchase_amount', str(coupon.min_purchase_amount)).strip()
+        usage_limit_val = request.POST.get('usage_limit', str(coupon.usage_limit or '')).strip()
+        is_active = request.POST.get('is_active') == 'true'
+
+        try:
+            discount_value = Decimal(discount_value_val)
+        except Exception:
+            errors['discount_value'] = "Enter a valid discount value."
+            discount_value = coupon.discount_value
+
+        try:
+            min_purchase_amount = Decimal(min_purchase_val)
+        except Exception:
+            errors['min_purchase_amount'] = "Enter a valid minimum purchase amount."
+            min_purchase_amount = coupon.min_purchase_amount
+
+        usage_limit = None
+        if usage_limit_val:
+            try:
+                usage_limit = int(usage_limit_val)
+            except Exception:
+                errors['usage_limit'] = "Enter a valid integer usage limit."
+                usage_limit = coupon.usage_limit
+
+        if not errors:
+            coupon.description = description
+            coupon.discount_type = discount_type
+            coupon.discount_value = discount_value
+            coupon.min_purchase_amount = min_purchase_amount
+            coupon.usage_limit = usage_limit
+            coupon.is_active = is_active
+            coupon.save()
+
+            AuditLog.objects.create(
+                actor=request.user,
+                actor_type='SUPER_ADMIN',
+                action=AuditAction.ACADEMY_UPDATED,
+                category=AuditCategory.SYSTEM,
+                target_type='CreditPurchaseCoupon',
+                target_id=str(coupon.id),
+                description=f"Updated credit coupon '{coupon.code}'."
+            )
+
+            messages.success(request, f"Credit coupon '{coupon.code}' updated successfully.")
+            return redirect('control_panel:credit_coupon_detail', pk=pk)
+
+    return render(request, 'control_panel/credits/coupon_form.html', {
+        'active_nav': 'credit_engine',
+        'is_edit': True,
+        'coupon': coupon,
+        'errors': errors,
+        'discount_types': [('PERCENTAGE', 'Percentage Discount'), ('FIXED_AMOUNT', 'Fixed Currency Amount'), ('BONUS_CREDITS', 'Bonus Credits')],
+    })
+
+@super_admin_required
+def credit_coupon_delete_view(request, pk):
+    if not (request.user.role_code == SystemRoleCode.SUPER_ADMIN or request.user.is_superuser or has_permission(request.user, 'credits.adjust')):
+        return render(request, 'control_panel/403.html', status=403)
+
+    coupon = get_object_or_404(CreditPurchaseCoupon, pk=pk)
+    if request.method == 'POST':
+        code = coupon.code
+        coupon.delete()
+        messages.success(request, f"Credit coupon '{code}' deleted successfully.")
+        return redirect('control_panel:credit_coupons')
+
+    return redirect('control_panel:credit_coupon_detail', pk=pk)
+
+@super_admin_required
+def credit_coupon_enable_view(request, pk):
+    coupon = get_object_or_404(CreditPurchaseCoupon, pk=pk)
+    if request.method == 'POST':
+        coupon.is_active = True
+        coupon.save()
+        messages.success(request, f"Credit coupon '{coupon.code}' enabled successfully.")
+    return redirect('control_panel:credit_coupons')
+
+@super_admin_required
+def credit_coupon_disable_view(request, pk):
+    coupon = get_object_or_404(CreditPurchaseCoupon, pk=pk)
+    if request.method == 'POST':
+        coupon.is_active = False
+        coupon.save()
+        messages.warning(request, f"Credit coupon '{coupon.code}' disabled.")
+    return redirect('control_panel:credit_coupons')
+
+
 
 # --------------------------------------------------------------
 # Wallets & Credit Ledger Views
@@ -2517,9 +2759,7 @@ def format_bytes(bytes_val):
         return f"{int(b)} B"
     return f"{b:.2f} {units[i]}"
 
-@super_admin_required
-def media_library_view(request):
-    return redirect('control_panel:storage_control')
+
 
 @super_admin_required
 def storage_control_view(request):
@@ -2883,31 +3123,7 @@ def enrollment_cancel_view(request, pk):
         messages.warning(request, f"Cancelled enrollment for '{enrollment.student.full_name}'.")
     return redirect('control_panel:enrollments_list')
 
-# --------------------------------------------------------------
-# Coupons Views
-# --------------------------------------------------------------
 
-@super_admin_required
-def coupons_list_view(request):
-    from payments.models import Coupon
-    coupons = Coupon.objects.select_related('academy').order_by('-created_at')
-    return render(request, 'control_panel/coupons/index.html', {'coupons': coupons, 'active_nav': 'coupons'})
-
-@super_admin_required
-def coupon_create_view(request):
-    courses = Course.objects.select_related('academy').all()
-    if request.method == 'POST':
-        from payments.models import Coupon
-        code = request.POST.get('code', '').strip().upper()
-        discount_value = Decimal(request.POST.get('discount_value', '0.00'))
-        course_id = request.POST.get('course_id')
-        course = get_object_or_404(Course, pk=course_id)
-
-        coupon = Coupon.objects.create(code=code, course=course, academy=course.academy, discount_amount=discount_value, created_by=request.user)
-        messages.success(request, f"Course Coupon '{coupon.code}' created.")
-        return redirect('control_panel:coupons_list')
-
-    return render(request, 'control_panel/coupons/create.html', {'courses': courses, 'active_nav': 'coupons'})
 
 # --------------------------------------------------------------
 # Roles & Permissions Management Views
@@ -3221,26 +3437,7 @@ def website_builder_edit_view(request, pk):
 
     return render(request, 'control_panel/websites/edit.html', {'config': config, 'active_nav': 'website'})
 
-@super_admin_required
-def staff_list_view(request):
-    staff_users = User.objects.filter(role_code__in=[SystemRoleCode.ACADEMY_ADMIN, SystemRoleCode.ACADEMY_STAFF, SystemRoleCode.SUPER_ADMIN_STAFF]).select_related('academy')
-    return render(request, 'control_panel/staff/index.html', {'staff_users': staff_users, 'active_nav': 'staff'})
 
-@super_admin_required
-def staff_create_view(request):
-    academies = Academy.objects.all()
-    if request.method == 'POST':
-        email = request.POST.get('email', '').strip()
-        full_name = request.POST.get('full_name', '').strip()
-        role_code = request.POST.get('role_code', SystemRoleCode.ACADEMY_STAFF)
-        academy_id = request.POST.get('academy_id')
-        academy = get_object_or_404(Academy, pk=academy_id) if academy_id else None
-
-        user = User.objects.create_user(email=email, password='Password123!', full_name=full_name, role_code=role_code, academy=academy, is_staff=True)
-        messages.success(request, f"Staff member '{user.email}' created.")
-        return redirect('control_panel:staff_list')
-
-    return render(request, 'control_panel/staff/create.html', {'academies': academies, 'active_nav': 'staff'})
 
 # --------------------------------------------------------------
 # Super Admin Staff (Platform Level) Management Views
@@ -3878,3 +4075,399 @@ def global_settings_view(request):
         'can_edit': can_edit,
     }
     return render(request, 'control_panel/settings/index.html', context)
+
+
+# --------------------------------------------------------------
+# Super Admin Storage Control & Billing Views
+# --------------------------------------------------------------
+
+@super_admin_required
+def storage_control_view(request):
+    """
+    Platform-wide Storage Overview page (/storage/).
+    """
+    academies = Academy.objects.all().order_by('name')
+    from storage.metering import StorageMeteringService, StorageBillingService
+    from storage.models import StorageMonthlyBilling, StorageUsageEvent, AcademyStorageAccount
+    from storage.utils import format_bytes
+
+    now = timezone.now()
+    current_period_str = f"{now.year:04d}-{now.month:02d}"
+
+    academy_data = []
+    total_platform_bytes = 0
+
+    search = request.GET.get('search', '').strip().lower()
+
+    for acad in academies:
+        if search and search not in acad.name.lower() and search not in str(acad.id).lower():
+            continue
+
+        account = StorageMeteringService.get_or_create_account(acad.id)
+        billing = StorageBillingService.close_billing_period(acad.id, year=now.year, month=now.month)
+
+        total_platform_bytes += account.current_usage_bytes
+
+        academy_data.append({
+            'academy': acad,
+            'current_bytes': account.current_usage_bytes,
+            'current_display': format_bytes(account.current_usage_bytes),
+            'peak_display': format_bytes(billing.peak_bytes),
+            'uploaded_display': format_bytes(billing.total_uploaded_bytes),
+            'deleted_display': format_bytes(billing.total_deleted_bytes),
+            'byte_seconds': billing.total_byte_seconds,
+            'gb_month': str(billing.billable_units_gb_month),
+            'credits_calculated': billing.credits_calculated,
+            'credits_charged': billing.credits_charged,
+            'status': billing.status,
+            'billing_id': str(billing.id)
+        })
+
+    context = {
+        'active_nav': 'storage',
+        'academy_data': academy_data,
+        'total_platform_bytes': total_platform_bytes,
+        'total_platform_display': format_bytes(total_platform_bytes),
+        'current_period_str': current_period_str,
+        'search': search,
+    }
+    return render(request, 'control_panel/storage/overview.html', context)
+
+
+@super_admin_required
+def academy_storage_detail_view(request, pk):
+    """
+    Academy Storage Detail page (/storage/<uuid:pk>/).
+    """
+    academy = get_object_or_404(Academy, pk=pk)
+    from storage.metering import StorageMeteringService, StorageBillingService
+    from storage.models import StorageUsageEvent, StorageUsageRollup, StorageMonthlyBilling, MediaFile, MediaStatus
+    from storage.utils import format_bytes
+
+    account = StorageMeteringService.get_or_create_account(academy.id)
+    current_billing = StorageBillingService.close_billing_period(academy.id)
+    StorageBillingService.build_daily_rollup(academy.id)
+
+    events = StorageUsageEvent.objects.filter(academy_uuid=academy.id).order_by('-occurred_at')[:50]
+    daily_rollups = StorageUsageRollup.objects.filter(academy_uuid=academy.id, interval_type='DAILY').order_by('-period_start')[:30]
+    monthly_billings = StorageMonthlyBilling.objects.filter(academy_uuid=academy.id).order_by('-billing_period_start')
+    active_files = MediaFile.objects.filter(academy_uuid=academy.id).exclude(status=MediaStatus.DELETED).order_by('-created_at')[:20]
+
+    context = {
+        'active_nav': 'storage',
+        'academy': academy,
+        'account': account,
+        'current_display': format_bytes(account.current_usage_bytes),
+        'current_billing': current_billing,
+        'events': events,
+        'daily_rollups': daily_rollups,
+        'monthly_billings': monthly_billings,
+        'active_files': active_files,
+    }
+    return render(request, 'control_panel/storage/academy_detail.html', context)
+
+
+@super_admin_required
+def storage_rates_view(request):
+    """
+    Super Admin Storage Credit Rate Management (/storage/rates/).
+    """
+    from credits.models import CreditRate
+    from credits.services import CreditPricingService
+
+    rate = CreditPricingService.get_rate('STORAGE_MONTHLY')
+
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip() or rate.name
+        credit_cost = request.POST.get('credit_cost', '').strip()
+        description = request.POST.get('description', '').strip()
+
+        try:
+            from decimal import Decimal
+            rate.name = name
+            rate.description = description
+            if credit_cost:
+                rate.credit_cost = Decimal(credit_cost)
+            rate.save()
+            messages.success(request, f"Storage monthly rate updated successfully ({rate.credit_cost} Credits / GB / Month).")
+        except Exception as err:
+            messages.error(request, f"Failed to update storage rate: {err}")
+
+        return redirect('control_panel:storage_rates')
+
+    context = {
+        'active_nav': 'storage',
+        'rate': rate,
+    }
+    return render(request, 'control_panel/storage/rates.html', context)
+
+
+@super_admin_required
+def storage_events_view(request):
+    """
+    Super Admin Immutable Storage Usage Event Audit Ledger (/storage/events/).
+    """
+    from storage.models import StorageUsageEvent
+    from storage.utils import format_bytes
+    from django.core.paginator import Paginator
+
+    qs = StorageUsageEvent.objects.all().order_by('-occurred_at')
+
+    event_type = request.GET.get('event_type', '').strip()
+    if event_type:
+        qs = qs.filter(event_type=event_type)
+
+    academy_id = request.GET.get('academy_id', '').strip()
+    if academy_id:
+        qs = qs.filter(academy_uuid=academy_id)
+
+    paginator = Paginator(qs, 50)
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+
+    academies = Academy.objects.all().order_by('name')
+
+    context = {
+        'active_nav': 'storage',
+        'page_obj': page_obj,
+        'academies': academies,
+        'selected_event_type': event_type,
+        'selected_academy_id': academy_id,
+    }
+    return render(request, 'control_panel/storage/events.html', context)
+
+
+@super_admin_required
+def storage_billing_list_view(request):
+    """
+    Super Admin Monthly Storage Billing Records (/storage/billing/).
+    """
+    from storage.models import StorageMonthlyBilling, BillingStatus
+    from django.core.paginator import Paginator
+
+    qs = StorageMonthlyBilling.objects.all().order_by('-billing_period_start')
+
+    status_filter = request.GET.get('status', '').strip()
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+
+    month_filter = request.GET.get('month', '').strip()
+    if month_filter:
+        qs = qs.filter(billing_period=month_filter)
+
+    paginator = Paginator(qs, 30)
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+
+    statuses = BillingStatus.choices
+
+    context = {
+        'active_nav': 'storage',
+        'page_obj': page_obj,
+        'statuses': statuses,
+        'selected_status': status_filter,
+        'selected_month': month_filter,
+    }
+    return render(request, 'control_panel/storage/billing_list.html', context)
+
+
+@super_admin_required
+def storage_billing_detail_view(request, pk):
+    """
+    Super Admin Explainable Billing Detail page (/storage/billing/<uuid:pk>/).
+    """
+    from storage.models import StorageMonthlyBilling, StorageUsageEvent
+    from storage.utils import format_bytes
+
+    billing = get_object_or_404(StorageMonthlyBilling, pk=pk)
+    academy = Academy.objects.filter(id=billing.academy_uuid).first()
+
+    events = StorageUsageEvent.objects.filter(
+        academy_uuid=billing.academy_uuid,
+        occurred_at__gte=billing.billing_period_start,
+        occurred_at__lte=billing.billing_period_end
+    ).order_by('occurred_at')
+
+    context = {
+        'active_nav': 'storage',
+        'billing': billing,
+        'academy': academy,
+        'events': events,
+        'opening_display': format_bytes(billing.opening_bytes),
+        'closing_display': format_bytes(billing.closing_bytes),
+        'peak_display': format_bytes(billing.peak_bytes),
+        'uploaded_display': format_bytes(billing.total_uploaded_bytes),
+        'deleted_display': format_bytes(billing.total_deleted_bytes),
+    }
+    return render(request, 'control_panel/storage/billing_detail.html', context)
+
+
+@super_admin_required
+def storage_billing_retry_view(request, pk):
+    """
+    Action view to retry charging a pending/failed storage billing record.
+    """
+    from storage.models import StorageMonthlyBilling
+    from storage.metering import StorageBillingService
+
+    billing = get_object_or_404(StorageMonthlyBilling, pk=pk)
+    updated = StorageBillingService.retry_pending_billing(billing)
+
+    if updated.status == 'CHARGED':
+        messages.success(request, f"Billing record for '{updated.billing_period}' charged successfully!")
+    elif updated.status == 'INSUFFICIENT_CREDITS':
+        messages.warning(request, f"Charge failed: Insufficient Credits in Academy wallet ({updated.error_message}).")
+    else:
+        messages.error(request, f"Charge failed: {updated.error_message}")
+
+    return redirect('control_panel:storage_billing_detail', pk=pk)
+
+
+@super_admin_required
+def storage_streaming_view(request):
+    """
+    Super Admin configuration for HLS Adaptive Bitrate Profiles & Transcoding Settings.
+    """
+    from storage.models import StorageStreamingProfile
+
+    if request.method == 'POST':
+        profile_id = request.POST.get('profile_id')
+        if profile_id:
+            profile = get_object_or_404(StorageStreamingProfile, pk=profile_id)
+            profile.video_bitrate_kbps = int(request.POST.get('video_bitrate_kbps', profile.video_bitrate_kbps))
+            profile.audio_bitrate_kbps = int(request.POST.get('audio_bitrate_kbps', profile.audio_bitrate_kbps))
+            profile.is_enabled = request.POST.get('is_enabled') == 'on'
+            profile.save()
+            messages.success(request, f"HLS profile '{profile.quality_label}' updated successfully.")
+            return redirect('control_panel:storage_streaming')
+
+    profiles = StorageStreamingProfile.objects.all().order_by('-height')
+    context = {
+        'active_nav': 'storage',
+        'profiles': profiles,
+    }
+    return render(request, 'control_panel/storage/streaming.html', context)
+
+
+@super_admin_required
+def storage_processing_view(request):
+    """
+    Super Admin monitor for video transcoding job queue & retries.
+    """
+    from storage.models import MediaFile, ProcessingStatus
+    from storage.tasks import process_video_transcoding_task
+    from storage.transcoder import check_video_processor_available
+
+    if request.method == 'POST':
+        media_id = request.POST.get('media_id')
+        if media_id:
+            media_file = get_object_or_404(MediaFile, pk=media_id)
+            media_file.processing_status = ProcessingStatus.QUEUED
+            media_file.processing_error = ''
+            media_file.save()
+            try:
+                process_video_transcoding_task.delay(str(media_file.id))
+            except Exception as exc:
+                messages.warning(request, f"Could not dispatch Celery task: {exc}")
+            messages.success(request, f"Queued retry transcoding for '{media_file.original_filename}'.")
+            return redirect('control_panel:storage_processing')
+
+    ffmpeg_ok, ffprobe_ok = check_video_processor_available()
+    videos = MediaFile.objects.filter(media_type='VIDEO').order_by('-created_at')[:50]
+    context = {
+        'active_nav': 'storage',
+        'videos': videos,
+        'ffmpeg_available': ffmpeg_ok,
+        'ffprobe_available': ffprobe_ok,
+    }
+    return render(request, 'control_panel/storage/processing.html', context)
+
+
+@super_admin_required
+def email_jobs_view(request):
+    """
+    Super Admin root-level monitor for DB Outbox Email Jobs.
+    """
+    from emails.models import EmailJob, EmailJobStatus, EmailJobType
+    from django.db.models import Q
+
+    jobs = EmailJob.objects.all().order_by('-created_at')
+
+    status_filter = request.GET.get('status')
+    if status_filter:
+        jobs = jobs.filter(status=status_filter)
+
+    type_filter = request.GET.get('job_type')
+    if type_filter:
+        jobs = jobs.filter(job_type=type_filter)
+
+    search = request.GET.get('search')
+    if search:
+        jobs = jobs.filter(
+            Q(subject__icontains=search) | Q(reference_id__icontains=search) | Q(idempotency_key__icontains=search)
+        )
+
+    context = {
+        'active_nav': 'email_jobs',
+        'jobs': jobs[:100],
+        'statuses': EmailJobStatus.choices,
+        'types': EmailJobType.choices,
+        'selected_status': status_filter or '',
+        'selected_type': type_filter or '',
+        'search': search or ''
+    }
+    return render(request, 'control_panel/email_jobs/list.html', context)
+
+
+@super_admin_required
+def email_job_retry_view(request, pk):
+    """
+    Super Admin action view to trigger audited retry for a failed EmailJob.
+    """
+    from emails.models import EmailJob, EmailJobStatus
+    from emails.tasks import process_email_job_task
+
+    job = get_object_or_404(EmailJob, pk=pk)
+    if job.status in [EmailJobStatus.FAILED, EmailJobStatus.PENDING, EmailJobStatus.RETRY]:
+        job.status = EmailJobStatus.QUEUED
+        job.last_error = ''
+        job.save(update_fields=['status', 'last_error'])
+        process_email_job_task.delay(str(job.id))
+        messages.success(request, f"Queued manual retry for EmailJob {job.id}.")
+    else:
+        messages.warning(request, f"EmailJob {job.id} status is '{job.status}' and cannot be retried.")
+
+    return redirect('control_panel:email_jobs')
+
+
+@super_admin_required
+def system_tasks_view(request):
+    """
+    Super Admin operational dashboard for Redis connectivity, Celery Workers, and Beat health.
+    """
+    from django.core.cache import cache
+    from emails.models import EmailJob, EmailJobStatus
+
+    redis_healthy = False
+    try:
+        cache.set('_health_ping', 'pong', 5)
+        redis_healthy = cache.get('_health_ping') == 'pong'
+    except Exception:
+        redis_healthy = False
+
+    pending_email_jobs = EmailJob.objects.filter(status=EmailJobStatus.PENDING).count()
+    processing_email_jobs = EmailJob.objects.filter(status=EmailJobStatus.PROCESSING).count()
+    failed_email_jobs = EmailJob.objects.filter(status=EmailJobStatus.FAILED).count()
+    sent_today = EmailJob.objects.filter(status=EmailJobStatus.SENT, completed_at__gte=timezone.now().replace(hour=0, minute=0, second=0)).count()
+
+    context = {
+        'active_nav': 'system_tasks',
+        'redis_healthy': redis_healthy,
+        'pending_email_jobs': pending_email_jobs,
+        'processing_email_jobs': processing_email_jobs,
+        'failed_email_jobs': failed_email_jobs,
+        'sent_today': sent_today,
+    }
+    return render(request, 'control_panel/system/tasks.html', context)
+
+

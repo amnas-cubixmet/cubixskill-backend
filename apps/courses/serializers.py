@@ -72,19 +72,31 @@ class CourseModuleSerializer(serializers.ModelSerializer):
 class CourseListSerializer(serializers.ModelSerializer):
     thumbnail = MediaFileSerializer(read_only=True)
     category_name = serializers.CharField(source='category.name', read_only=True)
+    per_student_pricing = serializers.SerializerMethodField()
+    pricing = serializers.SerializerMethodField()
 
     class Meta:
         model = Course
         fields = [
             'id', 'title', 'slug', 'subtitle', 'thumbnail', 'thumbnail_url', 'level', 'language',
-            'price', 'sale_price', 'currency', 'is_free', 'status', 'visibility', 'category_name', 'created_at'
+            'price', 'sale_price', 'currency', 'is_free', 'status', 'visibility', 'category_name', 'per_student_pricing', 'pricing', 'created_at'
         ]
+
+    def get_per_student_pricing(self, obj):
+        from credits.services import CreditPricingService
+        return CreditPricingService.calculate_course_per_student_pricing(obj)
+
+    def get_pricing(self, obj):
+        from courses.services import CoursePricingService
+        return CoursePricingService.get_course_pricing_dict(obj)
 
 class CourseDetailSerializer(serializers.ModelSerializer):
     thumbnail = MediaFileSerializer(read_only=True)
     promo_video = MediaFileSerializer(read_only=True)
     category = CourseCategorySerializer(read_only=True)
     modules = CourseModuleSerializer(many=True, read_only=True)
+    per_student_pricing = serializers.SerializerMethodField()
+    pricing = serializers.SerializerMethodField()
 
     class Meta:
         model = Course
@@ -92,9 +104,17 @@ class CourseDetailSerializer(serializers.ModelSerializer):
             'id', 'academy', 'category', 'title', 'slug', 'subtitle', 'short_description', 'description',
             'thumbnail', 'thumbnail_url', 'promo_video', 'promo_video_url', 'level', 'language', 'duration_minutes',
             'price', 'sale_price', 'currency', 'is_free', 'visibility', 'status', 'is_published', 'published_at',
-            'demo_enabled', 'demo_duration_days', 'certificate_enabled', 'modules', 'created_at', 'updated_at'
+            'demo_enabled', 'demo_duration_days', 'certificate_enabled', 'modules', 'per_student_pricing', 'pricing', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'slug', 'academy', 'is_published', 'published_at', 'created_at', 'updated_at']
+
+    def get_per_student_pricing(self, obj):
+        from credits.services import CreditPricingService
+        return CreditPricingService.calculate_course_per_student_pricing(obj)
+
+    def get_pricing(self, obj):
+        from courses.services import CoursePricingService
+        return CoursePricingService.get_course_pricing_dict(obj)
 
 class CourseWriteSerializer(serializers.ModelSerializer):
     class Meta:

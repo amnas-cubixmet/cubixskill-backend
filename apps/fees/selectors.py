@@ -64,3 +64,34 @@ class FeeCollectionAnalyticsSelector:
             "not_configured_count": not_configured_count,
             "currency": "INR"
         }
+
+    @classmethod
+    def get_academy_fee_summary(cls, academy) -> dict:
+        """
+        Calculates authoritative academy-wide fee collection statistics directly from database records.
+        """
+        accounts = StudentFeeAccount.objects.filter(academy=academy) if academy else StudentFeeAccount.objects.all()
+        total_expected = sum(acc.effective_fee_amount for acc in accounts) or Decimal('0.00')
+
+        payments = FeePayment.objects.filter(fee_account__academy=academy, status='COMPLETED') if academy else FeePayment.objects.filter(status='COMPLETED')
+        total_collected = sum(p.amount for p in payments) or Decimal('0.00')
+
+        outstanding = max(Decimal('0.00'), total_expected - total_collected)
+
+        today = timezone.now().date()
+        inst_qs = FeeInstallment.objects.filter(due_date__lt=today, status__in=[InstallmentStatus.OVERDUE, InstallmentStatus.PARTIAL, InstallmentStatus.UPCOMING, InstallmentStatus.DUE])
+        if academy:
+            inst_qs = inst_qs.filter(fee_account__academy=academy)
+
+        overdue_amount = sum(
+            max(Decimal('0.00'), inst.amount - inst.paid_amount - inst.waived_amount)
+            for inst in inst_qs
+        ) or Decimal('0.00')
+
+        return {
+            "total_expected": float(total_expected),
+            "total_collected": float(total_collected),
+            "total_pending": float(outstanding),
+            "total_overdue": float(overdue_amount),
+            "currency": "INR"
+        }

@@ -165,14 +165,22 @@ class CreditRate(BaseModel):
     unit_size = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('1.0000'))
     credit_cost = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('1.0000'))
     is_active = models.BooleanField(default=True, db_index=True)
-    effective_from = models.DateTimeField(default=timezone.now)
+    price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    credits = models.DecimalField(max_digits=20, decimal_places=6, default=Decimal('0.000000'))
+    currency = models.CharField(max_length=10, default='INR')
+    is_purchasable = models.BooleanField(default=True, db_index=True)
 
     class Meta:
         db_table = 'credit_rates'
         ordering = ['feature_key']
 
+    def save(self, *args, **kwargs):
+        from core.utils import normalize_currency
+        self.currency = normalize_currency(self.currency)
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"CreditRate [{self.feature_key}]: {self.credit_cost} Credits per {self.unit_size} units"
+        return f"CreditRate [{self.feature_key}]: {self.credits} Credits for {self.price} {self.currency}"
 
 # --------------------------------------------------------------
 # Credit Package (For Purchase)
@@ -192,6 +200,11 @@ class CreditPackage(BaseModel):
     class Meta:
         db_table = 'credit_packages'
         ordering = ['sort_order', 'price']
+
+    def save(self, *args, **kwargs):
+        from core.utils import normalize_currency
+        self.currency = normalize_currency(self.currency)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"CreditPackage [{self.name}]: {self.credits} Credits for {self.price} {self.currency}"
@@ -232,6 +245,13 @@ class CreditPurchase(BaseModel):
         'academy.Academy',
         on_delete=models.CASCADE,
         related_name='credit_purchases'
+    )
+    rate = models.ForeignKey(
+        'credits.CreditRate',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='purchases'
     )
     package = models.ForeignKey(
         CreditPackage,
@@ -280,6 +300,11 @@ class CreditPurchase(BaseModel):
     class Meta:
         db_table = 'credit_purchases'
         ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        from core.utils import normalize_currency
+        self.currency = normalize_currency(self.currency)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"CreditPurchase [{self.payment_order_id}]: {self.total_credits} Credits ({self.status})"

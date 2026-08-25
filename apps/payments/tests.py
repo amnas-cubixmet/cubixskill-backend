@@ -36,6 +36,10 @@ class PaymentsAppTestCase(TestCase):
         self.academy_a = Academy.objects.create(name="Academy Alpha", slug="alpha")
         self.academy_b = Academy.objects.create(name="Academy Beta", slug="beta")
 
+        from credits.models import CreditAccount
+        CreditAccount.objects.get_or_create(academy=self.academy_a, defaults={'balance': Decimal('1000.00')})
+        CreditAccount.objects.get_or_create(academy=self.academy_b, defaults={'balance': Decimal('1000.00')})
+
         self.student = User.objects.create_user(
             email="student@example.com",
             full_name="Jane Student",
@@ -244,74 +248,75 @@ class PaymentsAppTestCase(TestCase):
         completed_order.refresh_from_db()
         self.assertEqual(completed_order.status, OrderStatus.REFUNDED)
 
-    def test_stripe_provider_checkout_and_verification(self):
+    def test_razorpay_provider_checkout_and_verification(self):
         """
-        Tests provider-agnostic Stripe adapter checkout session creation and payment verification.
+        Tests Razorpay adapter order creation and payment signature verification.
         """
         from payments.providers.factory import PaymentProviderFactory
-        from payments.providers.stripe_provider import StripeProvider
+        from payments.providers.razorpay_provider import RazorpayProvider
 
-        provider = PaymentProviderFactory.get_provider('stripe')
-        self.assertIsInstance(provider, StripeProvider)
+        provider = PaymentProviderFactory.get_provider('razorpay')
+        self.assertIsInstance(provider, RazorpayProvider)
 
-        # Create Order via Stripe
+        # Create Order via Razorpay
         order, gw_data = PaymentOrderService.create_payment_order(
             payment_context=PaymentContext.COURSE_PURCHASE,
             payer=self.student,
             course=self.course_paid,
-            gateway="STRIPE"
+            gateway="RAZORPAY"
         )
 
-        self.assertEqual(order.gateway, "STRIPE")
-        self.assertTrue(order.gateway_order_id.startswith("cs_"))
-        self.assertEqual(gw_data['gateway'], "STRIPE")
-        self.assertIn("checkout_url", gw_data)
+        self.assertEqual(order.gateway, "RAZORPAY")
+        self.assertTrue(order.gateway_order_id.startswith("order_"))
+        self.assertEqual(gw_data['gateway'], "RAZORPAY")
+        self.assertIn("gateway_order_id", gw_data)
 
-        # Verify Payment via Stripe Provider
+        # Verify Payment via Razorpay Provider
         ver_res = provider.verify_payment({
-            'gateway_order_id': order.gateway_order_id,
-            'gateway_payment_id': 'pi_test_stripe_123',
-            'amount': str(order.final_amount),
-            'currency': 'USD'
+            'razorpay_order_id': order.gateway_order_id,
+            'razorpay_payment_id': 'pay_test_rzp_123',
+            'razorpay_signature': 'mock_sig_valid'
         })
 
         self.assertTrue(ver_res['is_success'])
-        self.assertEqual(ver_res['gateway_payment_id'], 'pi_test_stripe_123')
+        self.assertEqual(ver_res['gateway_payment_id'], 'pay_test_rzp_123')
 
-    def test_stripe_webhook_parsing_and_idempotent_fulfillment(self):
+    def test_razorpay_webhook_parsing_and_idempotent_fulfillment(self):
         """
-        Tests parsing Stripe webhook payloads and performing idempotent business fulfillment.
+        Tests parsing Razorpay webhook payloads and performing idempotent business fulfillment.
         """
         order, _ = PaymentOrderService.create_payment_order(
             payment_context=PaymentContext.COURSE_PURCHASE,
             payer=self.student,
             course=self.course_paid,
-            gateway="STRIPE"
+            gateway="RAZORPAY"
         )
 
-        stripe_payload = {
-            "id": "evt_stripe_test_001",
-            "type": "checkout.session.completed",
-            "data": {
-                "object": {
-                    "id": order.gateway_order_id,
-                    "object": "checkout.session",
-                    "payment_intent": "pi_stripe_fulfilled_999",
-                    "amount_total": 100000,
-                    "currency": "usd",
-                    "client_reference_id": str(order.id),
-                    "metadata": {
-                        "order_id": str(order.id),
-                        "order_number": order.order_number
+        razorpay_payload = {
+            "entity": "event",
+            "account_id": "acc_rzp_001",
+            "event": "payment.captured",
+            "created_at": 1600000000,
+            "payload": {
+                "payment": {
+                    "entity": {
+                        "id": "pay_rzp_fulfilled_999",
+                        "order_id": order.gateway_order_id,
+                        "amount": 100000,
+                        "currency": "INR",
+                        "notes": {
+                            "order_id": str(order.id),
+                            "order_number": order.order_number
+                        }
                     }
                 }
             }
         }
 
-        # Dispatch Stripe Webhook
+        # Dispatch Razorpay Webhook
         res1 = PaymentFulfillmentService.handle_webhook_event(
-            gateway="stripe",
-            payload=stripe_payload,
+            gateway="razorpay",
+            payload=razorpay_payload,
             signature_valid=True
         )
         self.assertTrue(res1)
@@ -323,28 +328,28 @@ class PaymentsAppTestCase(TestCase):
 
         # Duplicate Webhook Dispatch
         res2 = PaymentFulfillmentService.handle_webhook_event(
-            gateway="stripe",
-            payload=stripe_payload,
+            gateway="razorpay",
+            payload=razorpay_payload,
             signature_valid=True
         )
         self.assertTrue(res2)
         self.assertEqual(Enrollment.objects.filter(student=self.student, course=self.course_paid).count(), 1)
 
-    def test_stripe_refund_processing(self):
+    def test_razorpay_refund_processing(self):
         """
-        Tests refund execution using Stripe provider.
+        Tests refund execution using Razorpay provider.
         """
         order, _ = PaymentOrderService.create_payment_order(
             payment_context=PaymentContext.COURSE_PURCHASE,
             payer=self.student,
             course=self.course_paid,
-            gateway="STRIPE"
+            gateway="RAZORPAY"
         )
 
         completed_order = PaymentFulfillmentService.process_successful_payment(
             order=order,
-            gateway_payment_id="pi_stripe_refund_target",
-            gateway="STRIPE"
+            gateway_payment_id="pay_rzp_refund_target",
+            gateway="RAZORPAY"
         )
 
         tx = completed_order.transactions.first()
@@ -355,7 +360,28 @@ class PaymentsAppTestCase(TestCase):
         )
 
         self.assertEqual(refund.status, RefundStatus.SUCCESS)
-        self.assertTrue(refund.gateway_refund_id.startswith("re_"))
+        self.assertTrue(refund.gateway_refund_id.startswith("rfnd_"))
         completed_order.refresh_from_db()
         self.assertEqual(completed_order.status, OrderStatus.REFUNDED)
+
+    def test_create_payment_order_api(self):
+        """
+        Tests POST /api/v1/payments/orders/ API creates order and returns 201.
+        """
+        from rest_framework.test import APIClient
+        client = APIClient()
+        client.force_authenticate(user=self.student)
+
+        url = '/api/v1/payments/orders/'
+        payload = {
+            'academy_uuid': str(self.academy_a.pk),
+            'course_uuid': str(self.course_paid.id),
+        }
+
+        response = client.post(url, payload, format='json')
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data['success'])
+        self.assertIn('order', response.data)
+        self.assertIn('razorpay_order_id', response.data['order'])
+
 

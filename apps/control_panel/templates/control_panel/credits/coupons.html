@@ -1,24 +1,55 @@
 {% extends "control_panel/base.html" %}
 {% block title %}Credit Purchase Coupons | Control Panel{% endblock %}
 {% block content %}
-<div class="cp-page-header">
-  <h1 class="cp-page-title">Credit Purchase Coupons</h1>
+<div class="cp-page-header" style="display: flex; justify-content: space-between; align-items: center;">
+  <div>
+    <h1 class="cp-page-title">Credit Purchase Coupons</h1>
+    <p class="cp-page-subtitle">Manage promotional coupon codes for credit package purchases.</p>
+  </div>
+  <a href="{% url 'control_panel:credit_coupon_create' %}" class="cp-btn cp-btn-primary">
+    {% include "control_panel/components/icon.html" with name="plus" size="14" %}
+    <span>Create Coupon</span>
+  </a>
 </div>
-<div class="cp-card" style="padding: 0;">
+
+<div class="cp-card" style="padding: 0; margin-top: 16px;">
   <div class="cp-table-container">
     <table class="cp-table">
       <thead>
-        <tr><th>Code</th><th>Discount Type</th><th>Value</th><th>Bonus Credits</th><th>Status</th></tr>
+        <tr><th>Code</th><th>Discount Type</th><th>Discount Value</th><th>Usage (Used/Limit)</th><th>Status</th><th style="text-align: right;">Actions</th></tr>
       </thead>
       <tbody>
-        {% for c in coupons %}
+        {% for c in coupons_page %}
         <tr>
-          <td style="font-weight: 600; color: var(--cp-primary);">{{ c.code }}</td>
-          <td>{{ c.discount_type }}</td>
-          <td>{{ c.discount_value }}</td>
-          <td>+{{ c.bonus_credits }}</td>
-          <td><span class="cp-badge cp-badge-active">ACTIVE</span></td>
+          <td style="font-weight: 600; color: var(--cp-primary);"><code>{{ c.code }}</code></td>
+          <td><span class="cp-badge cp-badge-neutral">{{ c.discount_type }}</span></td>
+          <td><strong>{{ c.discount_value }}</strong></td>
+          <td>{{ c.current_usage_count }} / {% if c.usage_limit %}{{ c.usage_limit }}{% else %}∞{% endif %}</td>
+          <td>
+            <span class="cp-badge {% if c.is_active %}cp-badge-success{% else %}cp-badge-neutral{% endif %}">
+              {% if c.is_active %}Active{% else %}Inactive{% endif %}
+            </span>
+          </td>
+          <td style="text-align: right;">
+            <div style="display: inline-flex; gap: 6px; align-items: center;">
+              <a href="{% url 'control_panel:credit_coupon_detail' pk=c.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">View</a>
+              <a href="{% url 'control_panel:credit_coupon_edit' pk=c.pk %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px;">Edit</a>
+              {% if c.is_active %}
+                <form method="POST" action="{% url 'control_panel:credit_coupon_disable' pk=c.pk %}" style="display: inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-warning);">Disable</button>
+                </form>
+              {% else %}
+                <form method="POST" action="{% url 'control_panel:credit_coupon_enable' pk=c.pk %}" style="display: inline;">
+                  {% csrf_token %}
+                  <button type="submit" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 8px; font-size: 11px; color: var(--cp-success);">Enable</button>
+                </form>
+              {% endif %}
+            </div>
+          </td>
         </tr>
+        {% empty %}
+        <tr><td colspan="6" style="text-align: center; color: var(--cp-text-muted); padding: 32px;">No credit coupons configured.</td></tr>
         {% endfor %}
       </tbody>
     </table>

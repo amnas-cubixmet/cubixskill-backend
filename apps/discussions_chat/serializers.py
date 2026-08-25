@@ -60,6 +60,7 @@ class DiscussionThreadSerializer(serializers.ModelSerializer):
     author_id = serializers.UUIDField(source='created_by.id', read_only=True)
     author_name = serializers.CharField(source='created_by.full_name', read_only=True)
     author_email = serializers.EmailField(source='created_by.email', read_only=True)
+    course_title = serializers.CharField(source='course.title', read_only=True, allow_null=True)
     attachments = DiscussionAttachmentSerializer(many=True, read_only=True)
     accepted_answer_id = serializers.UUIDField(source='accepted_answer.id', read_only=True)
 
@@ -68,6 +69,7 @@ class DiscussionThreadSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'course',
+            'course_title',
             'author_id',
             'author_name',
             'author_email',
@@ -166,6 +168,11 @@ class ChatMessageSerializer(serializers.ModelSerializer):
 class ChatRoomSerializer(serializers.ModelSerializer):
     course_title = serializers.CharField(source='course.title', read_only=True)
     unread_count = serializers.IntegerField(default=0, read_only=True)
+    student_id = serializers.SerializerMethodField()
+    student_name = serializers.SerializerMethodField()
+    student_email = serializers.SerializerMethodField()
+    student_avatar = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatRoom
@@ -179,9 +186,48 @@ class ChatRoomSerializer(serializers.ModelSerializer):
             'is_locked',
             'last_message_at',
             'unread_count',
+            'student_id',
+            'student_name',
+            'student_email',
+            'student_avatar',
+            'last_message',
             'created_at',
         ]
         read_only_fields = fields
+
+    def get_student_participant(self, obj):
+        participants = obj.participants.select_related('user').all()
+        for p in participants:
+            if not p.user.is_staff and not hasattr(p.user, 'academy'):
+                return p.user
+        if participants.exists():
+            return participants.first().user
+        return None
+
+    def get_student_id(self, obj):
+        student = self.get_student_participant(obj)
+        return str(student.id) if student else None
+
+    def get_student_name(self, obj):
+        student = self.get_student_participant(obj)
+        return student.full_name if student else (obj.name or 'Student')
+
+    def get_student_email(self, obj):
+        student = self.get_student_participant(obj)
+        return student.email if student else ''
+
+    def get_student_avatar(self, obj):
+        student = self.get_student_participant(obj)
+        if student and getattr(student, 'avatar', None):
+            try:
+                return student.avatar.url
+            except Exception:
+                return None
+        return None
+
+    def get_last_message(self, obj):
+        msg = obj.messages.filter(status='ACTIVE').order_by('-created_at').first()
+        return msg.content if msg else ''
 
 #--------------------------------------------------------------
 # 8. Communication Report Model

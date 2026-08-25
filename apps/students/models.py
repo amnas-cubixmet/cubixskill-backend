@@ -139,3 +139,41 @@ class StudentNote(BaseModel):
 
     def __str__(self):
         return f"Note on {self.student.display_name} by {self.created_by}"
+
+#--------------------------------------------------------------
+# StudentCustomFieldDefinition
+#--------------------------------------------------------------
+
+class StudentCustomFieldDefinition(BaseModel, ActiveMixin):
+    academy = models.ForeignKey('academy.Academy', on_delete=models.CASCADE, related_name='student_custom_fields')
+    key = models.CharField(max_length=100)
+    label = models.CharField(max_length=255)
+    field_type = models.CharField(max_length=50, default='TEXT')
+    available_for_certificate = models.BooleanField(default=True)
+    required = models.BooleanField(default=False)
+    sort_order = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = 'student_custom_field_definitions'
+        unique_together = ('academy', 'key')
+        ordering = ['sort_order', 'created_at']
+
+    def __str__(self):
+        return f"{self.label} ({self.academy.name})"
+
+#--------------------------------------------------------------
+# StudentCustomFieldValue
+#--------------------------------------------------------------
+
+class StudentCustomFieldValue(BaseModel):
+    student = models.ForeignKey(StudentProfile, on_delete=models.CASCADE, related_name='custom_field_values')
+    field_definition = models.ForeignKey(StudentCustomFieldDefinition, on_delete=models.CASCADE, related_name='values')
+    value = models.TextField(blank=True, default='')
+
+    class Meta:
+        db_table = 'student_custom_field_values'
+        unique_together = ('student', 'field_definition')
+
+    def __str__(self):
+        return f"{self.field_definition.label}: {self.value}"
+

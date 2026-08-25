@@ -187,3 +187,109 @@ class CreditsAppTestCase(TestCase):
         self.assertTrue(is_valid)
         self.assertEqual(expected, Decimal('70.000000'))
         self.assertEqual(actual, Decimal('70.000000'))
+
+    def test_razorpay_verify_and_idempotent_fulfillment(self):
+        """
+        Tests full end-to-end Razorpay payment verification, wallet credit, and double-verify idempotency.
+        """
+        from credits.models import CreditRate, CreditPurchase
+        from rest_framework.test import APIClient
+        rate = CreditRate.objects.create(
+            name="Test Pack 100",
+            feature_key="TEST_PACK_100",
+            price=Decimal('499.00'),
+            credits=Decimal('100.000000'),
+            currency='INR',
+            is_active=True,
+            is_purchasable=True
+        )
+        user = User.objects.create_user(
+            email="instructor@cubixskill.com",
+            full_name="Test Instructor",
+            role_code=SystemRoleCode.ACADEMY_ADMIN,
+            academy=self.academy,
+            is_active=True,
+            is_email_verified=True,
+            password_setup_completed=True
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        # 1. Create Purchase Order
+        create_res = client.post('/api/v1/credits/purchases/create-order/', {'rate_id': str(rate.id)})
+        self.assertEqual(create_res.status_code, 201)
+        purchase_id = create_res.data['id']
+        rzp_order_id = create_res.data['razorpay_order_id']
+
+        # 2. First Verification (Valid Signature)
+        verify_res = client.post(f'/api/v1/credits/purchases/{purchase_id}/verify/', {
+            'razorpay_order_id': rzp_order_id,
+            'razorpay_payment_id': 'pay_test_unit_123',
+            'razorpay_signature': 'mock_sig_valid'
+        })
+        self.assertEqual(verify_res.status_code, 200)
+        self.assertTrue(verify_res.data['success'])
+        self.assertFalse(verify_res.data['already_processed'])
+        self.assertEqual(verify_res.data['wallet_balance'], '100.000000')
+
+        account = CreditsService.get_or_create_account(self.academy)
+        self.assertEqual(account.balance, Decimal('100.000000'))
+
+        # 3. Double Verification (Idempotent call should NOT double credit)
+        verify_res2 = client.post(f'/api/v1/credits/purchases/{purchase_id}/verify/', {
+            'razorpay_order_id': rzp_order_id,
+            'razorpay_payment_id': 'pay_test_unit_123',
+            'razorpay_signature': 'mock_sig_valid'
+        })
+        self.assertEqual(verify_res2.status_code, 200)
+        self.assertTrue(verify_res2.data['success'])
+        self.assertTrue(verify_res2.data['already_processed'])
+
+        account.refresh_from_db()
+        self.assertEqual(account.balance, Decimal('100.000000'))
+
+    def test_razorpay_verify_validations(self):
+        """
+        Tests validation error responses (incomplete data, order mismatch, signature failure).
+        """
+        from credits.models import CreditRate
+        from rest_framework.test import APIClient
+        rate = CreditRate.objects.create(
+            name="Test Pack 50",
+            feature_key="TEST_PACK_50",
+            price=Decimal('299.00'),
+            credits=Decimal('50.000000'),
+            currency='INR',
+            is_active=True,
+            is_purchasable=True
+        )
+        user = User.objects.create_user(
+            email="instructor2@cubixskill.com",
+            full_name="Instructor 2",
+            role_code=SystemRoleCode.ACADEMY_ADMIN,
+            academy=self.academy,
+            is_active=True,
+            is_email_verified=True,
+            password_setup_completed=True
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        create_res = client.post('/api/v1/credits/purchases/create-order/', {'rate_id': str(rate.id)})
+        purchase_id = create_res.data['id']
+        rzp_order_id = create_res.data['razorpay_order_id']
+
+        # Missing params -> 400
+        res_incomplete = client.post(f'/api/v1/credits/purchases/{purchase_id}/verify/', {})
+        self.assertEqual(res_incomplete.status_code, 400)
+
+        # Mismatched order ID -> 400
+        res_mismatch = client.post(f'/api/v1/credits/purchases/{purchase_id}/verify/', {
+            'razorpay_order_id': 'order_WRONG_123',
+            'razorpay_payment_id': 'pay_123',
+            'razorpay_signature': 'sig'
+        })
+        self.assertEqual(res_mismatch.status_code, 400)
+

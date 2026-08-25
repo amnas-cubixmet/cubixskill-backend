@@ -101,7 +101,7 @@ class DiscussionsChatTestCase(TestCase):
             media_type=MediaType.IMAGE,
             status=MediaStatus.ACTIVE,
             size_bytes=1024,
-            uploaded_by=self.student
+            uploaded_by_uuid=self.student.id
         )
 
     def test_course_feature_entitlement_isolation(self):

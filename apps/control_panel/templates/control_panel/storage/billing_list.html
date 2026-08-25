@@ -1,0 +1,88 @@
+{% extends "control_panel/base.html" %}
+
+{% block title %}Monthly Storage Billing Records{% endblock %}
+
+{% block content %}
+<div class="cp-page-header">
+  <div>
+    <h1 class="cp-page-title">Monthly Storage Billing Statements</h1>
+    <p class="cp-page-subtitle">Durable monthly credit calculation statements across platform academies.</p>
+  </div>
+  <div>
+    <a href="{% url 'control_panel:storage_control' %}" class="cp-btn cp-btn-secondary">&larr; Back to Storage Overview</a>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="cp-card" style="margin-bottom: 24px;">
+  <form method="get" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+    <div>
+      <label style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); display: block; margin-bottom: 4px;">Status</label>
+      <select name="status" class="cp-select" style="height: 34px; font-size: 12px;">
+        <option value="">All Statuses</option>
+        {% for st_val, st_label in statuses %}
+          <option value="{{ st_val }}" {% if selected_status == st_val %}selected{% endif %}>{{ st_label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); display: block; margin-bottom: 4px;">Month (YYYY-MM)</label>
+      <input type="text" name="month" value="{{ selected_month }}" placeholder="e.g. 2026-08" class="cp-input" style="height: 34px; width: 140px; font-size: 12px;">
+    </div>
+
+    <button type="submit" class="cp-btn cp-btn-primary" style="height: 34px; font-size: 12px;">Filter</button>
+    <a href="{% url 'control_panel:storage_billing_list' %}" class="cp-btn cp-btn-secondary" style="height: 34px; font-size: 12px;">Reset</a>
+  </form>
+</div>
+
+<!-- Billing Records Table -->
+<div class="cp-card">
+  <div style="overflow-x: auto;">
+    <table class="cp-table">
+      <thead>
+        <tr>
+          <th>Period</th>
+          <th>Academy UUID</th>
+          <th>GB-Month</th>
+          <th>Credits Calc</th>
+          <th>Credits Charged</th>
+          <th>Status</th>
+          <th>Charged At</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rec in page_obj %}
+        <tr>
+          <td><strong>{{ rec.billing_period }}</strong></td>
+          <td>
+            <a href="{% url 'control_panel:academy_storage_detail' rec.academy_uuid %}" style="font-weight: 500; color: var(--cp-primary);">
+              {{ rec.academy_uuid }}
+            </a>
+          </td>
+          <td><code>{{ rec.billable_units_gb_month }}</code></td>
+          <td>{{ rec.credits_calculated }}</td>
+          <td style="font-weight: 600; color: var(--cp-primary);">{{ rec.credits_charged }}</td>
+          <td>
+            <span class="cp-badge cp-badge-{% if rec.status == 'CHARGED' %}success{% elif rec.status == 'INSUFFICIENT_CREDITS' %}warning{% else %}info{% endif %}">
+              {{ rec.status }}
+            </span>
+          </td>
+          <td>{{ rec.charged_at|date:"Y-m-d H:i"|default:"—" }}</td>
+          <td>
+            <a href="{% url 'control_panel:storage_billing_detail' rec.id %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 10px; font-size: 11px;">
+              Explain &amp; Audit
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="8" style="text-align: center; color: var(--cp-text-muted); padding: 24px;">No monthly storage billing records found.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

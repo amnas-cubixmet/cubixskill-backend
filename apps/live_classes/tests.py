@@ -291,7 +291,7 @@ class LiveClassesTestCase(TestCase):
         )
 
         self.client.force_authenticate(user=self.student)
-        url = "/api/v1/student/live-classes/"
+        url = "/api/v1/live-classes/student/live-classes/"
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

@@ -18,6 +18,59 @@ from enrollments.models import Enrollment, EnrollmentStatus
 class DiscussionSelector:
 
     @classmethod
+    def get_threads_for_user(
+        cls,
+        user,
+        course_id: str = None,
+        thread_type: str = None,
+        search: str = None,
+        status_filter: str = None,
+        ordering: str = 'recent'
+    ) -> QuerySet[DiscussionThread]:
+        """
+        Retrieves discussion threads accessible to the authenticated user.
+        Tenant-isolated by user's Academy or active course enrollments.
+        """
+        queryset = DiscussionThread.objects.filter(status=ThreadStatus.ACTIVE)
+
+        user_academy = getattr(user, 'academy', None)
+        if user_academy:
+            queryset = queryset.filter(Q(academy=user_academy) | Q(course__academy=user_academy))
+        else:
+            enrolled_course_ids = Enrollment.objects.filter(
+                student=user,
+                status=EnrollmentStatus.ACTIVE
+            ).values_list('course_id', flat=True)
+            queryset = queryset.filter(course_id__in=enrolled_course_ids)
+
+        if course_id and course_id != 'all':
+            queryset = queryset.filter(course_id=course_id)
+
+        if thread_type:
+            queryset = queryset.filter(thread_type=thread_type)
+
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search) | Q(content__icontains=search)
+            )
+
+        if status_filter == 'LOCKED':
+            queryset = queryset.filter(is_locked=True)
+        elif status_filter == 'PINNED':
+            queryset = queryset.filter(is_pinned=True)
+
+        if ordering == 'oldest':
+            queryset = queryset.order_by('created_at')
+        elif ordering == 'popular':
+            queryset = queryset.order_by('-is_pinned', '-reply_count', '-last_activity_at')
+        elif ordering == 'unanswered':
+            queryset = queryset.filter(reply_count=0).order_by('-is_pinned', '-last_activity_at')
+        else: # recent
+            queryset = queryset.order_by('-is_pinned', '-last_activity_at')
+
+        return queryset.select_related('created_by', 'course', 'accepted_answer').prefetch_related('attachments', 'attachments__media_file')
+
+    @classmethod
     def get_course_threads(
         cls,
         course,
@@ -30,7 +83,7 @@ class DiscussionSelector:
         queryset = DiscussionThread.objects.filter(
             course=course,
             status=ThreadStatus.ACTIVE
-        ).select_related('created_by', 'accepted_answer').prefetch_related('attachments', 'attachments__media_file')
+        ).select_related('created_by', 'course', 'accepted_answer').prefetch_related('attachments', 'attachments__media_file')
 
         if thread_type:
             queryset = queryset.filter(thread_type=thread_type)

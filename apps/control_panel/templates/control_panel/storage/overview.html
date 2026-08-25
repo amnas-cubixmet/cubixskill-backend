@@ -1,0 +1,93 @@
+{% extends "control_panel/base.html" %}
+
+{% block title %}Storage Management & Billing{% endblock %}
+
+{% block content %}
+<div class="cp-page-header">
+  <div>
+    <h1 class="cp-page-title">Storage Metering & Monthly Billing</h1>
+    <p class="cp-page-subtitle">Event-driven, time-weighted local media storage consumption across platform academies.</p>
+  </div>
+  <div style="display: flex; gap: 8px;">
+    <a href="{% url 'control_panel:storage_rates' %}" class="cp-btn cp-btn-secondary">Storage Credit Rates</a>
+    <a href="{% url 'control_panel:storage_billing_list' %}" class="cp-btn cp-btn-secondary">Monthly Bills</a>
+    <a href="{% url 'control_panel:storage_events' %}" class="cp-btn cp-btn-secondary">Event Ledger</a>
+  </div>
+</div>
+
+<!-- Overview Stats Cards -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
+  <div class="cp-card">
+    <div style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Platform Storage Used</div>
+    <div style="font-size: 22px; font-weight: 600; color: var(--cp-text-primary); margin-top: 4px;">{{ total_platform_display }}</div>
+    <div style="font-size: 11px; color: var(--cp-text-muted); margin-top: 4px;">Local MEDIA_ROOT storage</div>
+  </div>
+
+  <div class="cp-card">
+    <div style="font-size: 11px; font-weight: 500; color: var(--cp-text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Total Academies</div>
+    <div style="font-size: 22px; font-weight: 600; color: var(--cp-text-primary); margin-top: 4px;">{{ academy_data|length }}</div>
+    <div style="font-size: 11px; color: var(--cp-text-muted); margin-top: 4px;">Current Period: {{ current_period_str }}</div>
+  </div>
+</div>
+
+<!-- Academies Storage Table -->
+<div class="cp-card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <h3 style="font-size: 14px; font-weight: 600; color: var(--cp-text-primary); margin: 0;">Academy Storage Timeline & Current Billing</h3>
+    <form method="get" style="display: flex; gap: 8px;">
+      <input type="text" name="search" value="{{ search }}" placeholder="Search academy..." class="cp-input" style="height: 34px; width: 220px; font-size: 12px;">
+      <button type="submit" class="cp-btn cp-btn-secondary" style="height: 34px; font-size: 12px;">Search</button>
+    </form>
+  </div>
+
+  <div style="overflow-x: auto;">
+    <table class="cp-table">
+      <thead>
+        <tr>
+          <th>Academy</th>
+          <th>Current Storage</th>
+          <th>Peak (Month)</th>
+          <th>Uploaded</th>
+          <th>Deleted</th>
+          <th>GB-Month</th>
+          <th>Est. Credits</th>
+          <th>Billing Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in academy_data %}
+        <tr>
+          <td>
+            <a href="{% url 'control_panel:academy_storage_detail' row.academy.id %}" style="font-weight: 600; color: var(--cp-primary);">
+              {{ row.academy.name }}
+            </a>
+            <div style="font-size: 10px; color: var(--cp-text-muted);">{{ row.academy.id }}</div>
+          </td>
+          <td style="font-weight: 600;">{{ row.current_display }}</td>
+          <td>{{ row.peak_display }}</td>
+          <td>+{{ row.uploaded_display }}</td>
+          <td>-{{ row.deleted_display }}</td>
+          <td><code>{{ row.gb_month }}</code></td>
+          <td style="font-weight: 600; color: var(--cp-primary);">{{ row.credits_calculated }}</td>
+          <td>
+            <span class="cp-badge cp-badge-{% if row.status == 'CHARGED' %}success{% elif row.status == 'INSUFFICIENT_CREDITS' %}warning{% else %}info{% endif %}">
+              {{ row.status }}
+            </span>
+          </td>
+          <td>
+            <a href="{% url 'control_panel:academy_storage_detail' row.academy.id %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 10px; font-size: 11px;">
+              Details &amp; Log
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="9" style="text-align: center; color: var(--cp-text-muted); padding: 24px;">No academy storage accounts found.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

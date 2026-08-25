@@ -41,10 +41,11 @@ class DiscussionService:
         """
         Creates a new discussion thread in a course after validating feature activation and permissions.
         """
-        is_staff = getattr(user, 'is_staff', False) or (hasattr(user, 'academy') and user.academy == course.academy)
+        academy = course.academy if course else getattr(user, 'academy', None)
+        is_staff = getattr(user, 'is_staff', False) or (hasattr(user, 'academy') and academy and user.academy == academy)
 
         # 1. Feature Activation Check
-        if not is_staff:
+        if course and not is_staff:
             has_feature = StudentFeatureService.has_course_feature(user, course, 'course_discussions')
             if not has_feature:
                 raise PermissionDenied("Discussions feature is disabled for this course or student has no access.")
@@ -55,6 +56,7 @@ class DiscussionService:
 
         # 3. Create Thread
         thread = DiscussionThread.objects.create(
+            academy=academy,
             course=course,
             created_by=user,
             title=title,
@@ -351,6 +353,47 @@ class ChatService:
             status=MessageStatus.ACTIVE,
             created_at__gt=participant.last_read_at
         ).exclude(sender=user).count()
+
+    @classmethod
+    @transaction.atomic
+    def get_or_create_personal_room(cls, course, student, staff_user) -> ChatRoom:
+        """
+        Gets or creates a private 1-on-1 ChatRoom between a student and academy staff for a course.
+        Validates tenant and student enrollment.
+        """
+        if getattr(staff_user, 'academy', None) and course.academy != staff_user.academy and not getattr(staff_user, 'is_staff', False):
+            raise PermissionDenied("Course does not belong to your Academy.")
+
+        has_access, _, _ = EnrollmentAccessService.can_access_course(student, course)
+        if not has_access and not getattr(student, 'is_staff', False):
+            raise ValidationError({"student_id": "Student is not enrolled in this course."})
+
+        # Look for existing DIRECT chat room for this course and student
+        existing_rooms = ChatRoom.objects.filter(
+            course=course,
+            room_type=RoomType.DIRECT,
+            is_active=True,
+            participants__user=student
+        ).distinct()
+
+        if existing_rooms.exists():
+            room = existing_rooms.first()
+        else:
+            room = ChatRoom.objects.create(
+                academy=course.academy,
+                course=course,
+                room_type=RoomType.DIRECT,
+                name=f"Private DM: {student.full_name or student.email}",
+                created_by=staff_user,
+                is_active=True,
+                last_message_at=timezone.now()
+            )
+
+        # Ensure participants exist
+        ChatParticipant.objects.get_or_create(room=room, user=student)
+        ChatParticipant.objects.get_or_create(room=room, user=staff_user)
+
+        return room
 
     @classmethod
     def create_report(

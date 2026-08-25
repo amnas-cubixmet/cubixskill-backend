@@ -66,10 +66,17 @@ class CreditRateSerializer(serializers.ModelSerializer):
             'billing_type',
             'unit_size',
             'credit_cost',
+            'price',
+            'credits',
+            'currency',
+            'is_purchasable',
             'is_active',
-            'effective_from',
             'created_at',
         ]
+
+    def validate_currency(self, value):
+        from core.utils import normalize_currency
+        return normalize_currency(value)
 
 class CreditPackageSerializer(serializers.ModelSerializer):
     class Meta:
@@ -86,6 +93,10 @@ class CreditPackageSerializer(serializers.ModelSerializer):
             'is_active',
             'sort_order',
         ]
+
+    def validate_currency(self, value):
+        from core.utils import normalize_currency
+        return normalize_currency(value)
 
 class CreditPurchaseCouponSerializer(serializers.ModelSerializer):
     class Meta:
@@ -106,6 +117,7 @@ class CreditPurchaseCouponSerializer(serializers.ModelSerializer):
         ]
 
 class CreditPurchaseSerializer(serializers.ModelSerializer):
+    rate_name = serializers.CharField(source='rate.name', read_only=True, default='')
     package_name = serializers.CharField(source='package.name', read_only=True, default='')
     coupon_code = serializers.CharField(source='coupon.code', read_only=True, default='')
 
@@ -113,6 +125,8 @@ class CreditPurchaseSerializer(serializers.ModelSerializer):
         model = CreditPurchase
         fields = [
             'id',
+            'rate',
+            'rate_name',
             'package',
             'package_name',
             'coupon',
@@ -133,12 +147,14 @@ class CreditPurchaseSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 class CreatePurchaseRequestSerializer(serializers.Serializer):
-    package_id = serializers.UUIDField()
+    rate_id = serializers.UUIDField(required=False, allow_null=True)
+    package_id = serializers.UUIDField(required=False, allow_null=True)
     coupon_code = serializers.CharField(required=False, allow_blank=True, default='')
 
 class ApplyCouponRequestSerializer(serializers.Serializer):
     coupon_code = serializers.CharField(required=False, allow_blank=True, default='')
-    package_id = serializers.UUIDField()
+    rate_id = serializers.UUIDField(required=False, allow_null=True)
+    package_id = serializers.UUIDField(required=False, allow_null=True)
 
 class FulfillPurchaseRequestSerializer(serializers.Serializer):
     payment_transaction_id = serializers.CharField(required=False, allow_blank=True, default='')
