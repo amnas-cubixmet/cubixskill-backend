@@ -1,4 +1,5 @@
 import uuid
+from typing import Dict, Any
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -14,14 +15,103 @@ from certificates.models import (
 from certificates.generator import CertificatePDFGenerator
 from learning_progress.models import CourseProgress, ProgressStatus
 from enrollments.models import Enrollment
+from students.models import StudentCustomFieldValue
+
+
+class CertificateDataResolver:
+    """
+    Authoritative backend data resolver for certificate template fields.
+    Resolves system, course, student, enrollment, score, and custom fields.
+    """
+
+    @classmethod
+    def resolve_data(
+        cls,
+        student=None,
+        course=None,
+        enrollment=None,
+        certificate=None,
+        custom_overrides: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        data: Dict[str, Any] = {}
+
+        # 1. Student Fields
+        if student:
+            user = getattr(student, 'user', None)
+            first_name = getattr(student, 'first_name', '') or getattr(user, 'first_name', '')
+            last_name = getattr(student, 'last_name', '') or getattr(user, 'last_name', '')
+            full_name = f"{first_name} {last_name}".strip()
+            if not full_name:
+                full_name = getattr(student, 'full_name', '') or getattr(student, 'display_name', '') or (user.get_full_name() if user and hasattr(user, 'get_full_name') else '') or str(user or '')
+            
+            data['student.full_name'] = full_name
+            data['student.first_name'] = first_name
+            data['student.last_name'] = last_name
+            data['student.email'] = getattr(user, 'email', '') or getattr(student, 'email', '')
+            data['student.phone'] = getattr(student, 'phone_number', '') or getattr(student, 'phone', '')
+            data['student.code'] = str(getattr(student, 'student_code', '') or getattr(student, 'id', ''))
+
+            # Resolve Custom Student Fields
+            profile = getattr(student, 'student_profile', None)
+            if profile:
+                custom_vals = StudentCustomFieldValue.objects.filter(student=profile).select_related('field_definition')
+                for cv in custom_vals:
+                    key_name = f"student.custom.{cv.field_definition.key}"
+                    data[key_name] = cv.value
+
+        # 2. Course Fields
+        if course:
+            data['course.title'] = course.title
+            data['course.code'] = getattr(course, 'code', '') or course.title[:6].upper()
+            data['course.category'] = getattr(course.category, 'name', '') if getattr(course, 'category', None) else ''
+            data['course.level'] = getattr(course, 'level', '')
+            if course.academy:
+                data['academy.name'] = course.academy.name
+                inst = getattr(course, 'instructor', None)
+                data['instructor.name'] = getattr(inst, 'display_name', '') if inst else course.academy.name
+
+        # 3. Enrollment Fields
+        if enrollment or (student and course):
+            if not enrollment and student and course:
+                enrollment = Enrollment.objects.filter(student=student, course=course).first()
+            if enrollment:
+                data['enrollment.enrolled_at'] = enrollment.enrolled_at.strftime('%d %b %Y') if getattr(enrollment, 'enrolled_at', None) else ''
+                data['enrollment.status'] = enrollment.status
+
+            progress = CourseProgress.objects.filter(student=student, course=course).first() if (student and course) else None
+            if progress:
+                data['enrollment.completed_at'] = progress.completed_at.strftime('%d %b %Y') if progress.completed_at else ''
+                data['enrollment.progress_percent'] = f"{int(progress.progress_percent)}%"
+                data['assessment.overall_score'] = f"{int(getattr(progress, 'overall_score', 100))}%"
+            else:
+                data['enrollment.completed_at'] = timezone.now().strftime('%d %b %Y')
+                data['enrollment.progress_percent'] = '100%'
+                data['assessment.overall_score'] = '100%'
+
+        # 4. Certificate Metadata
+        if certificate:
+            data['certificate.number'] = certificate.certificate_number
+            data['certificate.issue_date'] = certificate.issued_at.strftime('%d %b %Y')
+            data['certificate.verification_code'] = certificate.verification_code
+            if certificate.completed_at:
+                data['certificate.completion_date'] = certificate.completed_at.strftime('%d %b %Y')
+        else:
+            data['certificate.number'] = custom_overrides.get('certificate.number', 'CS-2026-PREVIEW') if custom_overrides else 'CS-2026-PREVIEW'
+            data['certificate.issue_date'] = timezone.now().strftime('%d %b %Y')
+            data['certificate.completion_date'] = timezone.now().strftime('%d %b %Y')
+            data['certificate.verification_code'] = 'PREVIEW-1234-VERIFY'
+
+        # Apply any manual overrides
+        if custom_overrides:
+            data.update(custom_overrides)
+
+        return data
+
 
 class CertificateService:
 
     @classmethod
     def generate_certificate_number(cls, academy=None) -> str:
-        """
-        Generates a unique human-readable certificate number e.g. CS-2026-X82A91.
-        """
         prefix = 'CS'
         if academy and hasattr(academy, 'certificate_settings'):
             prefix = academy.certificate_settings.number_prefix.rstrip('-')
@@ -36,9 +126,6 @@ class CertificateService:
 
     @classmethod
     def generate_verification_code(cls) -> str:
-        """
-        Generates a unique verification code e.g. 7KQ9-2MPL-X82D.
-        """
         while True:
             raw = uuid.uuid4().hex.upper()
             code = f"{raw[:4]}-{raw[4:8]}-{raw[8:12]}"
@@ -47,13 +134,9 @@ class CertificateService:
 
     @classmethod
     def is_eligible_for_certificate(cls, student, course) -> tuple[bool, str]:
-        """
-        Validates if a student is eligible for a course certificate.
-        """
         if not course.certificate_enabled:
             return False, "Certificates are disabled for this course."
 
-        # Check course progress
         progress = CourseProgress.objects.filter(student=student, course=course).first()
         if not progress:
             return False, "No progress recorded for this student in this course."
@@ -72,12 +155,11 @@ class CertificateService:
         issued_by=None,
         template=None,
         pdf_storage_mode=None,
-        certificate_photo=None
+        certificate_photo=None,
+        enrollment=None,
+        reissued_from=None,
+        **kwargs
     ) -> Certificate:
-        """
-        Idempotent issuance of a course certificate.
-        """
-        # 1. Idempotency Check: Return existing active certificate if already issued
         existing_cert = Certificate.objects.filter(
             student=student,
             course=course,
@@ -87,17 +169,16 @@ class CertificateService:
         if existing_cert:
             return existing_cert
 
-        # 2. Check Eligibility
         is_eligible, reason = cls.is_eligible_for_certificate(student, course)
         if not is_eligible:
             raise ValidationError(f"Cannot issue certificate: {reason}")
 
-        # 3. Resolve Enrollment
         enrollment = Enrollment.objects.filter(student=student, course=course).first()
 
-        # 4. Resolve Template
         if not template:
-            if course.academy:
+            if hasattr(course, 'certificate_config') and course.certificate_config and course.certificate_config.template:
+                template = course.certificate_config.template
+            elif course.academy:
                 template = CertificateTemplate.objects.filter(
                     academy=course.academy,
                     is_default=True,
@@ -113,20 +194,7 @@ class CertificateService:
                     is_active=True
                 ).first()
 
-        # 5. Snapshots
-        student_name = getattr(student, 'display_name', '')
-        if not student_name and hasattr(student, 'student_profile'):
-            student_name = student.student_profile.display_name
-        if not student_name:
-            if hasattr(student, 'full_name') and student.full_name:
-                student_name = student.full_name
-            elif hasattr(student, 'get_full_name'):
-                student_name = student.get_full_name()
-            else:
-                student_name = student.email
-
-        course_name = course.title
-        academy_name = course.academy.name if course.academy else 'CubixSkill'
+        resolved_data = CertificateDataResolver.resolve_data(student=student, course=course, enrollment=enrollment)
 
         template_snapshot = {}
         if template:
@@ -144,22 +212,18 @@ class CertificateService:
                 'background_media_id': str(template.background_media_id) if template.background_media_id else None,
             }
 
-        # 6. Resolve PDF Storage Mode
         if not pdf_storage_mode:
             if course.academy and hasattr(course.academy, 'certificate_settings'):
                 pdf_storage_mode = course.academy.certificate_settings.default_pdf_storage_mode
             else:
                 pdf_storage_mode = CertPDFMode.ON_DEMAND
 
-        # 7. Generate Numbers & Identifiers
         cert_num = cls.generate_certificate_number(course.academy)
         ver_code = cls.generate_verification_code()
 
-        # Resolve completed_at date
         progress = CourseProgress.objects.filter(student=student, course=course).first()
         completed_at = progress.completed_at if (progress and progress.completed_at) else timezone.now()
 
-        # 8. Create Certificate Record
         certificate = Certificate.objects.create(
             student=student,
             course=course,
@@ -167,19 +231,20 @@ class CertificateService:
             template=template,
             certificate_number=cert_num,
             verification_code=ver_code,
-            student_name_snapshot=student_name,
-            course_name_snapshot=course_name,
-            academy_name_snapshot=academy_name,
+            student_name_snapshot=resolved_data.get('student.full_name', ''),
+            course_name_snapshot=resolved_data.get('course.title', ''),
+            academy_name_snapshot=resolved_data.get('academy.name', 'CubixSkill'),
+            custom_data_snapshot=resolved_data,
             issued_at=timezone.now(),
             completed_at=completed_at,
             status=CertificateStatus.ISSUED,
             certificate_photo=certificate_photo,
             template_snapshot=template_snapshot,
             pdf_storage_mode=pdf_storage_mode,
-            issued_by=issued_by
+            issued_by=issued_by,
+            reissued_from=reissued_from or kwargs.get('reissued_from')
         )
 
-        # 9. Create Issue Log
         CertificateIssueLog.objects.create(
             certificate=certificate,
             event_type=IssueLogEventType.ISSUED,
@@ -191,7 +256,6 @@ class CertificateService:
             }
         )
 
-        # 10. Persistent PDF storage if requested
         if pdf_storage_mode == CertPDFMode.STORED:
             cls.store_persistent_pdf(certificate)
 
@@ -199,18 +263,12 @@ class CertificateService:
 
     @classmethod
     def generate_pdf_bytes_for_certificate(cls, certificate: Certificate) -> bytes:
-        """
-        Renders PDF bytes from a Certificate instance using snapshot data.
-        """
-        snapshot_data = {
-            'student_name': certificate.student_name_snapshot,
-            'course_name': certificate.course_name_snapshot,
-            'academy_name': certificate.academy_name_snapshot,
-            'certificate_number': certificate.certificate_number,
-            'verification_code': certificate.verification_code,
-            'issue_date': certificate.issued_at.strftime('%B %d, %Y'),
-            'completed_date': certificate.completed_at.strftime('%B %d, %Y') if certificate.completed_at else '',
-        }
+        resolved_data = certificate.custom_data_snapshot or CertificateDataResolver.resolve_data(
+            student=certificate.student,
+            course=certificate.course,
+            enrollment=certificate.enrollment,
+            certificate=certificate
+        )
 
         template_snap = certificate.template_snapshot or {}
         template_data = template_snap.get('template_data', {})
@@ -226,14 +284,10 @@ class CertificateService:
         show_student_photo = template_snap.get('show_student_photo', False)
         student_photo_shape = template_snap.get('student_photo_shape', 'CIRCLE')
 
-        # Background media resolution
         background_media = None
         if certificate.template and certificate.template.background_media:
             background_media = certificate.template.background_media
 
-        # Student photo resolution priority:
-        # 1. certificate_photo
-        # 2. student.student_profile.profile_photo
         student_photo_media = certificate.certificate_photo
         if not student_photo_media and hasattr(certificate.student, 'student_profile'):
             student_photo_media = certificate.student.student_profile.profile_photo
@@ -241,7 +295,7 @@ class CertificateService:
         verification_url = f"/api/v1/certificates/verify/{certificate.verification_code}/"
 
         return CertificatePDFGenerator.generate_pdf(
-            snapshot_data=snapshot_data,
+            snapshot_data=resolved_data,
             template_data=template_data,
             orientation=orientation,
             page_size=page_size,
@@ -257,9 +311,6 @@ class CertificateService:
 
     @classmethod
     def store_persistent_pdf(cls, certificate: Certificate):
-        """
-        Generates and saves persistent MediaFile for STORED mode certificates.
-        """
         pdf_bytes = cls.generate_pdf_bytes_for_certificate(certificate)
         from storage.models import MediaFile, MediaType, MediaStatus
         from storage.services import StorageUsageService
@@ -268,7 +319,6 @@ class CertificateService:
         filename = f"certificate_{certificate.certificate_number}.pdf"
         relative_path = f"certificates/{filename}"
 
-        # Write file locally/S3
         full_dir = settings.MEDIA_ROOT / "certificates"
         full_dir.mkdir(parents=True, exist_ok=True)
         full_path = full_dir / filename
@@ -298,9 +348,6 @@ class CertificateService:
     @classmethod
     @transaction.atomic
     def revoke_certificate(cls, certificate: Certificate, revoked_by, reason: str = "") -> Certificate:
-        """
-        Revokes an issued certificate.
-        """
         if certificate.status == CertificateStatus.REVOKED:
             return certificate
 
@@ -308,85 +355,50 @@ class CertificateService:
         certificate.revoked_at = timezone.now()
         certificate.revoked_by = revoked_by
         certificate.revocation_reason = reason
-        certificate.save(update_fields=['status', 'revoked_at', 'revoked_by', 'revocation_reason'])
+        certificate.save()
 
         CertificateIssueLog.objects.create(
             certificate=certificate,
             event_type=IssueLogEventType.REVOKED,
             performed_by=revoked_by,
-            reason=reason
+            reason=reason or "Certificate revoked by administrator"
         )
-
         return certificate
 
     @classmethod
-    @transaction.atomic
-    def reissue_certificate(
-        cls,
-        certificate: Certificate,
-        reissued_by,
-        reason: str = "",
-        new_template=None
-    ) -> Certificate:
-        """
-        Reissues a certificate without destroying historical record.
-        """
-        # Mark original certificate as REISSUED
-        certificate.status = CertificateStatus.REISSUED
-        certificate.save(update_fields=['status'])
-
-        CertificateIssueLog.objects.create(
-            certificate=certificate,
-            event_type=IssueLogEventType.REISSUED,
-            performed_by=reissued_by,
-            reason=reason
-        )
-
-        # Issue new certificate referencing reissued_from
-        new_cert = cls.issue_if_eligible(
-            student=certificate.student,
-            course=certificate.course,
-            issued_by=reissued_by,
-            template=new_template or certificate.template,
-            pdf_storage_mode=certificate.pdf_storage_mode,
-            certificate_photo=certificate.certificate_photo
-        )
-
-        new_cert.reissued_from = certificate
-        new_cert.save(update_fields=['reissued_from'])
-        return new_cert
-
-    @classmethod
-    def preview_template(cls, template: CertificateTemplate, sample_data: dict = None) -> bytes:
-        """
-        Generates sample PDF bytes for template preview without creating DB records.
-        """
-        sample_snapshot = {
-            'student_name': 'John Doe',
-            'course_name': 'Sample Masterclass Course',
-            'academy_name': template.academy.name if template.academy else 'CubixSkill Academy',
-            'certificate_number': 'CS-2026-PREVIEW01',
-            'verification_code': 'PREVIEW-CODE-1234',
-            'issue_date': timezone.now().strftime('%B %d, %Y'),
-            'completed_date': timezone.now().strftime('%B %d, %Y'),
+    def preview_template(cls, template, sample_data=None) -> bytes:
+        snapshot_data = {
+            'student.full_name': (sample_data or {}).get('student_name') or 'Sample Student',
+            'course.title': (sample_data or {}).get('course_name') or 'Sample Course',
+            'academy.name': (sample_data or {}).get('academy_name') or 'CubixSkill Academy',
+            'certificate.number': 'CERT-PREVIEW-001',
+            'certificate.issue_date': 'August 28, 2026',
         }
-
-        if sample_data:
-            sample_snapshot.update(sample_data)
-
-        verification_url = f"/api/v1/certificates/verify/{sample_snapshot['verification_code']}/"
-
+        template_data = template.template_data if isinstance(template.template_data, dict) else {}
         return CertificatePDFGenerator.generate_pdf(
-            snapshot_data=sample_snapshot,
-            template_data=template.template_data,
-            orientation=template.orientation,
-            page_size=template.page_size,
+            snapshot_data=snapshot_data,
+            template_data=template_data,
+            orientation=template.orientation or 'LANDSCAPE',
+            page_size=template.page_size or 'A4',
             custom_width=template.custom_width,
             custom_height=template.custom_height,
             custom_unit=template.custom_unit,
             background_media=template.background_media,
             show_student_photo=template.show_student_photo,
-            student_photo_shape=template.student_photo_shape,
-            student_photo_media=None,
-            verification_url=verification_url
+            student_photo_shape=template.student_photo_shape or 'CIRCLE',
+        )
+
+    @classmethod
+    def reissue_certificate(cls, certificate, reissued_by=None, reason: str = "Reissued", **kwargs):
+        if isinstance(certificate, str):
+            certificate = Certificate.objects.get(pk=certificate)
+        cls.revoke_certificate(certificate, revoked_by=reissued_by, reason=reason)
+        certificate.status = CertificateStatus.REISSUED
+        certificate.save()
+        return cls.issue_if_eligible(
+            student=certificate.student,
+            course=certificate.course,
+            enrollment=certificate.enrollment,
+            issued_by=reissued_by,
+            reissued_from=certificate
         )

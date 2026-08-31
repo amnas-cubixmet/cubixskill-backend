@@ -3,8 +3,10 @@ import sys
 from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
+from corsheaders.defaults import default_headers, default_methods
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 load_dotenv(BASE_DIR / '.env')
 
 # Add apps directory to sys.path cleanly
@@ -26,6 +28,7 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
+    'daphne',
     'django.contrib.staticfiles',
 
     'rest_framework',
@@ -182,6 +185,10 @@ MINIO_STORAGE_BUCKET_NAME = os.getenv('MINIO_STORAGE_BUCKET_NAME', 'cubixskill-m
 MINIO_REGION_NAME = os.getenv('MINIO_REGION_NAME', 'us-east-1')
 MINIO_USE_SSL = os.getenv('MINIO_USE_SSL', 'False').lower() in ('true', '1', 't')
 
+import mimetypes
+mimetypes.add_type('application/vnd.apple.mpegurl', '.m3u8')
+mimetypes.add_type('video/mp2t', '.ts')
+
 MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = '/media/'
 
@@ -191,7 +198,7 @@ VIDEO_MAX_SIZE_MB = 500
 AUDIO_MAX_SIZE_MB = 100
 
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'
 USE_I18N = True
 USE_TZ = True
 
@@ -215,6 +222,8 @@ EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply@cubixskill.com')
 
 # CORS Configuration
+
+
 CORS_ALLOW_CREDENTIALS = True
 cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', '')
 if cors_origins_env:
@@ -228,6 +237,19 @@ else:
         "http://127.0.0.1:5173",
     ]
 
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'x-portal',
+]
+
+CORS_ALLOW_METHODS = list(default_methods)
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+]
+
 # Cookie Configuration for JWT Auth
 AUTH_COOKIE_SECURE = os.getenv('AUTH_COOKIE_SECURE', str(not DEBUG)).lower() in ('true', '1', 't')
 AUTH_COOKIE_SAMESITE = os.getenv('AUTH_COOKIE_SAMESITE', 'Lax')
@@ -240,6 +262,7 @@ FRONTEND_ACADEMY_URL = os.getenv('FRONTEND_ACADEMY_URL', 'http://localhost:5173'
 # Authentication Settings
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
+
 
 
 

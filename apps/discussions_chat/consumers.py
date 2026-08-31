@@ -68,27 +68,40 @@ class ChatConsumer(AsyncWebsocketConsumer):
         event_type = data.get('type')
 
         if event_type == 'message.send':
+            client_request_id = data.get('client_request_id')
             content = data.get('content', '')
             message_type = data.get('message_type', 'TEXT')
             reply_to_id = data.get('reply_to_id')
             media_file_ids = data.get('media_file_ids', [])
 
-            msg_data = await self.save_message(
-                self.user,
-                self.room_id,
-                content,
-                message_type=message_type,
-                reply_to_id=reply_to_id,
-                media_file_ids=media_file_ids
-            )
+            try:
+                msg_data = await self.save_message(
+                    self.user,
+                    self.room_id,
+                    content,
+                    message_type=message_type,
+                    reply_to_id=reply_to_id,
+                    media_file_ids=media_file_ids
+                )
 
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    'type': 'chat_message_created',
-                    'message': msg_data
-                }
-            )
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        'type': 'chat_message_created',
+                        'message': msg_data,
+                        'client_request_id': client_request_id
+                    }
+                )
+            except Exception as exc:
+                err_detail = getattr(exc, 'detail', str(exc))
+                err_code = getattr(exc, 'code', 'SEND_ERROR')
+                await self.send(text_data=json.dumps({
+                    'type': 'error',
+                    'request_type': 'message.send',
+                    'client_request_id': client_request_id,
+                    'code': err_code,
+                    'detail': err_detail
+                }, default=str))
 
         elif event_type in ['typing.start', 'typing.stop']:
             await self.channel_layer.group_send(
@@ -101,13 +114,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }
             )
 
-        elif event_type == 'message.read':
+        elif event_type in ['message.read', 'messages.read']:
+            last_read_id = data.get('last_read_message_id')
             await self.mark_read(self.user, self.room_id)
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
                     'type': 'chat_message_read',
-                    'user_id': str(self.user.id)
+                    'user_id': str(self.user.id),
+                    'last_read_message_id': last_read_id
                 }
             )
 
@@ -116,10 +131,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
     #--------------------------------------------------------------
 
     async def chat_message_created(self, event):
-        await self.send(text_data=json.dumps({
+        payload = {
             'type': 'message.created',
             'data': event['message']
-        }, default=str))
+        }
+        if event.get('client_request_id'):
+            payload['client_request_id'] = event['client_request_id']
+        await self.send(text_data=json.dumps(payload, default=str))
 
     async def chat_typing_status(self, event):
         await self.send(text_data=json.dumps({
@@ -129,10 +147,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
         }, default=str))
 
     async def chat_message_read(self, event):
-        await self.send(text_data=json.dumps({
+        payload = {
             'type': 'message.read',
             'user_id': event['user_id']
-        }, default=str))
+        }
+        if event.get('last_read_message_id'):
+            payload['last_read_message_id'] = event['last_read_message_id']
+        await self.send(text_data=json.dumps(payload, default=str))
 
     async def chat_participant_event(self, event):
         await self.send(text_data=json.dumps({
@@ -181,3 +202,67 @@ class ChatConsumer(AsyncWebsocketConsumer):
             ChatService.mark_room_as_read(room, user)
         except Exception:
             pass
+
+
+# --------------------------------------------------------------
+# Community Discussions Consumer
+# Handles WebSocket connections for Academy-wide Community Discussions.
+# Real-time event broadcasting (discussion.created, reply.created, pin, lock, etc.)
+# --------------------------------------------------------------
+
+class CommunityDiscussionsConsumer(AsyncWebsocketConsumer):
+    @database_sync_to_async
+    def _get_user_academy_id(self, user):
+        if not user or not user.is_authenticated:
+            return None
+        from users_roles.models import User
+        academy_id = User.objects.filter(pk=user.pk).values_list('academy_id', flat=True).first()
+        return str(academy_id) if academy_id else None
+
+    async def connect(self):
+        self.user = self.scope.get('user')
+
+        # 1. Authenticated User Check
+        if not self.user or not self.user.is_authenticated:
+            await self.close(code=4001)
+            return
+
+        # 2. Academy Tenant Check (Async-safe DB query)
+        academy_id = await self._get_user_academy_id(self.user)
+        self.academy_id = academy_id or 'global'
+        self.group_name = f'academy_discussions_{self.academy_id}'
+
+        # 3. Join Academy Channel Group
+        await self.channel_layer.group_add(
+            self.group_name,
+            self.channel_name
+        )
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(
+                self.group_name,
+                self.channel_name
+            )
+
+    async def receive(self, text_data):
+        # Server-push only channel: client messages are ignored safely
+        pass
+
+    #--------------------------------------------------------------
+    # Group Broadcast Handlers
+    #--------------------------------------------------------------
+
+    async def discussion_event(self, event):
+        """
+        Generic handler for all discussion/reply events pushed from backend REST endpoints.
+        """
+        await self.send(text_data=json.dumps({
+            'type': event['event_type'],
+            'event_id': event.get('event_id'),
+            'academy_id': event.get('academy_id'),
+            'occurred_at': event.get('occurred_at'),
+            'data': event.get('data')
+        }, default=str))
+

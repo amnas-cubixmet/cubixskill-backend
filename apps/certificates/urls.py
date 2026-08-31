@@ -7,10 +7,12 @@ from certificates.views import (
     CertificateTemplateViewSet,
     CertificateViewSet,
     CertificateSettingsView,
+    CertificateFontViewSet,
 )
 
 router = DefaultRouter()
 router.register(r'certificate-templates', CertificateTemplateViewSet, basename='certificate-template')
+router.register(r'fonts', CertificateFontViewSet, basename='certificate-font')
 router.register(r'certificates', CertificateViewSet, basename='certificate')
 router.register(r'student/certificates', StudentCertificateViewSet, basename='student-certificate')
 

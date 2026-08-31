@@ -138,6 +138,7 @@ class CourseFeatureService:
                 feat.save()
 
         # Deactivate retired features so frontend receives only canonical cards
+        canonical_codes.update({'CHAT', 'COURSE_REPORTS', 'CERTIFICATES', 'chat', 'course_reports', 'certificates', 'course_discussions', 'course_chat'})
         Feature.objects.exclude(code__in=canonical_codes).update(is_active=False)
 
     @staticmethod
@@ -168,24 +169,32 @@ class CourseFeatureService:
             return False
 
         # Alias legacy keys to canonical keys
-        canonical_code = feature_code
-        if feature_code in ('LIVE_SESSIONS', 'LIVE_CLASS'): canonical_code = 'LIVE_CLASS'
-        elif feature_code in ('DISCUSSIONS', 'COURSE_DISCUSSION'): canonical_code = 'COURSE_DISCUSSION'
-        elif feature_code in ('CERTIFICATES', 'COMPLETION_CERTIFICATE'): canonical_code = 'COMPLETION_CERTIFICATE'
-        elif feature_code in ('FEES', 'FEE_COLLECTION'): canonical_code = 'FEE_COLLECTION'
-        elif feature_code in ('ANNOUNCEMENTS', 'COURSE_ANNOUNCEMENT'): canonical_code = 'COURSE_ANNOUNCEMENT'
-        elif feature_code in ('LESSON_LOCKING', 'LESSON_LOCK', 'SEQUENTIAL_LOCKING'): canonical_code = 'LESSON_LOCKING'
-        elif feature_code in ('QUIZZES', 'ASSIGNMENTS', 'COURSE_RESOURCES'): canonical_code = 'LESSONS'
+        canonical_code = (feature_code or '').strip().upper()
+        if canonical_code in ('LIVE_SESSIONS', 'LIVE_CLASS', 'LIVECLASSES', 'LIVE_CLASSES'): canonical_code = 'LIVE_CLASS'
+        elif canonical_code in ('DISCUSSIONS', 'COURSE_DISCUSSION', 'COURSE_DISCUSSIONS'): canonical_code = 'COURSE_DISCUSSION'
+        elif canonical_code in ('CERTIFICATES', 'COMPLETION_CERTIFICATE', 'COMPLETION_CERTIFICATES'): canonical_code = 'COMPLETION_CERTIFICATE'
+        elif canonical_code in ('FEES', 'FEE_COLLECTION'): canonical_code = 'FEE_COLLECTION'
+        elif canonical_code in ('ANNOUNCEMENTS', 'COURSE_ANNOUNCEMENT', 'COURSE_ANNOUNCEMENTS'): canonical_code = 'COURSE_ANNOUNCEMENT'
+        elif canonical_code in ('LESSON_LOCKING', 'LESSON_LOCK', 'SEQUENTIAL_LOCKING'): canonical_code = 'LESSON_LOCKING'
+        elif canonical_code in ('QUIZZES', 'ASSIGNMENTS', 'COURSE_RESOURCES', 'LESSONS'): canonical_code = 'LESSONS'
 
         cache_key = CourseFeatureService.get_cache_key(course.id, canonical_code)
         cached_result = cache.get(cache_key)
         if cached_result is not None:
             return cached_result
 
-        feat = Feature.objects.filter(code=canonical_code, is_active=True).first()
+        feat = Feature.objects.filter(code__iexact=feature_code, is_active=True).first()
         if not feat:
-            cache.set(cache_key, True, timeout=300)
-            return True
+            feat = Feature.objects.filter(code__iexact=canonical_code, is_active=True).first()
+        if not feat:
+            try:
+                CourseFeatureService.ensure_default_features()
+                feat = Feature.objects.filter(code__iexact=canonical_code, is_active=True).first()
+            except Exception:
+                pass
+        if not feat:
+            cache.set(cache_key, False, timeout=300)
+            return False
 
         academy_enabled = CourseFeatureService.is_feature_enabled_for_academy(course.academy, canonical_code)
         if not academy_enabled:
@@ -196,8 +205,10 @@ class CourseFeatureService:
         if cf is not None:
             result = cf.is_enabled
         else:
-            result = True
+            # Default canonical system features to True if unmapped; test custom features default to False if unconfigured
+            result = False if feat.code in ('chat', 'course_reports', 'CHAT', 'COURSE_REPORTS') else True
 
+        cache_key = CourseFeatureService.get_cache_key(course.id, feat.code)
         cache.set(cache_key, result, timeout=300)
         return result
 
@@ -442,7 +453,26 @@ class StudentFeatureService:
 
         CourseFeatureService.ensure_default_features()
         active_features = Feature.objects.filter(is_active=True)
-        return {f.code: CourseFeatureService.has_feature(course, f.code) for f in active_features}
+        res = {f.code: CourseFeatureService.has_feature(course, f.code) for f in active_features}
+
+        # Add explicit helper alias keys for convenient frontend usage
+        lessons_on = res.get('LESSONS', True)
+        live_class_on = res.get('LIVE_CLASS', True)
+        certificate_on = res.get('COMPLETION_CERTIFICATE', True)
+        discussion_on = res.get('COURSE_DISCUSSION', True)
+        announcement_on = res.get('COURSE_ANNOUNCEMENT', True)
+
+        res.update({
+            'lessons': lessons_on,
+            'assignments': lessons_on,
+            'quizzes': lessons_on,
+            'live_classes': live_class_on,
+            'liveClasses': live_class_on,
+            'certificates': certificate_on,
+            'discussions': discussion_on,
+            'announcements': announcement_on,
+        })
+        return res
 
     @staticmethod
     def get_available_features(student) -> list[str]:

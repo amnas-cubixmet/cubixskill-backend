@@ -68,6 +68,23 @@ class FeaturesSystemTestCase(TestCase):
             scope=FeatureScope.COURSE
         )
 
+        from credits.services import CreditsService
+        from decimal import Decimal
+        CreditsService.credit(
+            academy=self.academy,
+            amount=Decimal("1000.00"),
+            source_type="SUPER_ADMIN_GRANT",
+            idempotency_key="test_credit_1",
+            description="Test initial balance"
+        )
+        CreditsService.credit(
+            academy=self.other_academy,
+            amount=Decimal("1000.00"),
+            source_type="SUPER_ADMIN_GRANT",
+            idempotency_key="test_credit_2",
+            description="Test initial balance"
+        )
+
         # Enroll Student in Python and UI/UX (Not Java)
         EnrollmentService.grant_full_access(self.student, self.course_python)
         EnrollmentService.grant_full_access(self.student, self.course_uiux)
@@ -148,8 +165,8 @@ class FeaturesSystemTestCase(TestCase):
 
         available = StudentFeatureService.get_available_features(self.student)
         self.assertIn("chat", available)
-        # Certificates is only on Java (student not enrolled), so it shouldn't appear
-        self.assertNotIn("certificates", available)
+        # course_reports is only on Java (student not enrolled), so it shouldn't appear
+        self.assertNotIn("course_reports", available)
 
     def test_derived_academy_feature_summary(self):
         """
@@ -176,13 +193,13 @@ class FeaturesSystemTestCase(TestCase):
         self.client.force_authenticate(user=self.super_admin)
 
         # 1. Enable Chat via API
-        enable_url = f"/api/v1/courses/{self.course_python.id}/features/chat/enable/"
+        enable_url = f"/api/v1/features/courses/{self.course_python.id}/features/chat/enable/"
         response = self.client.post(enable_url, {"config": {"students_can_post": True}}, format='json')
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data['is_enabled'])
 
         # 2. List Course features
-        list_url = f"/api/v1/courses/{self.course_python.id}/features/"
+        list_url = f"/api/v1/features/courses/{self.course_python.id}/features/"
         response = self.client.get(list_url)
         self.assertEqual(response.status_code, 200)
 

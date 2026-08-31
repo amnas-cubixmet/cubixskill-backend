@@ -59,6 +59,15 @@ class Academy(BaseModel, SlugMixin, ActiveMixin):
     # Feature Configuration
     feature_config = models.JSONField(default=dict, blank=True)
 
+    # Video Processing & Streaming Configuration
+    hls_video_enabled = models.BooleanField(default=True)
+
+    # Personal Chat Configuration
+    personal_chat_file_upload_enabled = models.BooleanField(default=True)
+
+    # Community Chat Configuration
+    community_chat_file_upload_enabled = models.BooleanField(default=True)
+
     class Meta:
         db_table = 'academies'
         ordering = ['name']

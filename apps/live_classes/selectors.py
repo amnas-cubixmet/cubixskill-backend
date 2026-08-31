@@ -25,10 +25,23 @@ class LiveSessionSelector:
         now = timezone.now()
 
         # Enrolled courses
-        enrolled_course_ids = Enrollment.objects.filter(
+        enrolled_course_ids = list(Enrollment.objects.filter(
             student=student,
             status=EnrollmentStatus.ACTIVE
-        ).values_list('course_id', flat=True)
+        ).values_list('course_id', flat=True))
+
+        if enrolled_course_ids:
+            from features.services import CourseFeatureService
+            from courses.models import Course
+            valid_course_ids = []
+            for c_id in enrolled_course_ids:
+                try:
+                    c = Course.objects.get(id=c_id)
+                    if CourseFeatureService.has_feature(c, 'LIVE_CLASS'):
+                        valid_course_ids.append(c_id)
+                except Course.DoesNotExist:
+                    continue
+            enrolled_course_ids = valid_course_ids
 
         queryset = LiveSession.objects.filter(
             course_id__in=enrolled_course_ids

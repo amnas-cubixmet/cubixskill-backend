@@ -32,16 +32,19 @@ def determine_media_category(mime_type: str) -> str:
         return 'documents'
     return 'other'
 
-def academy_media_upload_path(academy_uuid, mime_type: str, filename: str) -> tuple[str, str, str]:
+def academy_media_upload_path(academy_uuid, mime_type: str, filename: str, course_uuid=None) -> tuple[str, str, str]:
     """
     Returns (storage_key, unique_filename, dest_path)
-    storage_key: relative Django media path, e.g. academies/<academy_uuid>/images/<uuid>.jpg
+    storage_key: relative Django media path, e.g. academies/<academy_uuid>/courses/<course_uuid>/images/<uuid>.jpg
     """
     acad_str = str(academy_uuid) if academy_uuid else 'global'
     category = determine_media_category(mime_type)
     safe_ext = (filename.split('.')[-1] if '.' in filename else 'bin').lower()
     unique_filename = f"{uuid.uuid4().hex}.{safe_ext}"
-    storage_key = f"academies/{acad_str}/{category}/{unique_filename}"
+    if course_uuid:
+        storage_key = f"academies/{acad_str}/courses/{course_uuid}/{category}/{unique_filename}"
+    else:
+        storage_key = f"academies/{acad_str}/{category}/{unique_filename}"
     dest_path = os.path.join(settings.MEDIA_ROOT, storage_key)
     return storage_key, unique_filename, dest_path
 
@@ -72,9 +75,20 @@ class StorageService:
 
     @classmethod
     @transaction.atomic
-    def upload_media_direct(cls, academy_uuid, user_uuid, file_obj, original_filename: str, mime_type: str, file_size_bytes: int) -> MediaFile:
+    def upload_media_direct(
+        cls,
+        academy_uuid,
+        user_uuid,
+        file_obj,
+        original_filename: str,
+        mime_type: str,
+        file_size_bytes: int,
+        course_uuid=None,
+        lesson_uuid=None,
+        hls_enabled_override=None
+    ) -> MediaFile:
         """
-        Directly upload binary media content to Django local MEDIA_ROOT folder inside per-Academy directory.
+        Directly upload binary media content to Django local MEDIA_ROOT folder inside per-Academy/per-Course directory.
         """
         account = cls.get_or_create_account(academy_uuid)
 
@@ -84,7 +98,8 @@ class StorageService:
         storage_key, unique_filename, dest_path = academy_media_upload_path(
             academy_uuid=academy_uuid,
             mime_type=mime_type,
-            filename=original_filename
+            filename=original_filename,
+            course_uuid=course_uuid
         )
 
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
@@ -98,9 +113,39 @@ class StorageService:
         media_type = cls.deduce_media_type(mime_type)
         safe_ext = unique_filename.split('.')[-1]
 
+        from academy.models import Academy
+        from control_panel.models import SystemSetting
+        from storage.models import ProcessingMode, ProcessingStatus
+
+        global_hls = SystemSetting.get_bool('hls_streaming_enabled', default=True)
+        academy_obj = None
+        if academy_uuid:
+            try:
+                academy_obj = Academy.objects.filter(id=academy_uuid).first()
+            except Exception:
+                academy_obj = None
+
+        academy_hls = academy_obj.hls_video_enabled if (academy_obj and hasattr(academy_obj, 'hls_video_enabled')) else True
+
+        if hls_enabled_override is not None:
+            if isinstance(hls_enabled_override, str):
+                upload_hls_choice = hls_enabled_override.lower() in ('true', '1', 'yes', 'on')
+            else:
+                upload_hls_choice = bool(hls_enabled_override)
+        else:
+            upload_hls_choice = academy_hls
+
+        effective_hls = global_hls and upload_hls_choice
+        is_video = (media_type == MediaType.VIDEO or (mime_type and mime_type.startswith('video/')))
+
+        processing_mode = ProcessingMode.HLS if (is_video and effective_hls) else ProcessingMode.DIRECT
+        processing_status = ProcessingStatus.QUEUED if (is_video and effective_hls) else ProcessingStatus.READY
+
         media_file = MediaFile.objects.create(
             academy_uuid=academy_uuid,
             uploaded_by_uuid=user_uuid,
+            course_uuid=course_uuid,
+            lesson_uuid=lesson_uuid,
             original_filename=original_filename,
             display_name=original_filename,
             stored_filename=unique_filename,
@@ -115,6 +160,9 @@ class StorageService:
             file_url=f"/media/{storage_key}",
             media_type=media_type,
             status=MediaStatus.ACTIVE,
+            processing_mode=processing_mode,
+            processing_status=processing_status,
+            processing_progress=5 if (is_video and global_hls) else 100,
             uploaded_at=timezone.now()
         )
 

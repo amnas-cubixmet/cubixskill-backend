@@ -45,8 +45,21 @@ class CertificateSelector:
     def get_student_certificates(cls, student) -> QuerySet[Certificate]:
         """
         Queries all certificates belonging to a specific student.
+        Filters out certificates for courses where COMPLETION_CERTIFICATE feature is disabled.
         """
-        return Certificate.objects.filter(student=student).select_related(
+        qs = Certificate.objects.filter(student=student).select_related(
+            'course',
+            'course__academy',
+            'template',
+            'pdf_media'
+        ).order_by('-issued_at')
+
+        from features.services import CourseFeatureService
+        enabled_ids = [
+            cert.id for cert in qs
+            if not cert.course or CourseFeatureService.has_feature(cert.course, 'COMPLETION_CERTIFICATE')
+        ]
+        return Certificate.objects.filter(id__in=enabled_ids).select_related(
             'course',
             'course__academy',
             'template',
@@ -153,3 +166,95 @@ class CertificateSelector:
         """
         settings_obj, _ = CertificateSettings.objects.get_or_create(academy=academy)
         return settings_obj
+
+DEFAULT_CERTIFICATE_FONTS = [
+    {
+        'key': 'inter',
+        'name': 'Inter',
+        'family': 'Inter',
+        'font_weight_variants': ['400', '500', '600', '700', '800'],
+        'file_url': 'https://fonts.gstatic.com/s/inter/v13/UcCO3Fwb07KITCgUn8g74g.woff2',
+    },
+    {
+        'key': 'roboto',
+        'name': 'Roboto',
+        'family': 'Roboto',
+        'font_weight_variants': ['300', '400', '500', '700'],
+        'file_url': 'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.woff2',
+    },
+    {
+        'key': 'open_sans',
+        'name': 'Open Sans',
+        'family': 'Open Sans',
+        'font_weight_variants': ['400', '600', '700'],
+        'file_url': 'https://fonts.gstatic.com/s/opensans/v35/memSYaGs126MiZpBA-UvWbX2vVnXBbObj2OVZyOOSr4dVJWUgsjZ0B4gaVQUwaEQbjB_sA.woff2',
+    },
+    {
+        'key': 'lato',
+        'name': 'Lato',
+        'family': 'Lato',
+        'font_weight_variants': ['300', '400', '700'],
+        'file_url': 'https://fonts.gstatic.com/s/lato/v24/S6uyw4BMUTPHjx4wXiWtFCc.woff2',
+    },
+    {
+        'key': 'montserrat',
+        'name': 'Montserrat',
+        'family': 'Montserrat',
+        'font_weight_variants': ['400', '500', '600', '700', '800'],
+        'file_url': 'https://fonts.gstatic.com/s/montserrat/v25/JTUHjIg1_i6t8kCHKm453WzAwr40suA.woff2',
+    },
+    {
+        'key': 'merriweather',
+        'name': 'Merriweather',
+        'family': 'Merriweather',
+        'font_weight_variants': ['300', '400', '700'],
+        'file_url': 'https://fonts.gstatic.com/s/merriweather/v30/u-440qyqiXiFoYHpQa86YlIz2os.woff2',
+    },
+    {
+        'key': 'playfair_display',
+        'name': 'Playfair Display',
+        'family': 'Playfair Display',
+        'font_weight_variants': ['400', '600', '700', '800'],
+        'file_url': 'https://fonts.gstatic.com/s/playfairdisplay/v30/nuFvD-vYSZviVYUb_RJ3ijvryePtLCAAGWQ.woff2',
+    },
+    {
+        'key': 'cinzel',
+        'name': 'Cinzel',
+        'family': 'Cinzel',
+        'font_weight_variants': ['400', '600', '700', '800'],
+        'file_url': 'https://fonts.gstatic.com/s/cinzel/v19/8vLdf2_mCio6ioHY0955H6Q.woff2',
+    },
+]
+
+class CertificateFontSelector:
+    @classmethod
+    def ensure_default_fonts(cls):
+        from certificates.models import CertificateFont, FontSourceChoices
+        for item in DEFAULT_CERTIFICATE_FONTS:
+            CertificateFont.objects.get_or_create(
+                key=item['key'],
+                source=FontSourceChoices.SYSTEM,
+                defaults={
+                    'name': item['name'],
+                    'family': item['family'],
+                    'font_weight_variants': item['font_weight_variants'],
+                    'file_url': item['file_url'],
+                    'is_active': True,
+                    'is_certificate_safe': True,
+                }
+            )
+
+    @classmethod
+    def get_available_fonts(cls, academy=None) -> QuerySet:
+        from certificates.models import CertificateFont, FontSourceChoices
+        cls.ensure_default_fonts()
+        if academy:
+            from django.db.models import Q
+            return CertificateFont.objects.filter(
+                Q(source=FontSourceChoices.SYSTEM) | Q(academy=academy, source=FontSourceChoices.ACADEMY),
+                is_active=True
+            ).select_related('media_file', 'academy').order_by('source', 'name')
+        return CertificateFont.objects.filter(
+            source=FontSourceChoices.SYSTEM,
+            is_active=True
+        ).select_related('media_file').order_by('name')

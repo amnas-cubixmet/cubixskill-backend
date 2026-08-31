@@ -142,6 +142,7 @@ class ChatMessageAttachmentSerializer(serializers.ModelSerializer):
 class ChatMessageSerializer(serializers.ModelSerializer):
     sender_id = serializers.UUIDField(source='sender.id', read_only=True)
     sender_name = serializers.CharField(source='sender.full_name', read_only=True)
+    sender_role = serializers.SerializerMethodField()
     attachments = ChatMessageAttachmentSerializer(many=True, read_only=True)
 
     class Meta:
@@ -151,6 +152,7 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             'room',
             'sender_id',
             'sender_name',
+            'sender_role',
             'message_type',
             'content',
             'reply_to',
@@ -160,6 +162,11 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             'edited_at',
         ]
         read_only_fields = fields
+
+    def get_sender_role(self, obj):
+        if not obj.sender:
+            return None
+        return getattr(obj.sender, 'role', None) or ('ACADEMY_STAFF' if getattr(obj.sender, 'is_staff', False) else 'STUDENT')
 
 #--------------------------------------------------------------
 # 7. Chat Room Model
@@ -173,6 +180,7 @@ class ChatRoomSerializer(serializers.ModelSerializer):
     student_email = serializers.SerializerMethodField()
     student_avatar = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
+    latest_message = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatRoom
@@ -191,6 +199,7 @@ class ChatRoomSerializer(serializers.ModelSerializer):
             'student_email',
             'student_avatar',
             'last_message',
+            'latest_message',
             'created_at',
         ]
         read_only_fields = fields
@@ -227,7 +236,30 @@ class ChatRoomSerializer(serializers.ModelSerializer):
 
     def get_last_message(self, obj):
         msg = obj.messages.filter(status='ACTIVE').order_by('-created_at').first()
-        return msg.content if msg else ''
+        if not msg:
+            return None
+        sender_id = str(msg.sender_id) if msg.sender_id else None
+        sender_name = msg.sender.full_name if msg.sender else ''
+        content = msg.content
+        if not content and msg.attachments.exists():
+            att = msg.attachments.first()
+            att_type = getattr(att, 'attachment_type', 'IMAGE') or 'IMAGE'
+            content = f"[{att_type.capitalize()}]" if att_type else "[Attachment]"
+        return {
+            'id': str(msg.id),
+            'content': content,
+            'sender_id': sender_id,
+            'sender_name': sender_name,
+            'created_at': msg.created_at.isoformat() if msg.created_at else None,
+        }
+
+    def get_latest_message(self, obj):
+        msg = obj.messages.filter(status='ACTIVE').order_by('-created_at').first()
+        if not msg:
+            return ''
+        if not msg.content and msg.attachments.exists():
+            return '[Attachment]'
+        return msg.content
 
 #--------------------------------------------------------------
 # 8. Communication Report Model

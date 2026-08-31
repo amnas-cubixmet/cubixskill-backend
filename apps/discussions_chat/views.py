@@ -62,6 +62,19 @@ class CourseDiscussionViewSet(viewsets.ModelViewSet):
         status_filter = self.request.query_params.get('status')
         ordering = self.request.query_params.get('ordering', 'recent')
 
+        if course_id and course_id != 'general':
+            try:
+                course = Course.objects.get(id=course_id)
+                is_staff = getattr(self.request.user, 'is_staff', False) or (
+                    hasattr(self.request.user, 'academy') and course.academy and self.request.user.academy == course.academy
+                )
+                if not is_staff:
+                    from features.services import StudentFeatureService
+                    if not StudentFeatureService.has_course_feature(self.request.user, course, 'COURSE_DISCUSSION'):
+                        raise PermissionDenied("Discussions feature is disabled for this course.")
+            except (Course.DoesNotExist, ValueError):
+                pass
+
         return DiscussionSelector.get_threads_for_user(
             user=self.request.user,
             course_id=course_id,
@@ -94,7 +107,15 @@ class CourseDiscussionViewSet(viewsets.ModelViewSet):
             media_file_ids=serializer.validated_data.get('media_file_ids', [])
         )
 
-        return Response(DiscussionThreadSerializer(thread).data, status=status.HTTP_201_CREATED)
+        thread_data = DiscussionThreadSerializer(thread).data
+        academy_id = thread.academy.id if thread.academy else None
+        DiscussionService.broadcast_event(
+            academy_id=academy_id,
+            event_type='discussion.created',
+            data=thread_data
+        )
+
+        return Response(thread_data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, pk=None, *args, **kwargs):
         thread = self.get_object()
@@ -109,7 +130,15 @@ class CourseDiscussionViewSet(viewsets.ModelViewSet):
             thread.title = title
         thread.save()
 
-        return Response(DiscussionThreadSerializer(thread).data, status=status.HTTP_200_OK)
+        thread_data = DiscussionThreadSerializer(thread).data
+        academy_id = thread.academy.id if thread.academy else None
+        DiscussionService.broadcast_event(
+            academy_id=academy_id,
+            event_type='discussion.updated',
+            data=thread_data
+        )
+
+        return Response(thread_data, status=status.HTTP_200_OK)
 
     def destroy(self, request, pk=None, *args, **kwargs):
         thread = self.get_object()
@@ -259,6 +288,77 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
         data = ChatRoomSerializer(room).data
         data['unread_count'] = ChatService.get_unread_count(room, request.user)
         return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='get-or-create-community')
+    def get_or_create_community(self, request):
+        course_id = request.data.get('course_id')
+        if not course_id:
+            raise ValidationError({"detail": "course_id is required."})
+
+        try:
+            course = Course.objects.get(id=course_id)
+        except (Course.DoesNotExist, ValueError):
+            raise ValidationError({"course_id": "Specified course not found."})
+
+        room = ChatService.get_or_create_community_room(course, request.user)
+        data = ChatRoomSerializer(room).data
+        data['unread_count'] = ChatService.get_unread_count(room, request.user)
+        return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], url_path='community-groups')
+    def community_groups(self, request):
+        """
+        List all applicable active courses for the authenticated user's Academy with effective COURSE_DISCUSSION feature state and canonical community room preview.
+        """
+        user = request.user
+        academy = getattr(user, 'academy', None)
+        if not academy and not getattr(user, 'is_staff', False):
+            return Response([], status=status.HTTP_200_OK)
+
+        from courses.models import Course
+        from features.services import CourseFeatureService
+        from discussions_chat.models import RoomType
+
+        courses_qs = Course.objects.filter(is_active=True)
+        if academy:
+            courses_qs = courses_qs.filter(academy=academy)
+
+        courses = list(courses_qs)
+        enabled_courses = [c for c in courses if CourseFeatureService.has_feature(c, 'COURSE_DISCUSSION')]
+
+        # Prefetch community rooms for these courses
+        course_ids = [c.id for c in enabled_courses]
+        rooms_dict = {}
+        if course_ids:
+            for r in ChatRoom.objects.filter(course_id__in=course_ids, room_type=RoomType.COURSE, is_active=True):
+                if r.course_id and r.course_id not in rooms_dict:
+                    rooms_dict[r.course_id] = r
+
+        results = []
+        for course in enabled_courses:
+            room = rooms_dict.get(course.id)
+            room_data = None
+            if room:
+                room_data = ChatRoomSerializer(room).data
+                room_data['unread_count'] = ChatService.get_unread_count(room, user)
+
+            thumbnail_url = getattr(course, 'thumbnail_url', None)
+            if not thumbnail_url and hasattr(course, 'thumbnail') and course.thumbnail:
+                thumbnail_url = getattr(course.thumbnail, 'relative_path', None)
+
+            results.append({
+                'course': {
+                    'id': str(course.id),
+                    'title': getattr(course, 'title', ''),
+                    'subtitle': getattr(course, 'subtitle', '') or '',
+                    'thumbnail': thumbnail_url,
+                    'status': getattr(course, 'status', 'PUBLISHED'),
+                },
+                'feature_enabled': True,
+                'room': room_data
+            })
+
+        return Response(results, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='send-message')
     def send_message(self, request, pk=None):

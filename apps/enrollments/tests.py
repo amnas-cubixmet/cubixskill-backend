@@ -26,8 +26,11 @@ class EnrollmentsAppTests(TestCase):
         self.client = APIClient()
 
         # Create Academies
+        from decimal import Decimal
+        from credits.models import CreditAccount
         self.academy_a = Academy.objects.create(name="Academy A", slug="academy-a", email="info@academya.com")
         self.academy_b = Academy.objects.create(name="Academy B", slug="academy-b", email="info@academyb.com")
+        CreditAccount.objects.create(academy=self.academy_a, balance=Decimal('1000.00'))
 
         # Create Users
         self.admin_a = User.objects.create_user(
@@ -206,3 +209,41 @@ class EnrollmentsAppTests(TestCase):
         res_admin_suspend = self.client.post(f'/api/v1/enrollments/enrollments/{enrollment.id}/suspend/', {'reason': 'Admin action'})
         self.assertEqual(res_admin_suspend.status_code, 200)
         self.assertEqual(res_admin_suspend.data['status'], EnrollmentStatus.SUSPENDED)
+
+    def test_student_lesson_detail_with_resources(self):
+        """Test student lesson detail endpoint returns attached resources."""
+        from lessons.models import LessonResource
+        from storage.models import MediaFile
+
+        enrollment = EnrollmentService.grant_full_access(student=self.student_a, course=self.course_a)
+
+        mf = MediaFile.objects.create(
+            academy_uuid=self.academy_a.id,
+            original_filename="cheatsheet.pdf",
+            storage_key="documents/cheatsheet.pdf",
+            relative_path="documents/cheatsheet.pdf",
+            mime_type="application/pdf",
+            size_bytes=1024500,
+        )
+        resource = LessonResource.objects.create(
+            lesson=self.lesson_demo,
+            media_file=mf,
+            title="Lesson Cheatsheet",
+            resource_type="pdf",
+            allow_download=True,
+        )
+
+        self.client.force_authenticate(user=self.student_a)
+        url = f'/api/v1/enrollments/student/enrollments/academies/{self.academy_a.id}/courses/{self.course_a.id}/lessons/{self.lesson_demo.id}/'
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('resources', res.data)
+        self.assertIn('resources', res.data['lesson'])
+        self.assertEqual(len(res.data['resources']), 1)
+
+        res_item = res.data['resources'][0]
+        self.assertEqual(res_item['id'], str(resource.id))
+        self.assertEqual(res_item['title'], "Lesson Cheatsheet")
+        self.assertTrue(res_item['allow_download'])
+        self.assertTrue("cheatsheet.pdf" in res_item['url'] or "cheatsheet.pdf" in res_item['file_name'])

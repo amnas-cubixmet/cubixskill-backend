@@ -31,10 +31,10 @@ class MediaFileSerializer(serializers.ModelSerializer):
             'id', 'original_filename', 'display_name', 'stored_filename',
             'storage_key', 'relative_path', 'mime_type', 'file_type', 'file_extension',
             'size_bytes', 'source_size_bytes', 'streaming_size_bytes', 'total_storage_bytes',
-            'media_type', 'status', 'adaptive_streaming_enabled', 'processing_status', 'processing_progress', 'processing_error',
+            'media_type', 'status', 'adaptive_streaming_enabled', 'processing_mode', 'processing_status', 'processing_progress', 'processing_error',
             'processed_at', 'duration_seconds', 'width', 'height', 'stream_manifest_key',
-            'url', 'stream_url', 'renditions', 'created_at', 'updated_at',
-            'uploaded_by_uuid', 'usage_count'
+            'url', 'stream_url', 'renditions', 'created_at', 'updated_at', 'uploaded_at',
+            'uploaded_by_uuid', 'course_uuid', 'lesson_uuid', 'usage_count'
         ]
         read_only_fields = fields
 

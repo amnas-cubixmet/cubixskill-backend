@@ -33,12 +33,20 @@ class TokenAuthMiddleware:
         if 'token' in query_params:
             token = query_params['token'][0]
         else:
-            # Check headers
+            # Check headers for Authorization header or Cookie header
             headers = dict(scope.get('headers', []))
             if b'authorization' in headers:
                 auth_header = headers[b'authorization'].decode('utf-8')
                 if auth_header.startswith('Bearer '):
                     token = auth_header.split(' ')[1]
+            elif b'cookie' in headers:
+                cookie_str = headers[b'cookie'].decode('utf-8')
+                cookies = urllib.parse.parse_qs(cookie_str.replace('; ', '&'))
+                # Priority: instructor_access_token -> student_access_token -> access_token
+                for cookie_name in ['instructor_access_token', 'student_access_token', 'access_token']:
+                    if cookie_name in cookies and cookies[cookie_name]:
+                        token = cookies[cookie_name][0]
+                        break
 
         if token:
             scope['user'] = await get_user_from_token(token)

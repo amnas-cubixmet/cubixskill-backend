@@ -3,14 +3,15 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 from rest_framework.exceptions import ValidationError
 from users_roles.models import User
 from courses.models import Course
 from storage.models import MediaFile
 
-from certificates.models import Certificate, CertificateTemplate, CertificateIssueLog, CertPDFMode
-from certificates.selectors import CertificateSelector
+from certificates.models import Certificate, CertificateTemplate, CertificateIssueLog, CertPDFMode, CertificateFont, FontSourceChoices
+from certificates.selectors import CertificateSelector, CertificateFontSelector
 from certificates.services import CertificateService
 from certificates.serializers import (
     CertificateTemplateSerializer,
@@ -22,6 +23,8 @@ from certificates.serializers import (
     ReissueCertificateSerializer,
     TemplatePreviewSerializer,
     CertificateSettingsSerializer,
+    CertificateFontSerializer,
+    CertificateFontUploadSerializer,
 )
 
 #--------------------------------------------------------------
@@ -52,31 +55,34 @@ class PublicCertificateVerifyView(APIView):
 
 from students.models import StudentCustomFieldDefinition
 
+from certificates.discovery import CertificateFieldDiscoveryService
+
 class CertificateTemplateBindingsView(APIView):
     """
     Returns available dynamic bindings for the Certificate Designer.
-    GET /api/v1/certificates/template-bindings/
+    GET /api/v1/certificates/template-bindings/?course_id=UUID
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         user = request.user
         academy = getattr(user, 'academy', None)
+        course_id = request.query_params.get('course_id')
+
+        if course_id:
+            bindings = CertificateFieldDiscoveryService.get_available_fields_for_course(course_id, academy=academy)
+            return Response(bindings, status=status.HTTP_200_OK)
 
         bindings = [
-            {"key": "student.full_name", "label": "Student Full Name", "group": "Student", "type": "text"},
-            {"key": "student.first_name", "label": "Student First Name", "group": "Student", "type": "text"},
-            {"key": "student.last_name", "label": "Student Last Name", "group": "Student", "type": "text"},
+            {"key": "student.full_name", "label": "Student Name", "group": "Student", "type": "text"},
+            {"key": "student.student_code", "label": "Student ID", "group": "Student", "type": "text"},
             {"key": "student.email", "label": "Student Email", "group": "Student", "type": "text"},
-            {"key": "student.photo", "label": "Student Photo", "group": "Student", "type": "image"},
-            {"key": "course.title", "label": "Course Title", "group": "Course", "type": "text"},
+            {"key": "course.title", "label": "Course Name", "group": "Course", "type": "text"},
             {"key": "course.code", "label": "Course Code", "group": "Course", "type": "text"},
             {"key": "academy.name", "label": "Academy Name", "group": "Academy", "type": "text"},
-            {"key": "academy.logo", "label": "Academy Logo", "group": "Academy", "type": "image"},
             {"key": "certificate.number", "label": "Certificate Number", "group": "Certificate", "type": "text"},
             {"key": "certificate.issue_date", "label": "Issue Date", "group": "Certificate", "type": "text"},
             {"key": "certificate.completion_date", "label": "Completion Date", "group": "Certificate", "type": "text"},
-            {"key": "certificate.qr_code", "label": "QR Code", "group": "Certificate", "type": "qr"},
         ]
 
         if academy:
@@ -89,7 +95,7 @@ class CertificateTemplateBindingsView(APIView):
                 bindings.append({
                     "key": f"student.custom.{cf.key}",
                     "label": f"Student {cf.label}",
-                    "group": "Custom Student Fields",
+                    "group": "Personal Details",
                     "type": "text"
                 })
 
@@ -418,3 +424,101 @@ class CertificateSettingsView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+#--------------------------------------------------------------
+# CertificateFontViewSet
+#--------------------------------------------------------------
+
+class CertificateFontViewSet(viewsets.ModelViewSet):
+    """
+    API viewset to list, upload, and manage certificate fonts.
+    GET /api/v1/certificates/fonts/
+    POST /api/v1/certificates/fonts/upload/
+    DELETE /api/v1/certificates/fonts/{id}/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    serializer_class = CertificateFontSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        academy = getattr(user, 'academy', None)
+        return CertificateFontSelector.get_available_fonts(academy)
+
+    @action(detail=False, methods=['post'], url_path='upload')
+    def upload(self, request):
+        academy = getattr(request.user, 'academy', None)
+        if not academy:
+            raise ValidationError("User must belong to an academy to upload custom fonts.")
+
+        serializer = CertificateFontUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        font_file = serializer.validated_data['font_file']
+        display_name = serializer.validated_data['display_name']
+        user_rights_confirmed = serializer.validated_data['user_rights_confirmed']
+
+        import uuid
+        from storage.services import StorageService
+
+        mime_type = getattr(font_file, 'content_type', None) or 'application/octet-stream'
+
+        media = StorageService.upload_media_direct(
+            academy_uuid=academy.id,
+            user_uuid=request.user.id,
+            file_obj=font_file,
+            original_filename=font_file.name,
+            mime_type=mime_type,
+            file_size_bytes=font_file.size,
+            course_uuid=None,
+            lesson_uuid=None
+        )
+
+        font_key = f"custom_{academy.id}_{uuid.uuid4().hex[:8]}"
+        resolved_file_url = getattr(media, 'file_url', '') or getattr(media, 'relative_path', '') or f"/media/{media.stored_filename}"
+
+        try:
+            font = CertificateFont.objects.create(
+                academy=academy,
+                key=font_key,
+                name=display_name,
+                family=display_name,
+                source=FontSourceChoices.ACADEMY,
+                user_rights_confirmed=user_rights_confirmed,
+                media_file=media,
+                file_url=resolved_file_url,
+                font_weight_variants=['400', '700'],
+                is_active=True,
+                is_certificate_safe=True,
+                created_by=request.user
+            )
+        except Exception as err:
+            try:
+                if hasattr(StorageService, 'delete_media_file'):
+                    StorageService.delete_media_file(media.id)
+                else:
+                    media.delete()
+            except Exception:
+                pass
+            raise err
+
+        return Response(CertificateFontSerializer(font).data, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request, *args, **kwargs):
+        font = self.get_object()
+        academy = getattr(request.user, 'academy', None)
+        if font.source != FontSourceChoices.ACADEMY or (academy and font.academy_id != academy.id):
+            raise ValidationError("You cannot delete this font.")
+
+        from certificates.models import CertificateTemplate
+        in_use = CertificateTemplate.objects.filter(
+            template_data__icontains=font.key
+        ).exists()
+
+        if in_use:
+            font.is_active = False
+            font.save()
+            return Response({"message": "Font marked inactive for new designs as it is used in existing templates."}, status=status.HTTP_200_OK)
+
+        font.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

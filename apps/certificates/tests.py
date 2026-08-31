@@ -338,3 +338,97 @@ class CertificateAppTestCase(TestCase):
         pdf_bytes = CertificateService.generate_pdf_bytes_for_certificate(cert)
         self.assertIsInstance(pdf_bytes, bytes)
         self.assertTrue(pdf_bytes.startswith(b'%PDF-'))
+
+    def test_successful_font_upload_with_storage_service(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from certificates.models import CertificateFont, FontSourceChoices
+
+        self.client.force_authenticate(user=self.staff_a)
+        fake_font_content = b"\x00\x01\x00\x00\x00\x0d\x00\x80\x00\x03\x00\x20"
+        font_file = SimpleUploadedFile("custom_brand.ttf", fake_font_content, content_type="font/ttf")
+
+        response = self.client.post(
+            "/api/v1/certificates/fonts/upload/",
+            {
+                "font_file": font_file,
+                "display_name": "Custom Brand Font",
+                "user_rights_confirmed": "true",
+            },
+            format="multipart"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["name"], "Custom Brand Font")
+        self.assertTrue(data["user_rights_confirmed"])
+
+        font_obj = CertificateFont.objects.get(id=data["id"])
+        self.assertEqual(font_obj.source, FontSourceChoices.ACADEMY)
+        self.assertEqual(font_obj.academy, self.academy_a)
+        self.assertIsNotNone(font_obj.media_file)
+        self.assertEqual(font_obj.media_file.academy_uuid, self.academy_a.id)
+        self.assertEqual(font_obj.media_file.uploaded_by_uuid, self.staff_a.id)
+        self.assertEqual(font_obj.media_file.original_filename, "custom_brand.ttf")
+
+    def test_font_upload_rights_unconfirmed_rejected(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from certificates.models import CertificateFont
+
+        self.client.force_authenticate(user=self.staff_a)
+        font_file = SimpleUploadedFile("brand.ttf", b"fontdata", content_type="font/ttf")
+
+        response = self.client.post(
+            "/api/v1/certificates/fonts/upload/",
+            {
+                "font_file": font_file,
+                "display_name": "Unconfirmed Font",
+                "user_rights_confirmed": "false",
+            },
+            format="multipart"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(CertificateFont.objects.filter(name="Unconfirmed Font").exists())
+
+    def test_font_upload_invalid_extension_rejected(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(user=self.staff_a)
+        bad_file = SimpleUploadedFile("malicious.exe", b"binarydata", content_type="application/octet-stream")
+
+        response = self.client.post(
+            "/api/v1/certificates/fonts/upload/",
+            {
+                "font_file": bad_file,
+                "display_name": "Bad File",
+                "user_rights_confirmed": "true",
+            },
+            format="multipart"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_academy_font_isolation(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        # Staff A uploads font
+        self.client.force_authenticate(user=self.staff_a)
+        font_file = SimpleUploadedFile("academy_a.ttf", b"data", content_type="font/ttf")
+        self.client.post(
+            "/api/v1/certificates/fonts/upload/",
+            {
+                "font_file": font_file,
+                "display_name": "Academy A Special Font",
+                "user_rights_confirmed": "true",
+            },
+            format="multipart"
+        )
+
+        # Staff B lists fonts -> should not see Academy A Special Font
+        self.client.force_authenticate(user=self.staff_b)
+        response = self.client.get("/api/v1/certificates/fonts/")
+        res_json = response.json()
+        results = res_json if isinstance(res_json, list) else res_json.get('results', [])
+        font_names = [f["name"] for f in results]
+        self.assertNotIn("Academy A Special Font", font_names)
+

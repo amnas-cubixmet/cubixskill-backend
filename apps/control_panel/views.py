@@ -4329,8 +4329,20 @@ def storage_streaming_view(request):
     Super Admin configuration for HLS Adaptive Bitrate Profiles & Transcoding Settings.
     """
     from storage.models import StorageStreamingProfile
+    from control_panel.models import SystemSetting
 
     if request.method == 'POST':
+        if 'toggle_hls' in request.POST:
+            hls_enabled = request.POST.get('hls_streaming_enabled') == 'on'
+            SystemSetting.set_setting(
+                key='hls_streaming_enabled',
+                value='true' if hls_enabled else 'false',
+                description='Automatically convert uploaded videos to HLS for adaptive browser streaming.',
+                category='UPLOAD'
+            )
+            messages.success(request, f"HLS Video Upload & Streaming turned {'ON' if hls_enabled else 'OFF'}.")
+            return redirect('control_panel:storage_streaming')
+
         profile_id = request.POST.get('profile_id')
         if profile_id:
             profile = get_object_or_404(StorageStreamingProfile, pk=profile_id)
@@ -4342,9 +4354,12 @@ def storage_streaming_view(request):
             return redirect('control_panel:storage_streaming')
 
     profiles = StorageStreamingProfile.objects.all().order_by('-height')
+    hls_streaming_enabled = SystemSetting.get_bool('hls_streaming_enabled', default=True)
+
     context = {
         'active_nav': 'storage',
         'profiles': profiles,
+        'hls_streaming_enabled': hls_streaming_enabled,
     }
     return render(request, 'control_panel/storage/streaming.html', context)
 

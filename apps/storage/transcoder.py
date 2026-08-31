@@ -127,9 +127,13 @@ class VideoTranscoder:
     @classmethod
     def process_media_video(cls, media_file_id) -> MediaFile:
         """
-        Main entry point to transcode uploaded source video into HLS renditions.
+        Executes HLS video transcoding for media_file_id.
         """
-        media_file = MediaFile.objects.select_for_update().get(id=media_file_id)
+        from django.db import connection
+        qs = MediaFile.objects
+        if connection.vendor != 'sqlite':
+            qs = qs.select_for_update()
+        media_file = qs.get(id=media_file_id)
 
         if media_file.processing_status == ProcessingStatus.READY and media_file.stream_manifest_key:
             return media_file

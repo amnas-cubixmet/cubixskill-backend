@@ -39,6 +39,10 @@ class ProcessingStatus(models.TextChoices):
     READY = 'READY', 'Ready'
     FAILED = 'FAILED', 'Failed'
 
+class ProcessingMode(models.TextChoices):
+    HLS = 'hls', 'HLS'
+    DIRECT = 'direct', 'Direct'
+
 class UsageEventType(models.TextChoices):
     UPLOAD = 'UPLOAD', 'Upload'
     DELETE = 'DELETE', 'Delete'
@@ -88,6 +92,7 @@ class MediaFile(BaseModel):
 
     # Video Adaptive HLS Streaming Fields
     adaptive_streaming_enabled = models.BooleanField(default=True)
+    processing_mode = models.CharField(max_length=20, choices=ProcessingMode.choices, default=ProcessingMode.DIRECT, db_index=True)
     processing_status = models.CharField(max_length=20, choices=ProcessingStatus.choices, default=ProcessingStatus.READY, db_index=True)
     processing_progress = models.IntegerField(default=100)
     processing_error = models.TextField(blank=True, default='')

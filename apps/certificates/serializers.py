@@ -4,7 +4,51 @@ from certificates.models import (
     Certificate,
     CertificateIssueLog,
     CertificateSettings,
+    CertificateFont,
 )
+
+class CertificateFontSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CertificateFont
+        fields = [
+            'id',
+            'key',
+            'name',
+            'family',
+            'source',
+            'user_rights_confirmed',
+            'file_url',
+            'font_weight_variants',
+            'is_active',
+            'is_certificate_safe',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+    def get_file_url(self, obj) -> str:
+        if obj.media_file:
+            return getattr(obj.media_file, 'relative_path', '') or obj.file_url
+        return obj.file_url or ''
+
+class CertificateFontUploadSerializer(serializers.Serializer):
+    font_file = serializers.FileField(required=True)
+    display_name = serializers.CharField(max_length=255, required=True)
+    user_rights_confirmed = serializers.BooleanField(required=True)
+
+    def validate_user_rights_confirmed(self, value):
+        if not value:
+            raise serializers.ValidationError("You must confirm you have the necessary rights to use and embed this font.")
+        return value
+
+    def validate_font_file(self, value):
+        ext = value.name.split('.')[-1].lower()
+        if ext not in ['ttf', 'otf', 'woff', 'woff2']:
+            raise serializers.ValidationError("Only .ttf, .otf, .woff, and .woff2 font formats are supported.")
+        if value.size > 15 * 1024 * 1024:
+            raise serializers.ValidationError("Font file size must not exceed 15MB.")
+        return value
 
 #--------------------------------------------------------------
 # CertificateTemplateSerializer
@@ -80,6 +124,30 @@ class CertificateTemplateSerializer(serializers.ModelSerializer):
             attrs['custom_width'] = None
             attrs['custom_height'] = None
             attrs['custom_unit'] = None
+
+        # Validate template_data font references for academy tenant isolation
+        template_data = attrs.get('template_data', self.instance.template_data if self.instance else None)
+        if template_data and isinstance(template_data, dict):
+            elements = template_data.get('elements', [])
+            if isinstance(elements, list):
+                request = self.context.get('request')
+                academy = getattr(request.user, 'academy', None) if request and hasattr(request, 'user') else None
+                if not academy and self.instance:
+                    academy = self.instance.academy
+
+                from certificates.selectors import CertificateFontSelector
+                available_fonts = CertificateFontSelector.get_available_fonts(academy)
+                valid_keys = set(available_fonts.values_list('key', flat=True))
+                valid_families = set(f.lower() for f in available_fonts.values_list('family', flat=True))
+
+                for el in elements:
+                    if isinstance(el, dict):
+                        font_key = el.get('fontKey') or el.get('font_key')
+                        font_fam = el.get('font_family') or el.get('fontFamily')
+                        if font_key and font_key not in valid_keys and (font_fam and font_fam.lower() not in valid_families):
+                            raise serializers.ValidationError({
+                                "template_data": f"Font '{font_key}' is not available for this academy."
+                            })
 
         return attrs
 

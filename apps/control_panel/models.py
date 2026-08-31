@@ -21,6 +21,28 @@ class SystemSetting(BaseModel):
     def __str__(self):
         return f"{self.key} = {self.value}"
 
+    @classmethod
+    def get_setting(cls, key: str, default: str = '') -> str:
+        try:
+            return cls.objects.get(key=key).value
+        except cls.DoesNotExist:
+            return default
+
+    @classmethod
+    def get_bool(cls, key: str, default: bool = True) -> bool:
+        val = cls.get_setting(key, None)
+        if val is None:
+            return default
+        return str(val).strip().lower() in ('true', '1', 'yes', 'on')
+
+    @classmethod
+    def set_setting(cls, key: str, value: str, description: str = '', category: str = 'GENERAL', is_public: bool = False):
+        obj, _ = cls.objects.update_or_create(
+            key=key,
+            defaults={'value': str(value), 'description': description, 'category': category, 'is_public': is_public}
+        )
+        return obj
+
 # --------------------------------------------------------------
 # 2. FeatureDefinition Model
 # Central registry for global features and pricing defaults.

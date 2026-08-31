@@ -37,6 +37,7 @@ class CourseFeeSummaryView(APIView):
     def get(self, request, course_id=None):
         try:
             course = Course.objects.get(id=course_id)
+            self.check_object_permissions(request, course)
         except Course.DoesNotExist:
             return api_response(message="Course not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -54,6 +55,7 @@ class CourseDefaultFeePlanView(APIView):
     def get(self, request, course_id=None):
         try:
             course = Course.objects.get(id=course_id)
+            self.check_object_permissions(request, course)
         except Course.DoesNotExist:
             return api_response(message="Course not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -84,6 +86,7 @@ class CourseDefaultFeePlanView(APIView):
     def post(self, request, course_id=None):
         try:
             course = Course.objects.get(id=course_id)
+            self.check_object_permissions(request, course)
         except Course.DoesNotExist:
             return api_response(message="Course not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -124,6 +127,7 @@ class StudentFeeAccountListCreateView(APIView):
     def get(self, request, course_id=None):
         try:
             course = Course.objects.get(id=course_id)
+            self.check_object_permissions(request, course)
         except Course.DoesNotExist:
             return api_response(message="Course not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -218,6 +222,7 @@ class StudentFeeAccountListCreateView(APIView):
     def post(self, request, course_id=None):
         try:
             course = Course.objects.get(id=course_id)
+            self.check_object_permissions(request, course)
         except Course.DoesNotExist:
             return api_response(message="Course not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -270,6 +275,7 @@ class StudentFeeAccountDetailView(APIView):
             account = StudentFeeAccount.objects.select_related('student', 'student__student_profile', 'course').prefetch_related(
                 'installments', 'payments', 'adjustments'
             ).get(id=account_id, course_id=course_id)
+            self.check_object_permissions(request, account)
         except StudentFeeAccount.DoesNotExist:
             return api_response(message="Student fee account not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -351,6 +357,7 @@ class CollectFeePaymentView(APIView):
     def post(self, request, course_id=None, account_id=None):
         try:
             account = StudentFeeAccount.objects.get(id=account_id, course_id=course_id)
+            self.check_object_permissions(request, account)
         except StudentFeeAccount.DoesNotExist:
             return api_response(message="Fee account not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -399,6 +406,7 @@ class WaiveFeeView(APIView):
     def post(self, request, course_id=None, account_id=None):
         try:
             account = StudentFeeAccount.objects.get(id=account_id, course_id=course_id)
+            self.check_object_permissions(request, account)
         except StudentFeeAccount.DoesNotExist:
             return api_response(message="Fee account not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -430,6 +438,7 @@ class SendFeeReminderView(APIView):
     def post(self, request, course_id=None, account_id=None):
         try:
             account = StudentFeeAccount.objects.get(id=account_id, course_id=course_id)
+            self.check_object_permissions(request, account)
         except StudentFeeAccount.DoesNotExist:
             return api_response(message="Fee account not found.", status_code=status.HTTP_404_NOT_FOUND)
 
@@ -455,6 +464,7 @@ class CourseFeePaymentsLedgerView(APIView):
     def get(self, request, course_id=None):
         try:
             course = Course.objects.get(id=course_id)
+            self.check_object_permissions(request, course)
         except Course.DoesNotExist:
             return api_response(message="Course not found.", status_code=status.HTTP_404_NOT_FOUND)
 

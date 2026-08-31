@@ -26,9 +26,11 @@ class MediaRole(models.TextChoices):
 class QuestionType(models.TextChoices):
     SINGLE_CHOICE = 'SINGLE_CHOICE', 'Single Choice'
     MULTIPLE_CHOICE = 'MULTIPLE_CHOICE', 'Multiple Choice'
+    MULTIPLE_SELECT = 'MULTIPLE_SELECT', 'Multiple Select'
     TRUE_FALSE = 'TRUE_FALSE', 'True / False'
     SHORT_ANSWER = 'SHORT_ANSWER', 'Short Answer'
     LONG_ANSWER = 'LONG_ANSWER', 'Long Answer'
+    FILL_BLANK = 'FILL_BLANK', 'Fill in the Blank'
 
 class AssetType(models.TextChoices):
     IMAGE = 'IMAGE', 'Image'
@@ -157,6 +159,7 @@ class Assignment(BaseModel):
     title = models.CharField(max_length=255)
     instructions = models.TextField()
     due_date = models.DateTimeField(null=True, blank=True)
+    due_days = models.PositiveIntegerField(null=True, blank=True)
     max_marks = models.PositiveIntegerField(default=100)
 
     allow_text_submission = models.BooleanField(default=True)

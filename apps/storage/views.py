@@ -1,7 +1,5 @@
-#--------------------------------------------------------------
-# Imports
-#--------------------------------------------------------------
-
+import logging
+from django.db import transaction
 from rest_framework import viewsets, permissions, status
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -14,6 +12,8 @@ from storage.serializers import (
 )
 from core.permissions import CanAccessAcademyPermission
 from core.utils import api_response, CubixSkillAPIException
+
+logger = logging.getLogger(__name__)
 
 #--------------------------------------------------------------
 # Pre-Signed Upload Request View
@@ -102,33 +102,111 @@ class DirectUploadView(APIView):
     def post(self, request):
         uploaded_file = request.FILES.get('file')
         if not uploaded_file:
-            raise CubixSkillAPIException("No file provided.", code="NO_FILE", status_code=400)
+            raise CubixSkillAPIException("No file was provided.", code="NO_FILE", status_code=status.HTTP_400_BAD_REQUEST)
+
+        if uploaded_file.size == 0:
+            raise CubixSkillAPIException("The uploaded file is empty.", code="EMPTY_FILE", status_code=status.HTTP_400_BAD_REQUEST)
+
+        from django.conf import settings
+        mime = (uploaded_file.content_type or '').lower()
+        max_size_mb = getattr(settings, 'DOCUMENT_MAX_SIZE_MB', 25)
+        if 'image' in mime:
+            max_size_mb = getattr(settings, 'IMAGE_MAX_SIZE_MB', 10)
+        elif 'video' in mime:
+            max_size_mb = getattr(settings, 'VIDEO_MAX_SIZE_MB', 500)
+        elif 'audio' in mime:
+            max_size_mb = getattr(settings, 'AUDIO_MAX_SIZE_MB', 100)
+
+        max_size_bytes = max_size_mb * 1024 * 1024
+        if uploaded_file.size > max_size_bytes:
+            raise CubixSkillAPIException(
+                f"File size ({uploaded_file.size / (1024 * 1024):.1f} MB) exceeds maximum allowed limit of {max_size_mb} MB.",
+                code="FILE_TOO_LARGE",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         adaptive_streaming_enabled = str(request.data.get('adaptive_streaming_enabled', 'true')).lower() in ('true', '1')
 
-        acad_uuid = request.user.academy.id if (hasattr(request.user, 'academy') and request.user.academy) else None
-        user_uuid = request.user.id if request.user else None
+        acad_uuid = getattr(request.user, 'academy_id', None)
+        if not acad_uuid and hasattr(request.user, 'academy'):
+            try:
+                if request.user.academy:
+                    acad_uuid = request.user.academy.id
+            except Exception:
+                pass
+        user_uuid = getattr(request.user, 'id', None)
 
-        media_file = StorageService.upload_media_direct(
-            academy_uuid=acad_uuid,
-            user_uuid=user_uuid,
-            file_obj=uploaded_file,
-            original_filename=uploaded_file.name,
-            mime_type=uploaded_file.content_type or 'application/octet-stream',
-            file_size_bytes=uploaded_file.size
-        )
+        raw_course_uuid = request.data.get('course_uuid') or request.data.get('course_id') or request.data.get('course')
+        raw_lesson_uuid = request.data.get('lesson_uuid') or request.data.get('lesson_id') or request.data.get('lesson')
 
-        media_file.adaptive_streaming_enabled = adaptive_streaming_enabled
-        media_file.save(update_fields=['adaptive_streaming_enabled'])
+        course_uuid = None
+        if raw_course_uuid and str(raw_course_uuid).strip():
+            import uuid
+            try:
+                valid_c_uuid = uuid.UUID(str(raw_course_uuid).strip())
+                from courses.models import Course
+                if request.user.role_code in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+                    if not Course.objects.filter(id=valid_c_uuid).exists():
+                        raise CubixSkillAPIException("Course not found.", code="COURSE_NOT_FOUND", status_code=status.HTTP_404_NOT_FOUND)
+                else:
+                    if not acad_uuid or not Course.objects.filter(id=valid_c_uuid, academy_id=acad_uuid).exists():
+                        raise CubixSkillAPIException("Course not found or access denied.", code="COURSE_NOT_FOUND", status_code=status.HTTP_404_NOT_FOUND)
+                course_uuid = valid_c_uuid
+            except ValueError:
+                raise CubixSkillAPIException("Invalid course UUID format.", code="INVALID_UUID", status_code=status.HTTP_400_BAD_REQUEST)
 
-        # Trigger background HLS video transcoding ONLY if file is VIDEO and adaptive streaming is ON
-        if (media_file.media_type == 'VIDEO' or (uploaded_file.content_type and uploaded_file.content_type.startswith('video/'))) and adaptive_streaming_enabled:
-            from storage.models import ProcessingStatus
+        lesson_uuid = None
+        if raw_lesson_uuid and str(raw_lesson_uuid).strip():
+            import uuid
+            try:
+                lesson_uuid = uuid.UUID(str(raw_lesson_uuid).strip())
+            except ValueError:
+                pass
+
+        try:
+            media_file = StorageService.upload_media_direct(
+                academy_uuid=acad_uuid,
+                user_uuid=user_uuid,
+                file_obj=uploaded_file,
+                original_filename=uploaded_file.name,
+                mime_type=uploaded_file.content_type or 'application/octet-stream',
+                file_size_bytes=uploaded_file.size,
+                course_uuid=course_uuid,
+                lesson_uuid=lesson_uuid
+            )
+        except Exception as exc:
+            import traceback
+            logger.error("Direct upload failed with exception:\n%s", traceback.format_exc())
+            raise exc
+
+        from control_panel.models import SystemSetting
+        global_hls_enabled = SystemSetting.get_bool('hls_streaming_enabled', default=True)
+
+        user_academy = getattr(request.user, 'academy', None)
+        academy_hls_enabled = user_academy.hls_video_enabled if user_academy else True
+
+        hls_param = request.data.get('hls_enabled') or request.POST.get('hls_enabled')
+        if hls_param is not None:
+            if isinstance(hls_param, str):
+                upload_hls_choice = hls_param.lower() in ('true', '1', 'yes', 'on')
+            else:
+                upload_hls_choice = bool(hls_param)
+        else:
+            upload_hls_choice = academy_hls_enabled
+
+        should_use_hls = global_hls_enabled and upload_hls_choice and adaptive_streaming_enabled
+
+        media_file.adaptive_streaming_enabled = should_use_hls
+        is_video = (media_file.media_type == 'VIDEO' or (uploaded_file.content_type and uploaded_file.content_type.startswith('video/')))
+
+        from storage.models import ProcessingStatus, ProcessingMode
+        if is_video and should_use_hls:
             from storage.tasks import process_video_transcoding_task
 
+            media_file.processing_mode = ProcessingMode.HLS
             media_file.processing_status = ProcessingStatus.QUEUED
             media_file.processing_progress = 5
-            media_file.save(update_fields=['processing_status', 'processing_progress'])
+            media_file.save(update_fields=['adaptive_streaming_enabled', 'processing_mode', 'processing_status', 'processing_progress'])
 
             media_id = str(media_file.id)
             def queue_transcoding():
@@ -138,14 +216,17 @@ class DirectUploadView(APIView):
                     logger.warning(f"Could not enqueue Celery video task for media {media_id}; asset remains QUEUED in DB: {exc}")
 
             transaction.on_commit(queue_transcoding)
-        elif media_file.media_type == 'VIDEO' and not adaptive_streaming_enabled:
-            from storage.models import ProcessingStatus
+        elif is_video:
+            media_file.processing_mode = ProcessingMode.DIRECT
             media_file.processing_status = ProcessingStatus.READY
             media_file.processing_progress = 100
-            media_file.save(update_fields=['processing_status', 'processing_progress'])
+            media_file.save(update_fields=['adaptive_streaming_enabled', 'processing_mode', 'processing_status', 'processing_progress'])
+        else:
+            media_file.processing_mode = ProcessingMode.DIRECT
+            media_file.save(update_fields=['adaptive_streaming_enabled', 'processing_mode'])
 
         return api_response(
-            data=MediaFileSerializer(media_file).data,
+            data=MediaFileSerializer(media_file, context={'request': request}).data,
             message="Media uploaded successfully and registered in storage engine.",
             status_code=status.HTTP_201_CREATED
         )
@@ -275,6 +356,28 @@ class MediaFileViewSet(viewsets.ModelViewSet):
         return api_response(
             data=MediaFileSerializer(media_file).data,
             message="Video processing retry queued successfully."
+        )
+
+    @action(detail=True, methods=['post'], url_path='convert-hls')
+    def convert_hls(self, request, pk=None):
+        media_file = self.get_object()
+        if media_file.media_type != 'VIDEO':
+            raise CubixSkillAPIException("Only video media files can be converted to HLS.", code="NOT_A_VIDEO", status_code=status.HTTP_400_BAD_REQUEST)
+
+        from storage.models import ProcessingStatus, ProcessingMode
+        media_file.processing_mode = ProcessingMode.HLS
+        media_file.processing_status = ProcessingStatus.QUEUED
+        media_file.processing_progress = 5
+        media_file.processing_error = ''
+        media_file.save(update_fields=['processing_mode', 'processing_status', 'processing_progress', 'processing_error'])
+
+        from storage.tasks import process_video_transcoding_task
+        media_id = str(media_file.id)
+        transaction.on_commit(lambda: process_video_transcoding_task.delay(media_id))
+
+        return api_response(
+            data=MediaFileSerializer(media_file, context={'request': request}).data,
+            message="On-demand HLS conversion queued successfully."
         )
 
     def destroy(self, request, *args, **kwargs):

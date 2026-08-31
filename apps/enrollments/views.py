@@ -234,6 +234,9 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
 
         course_progress, _ = CourseProgress.objects.get_or_create(student=user, course=course, defaults={'enrollment': enrollment})
 
+        from features.services import StudentFeatureService
+        course_features = StudentFeatureService.get_course_features(user, course)
+
         return Response({
             'academy': {
                 'id': str(academy.id),
@@ -248,6 +251,7 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
                 'thumbnail': thumbnail_url,
                 'level': getattr(course, 'level', 'Intermediate'),
                 'lesson_locking_enabled': progression['lesson_locking_enabled'],
+                'features': course_features,
             },
             'enrollment': {
                 'id': str(enrollment.id),
@@ -307,12 +311,40 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
 
         resources_data = []
         for res in lesson.resources.all():
+            mf = res.media_file
+            res_url = res.url
+            if not res_url and mf:
+                if mf.file_url:
+                    res_url = mf.file_url
+                elif mf.storage_key:
+                    res_url = f"/media/{mf.storage_key.lstrip('/')}"
+                elif mf.relative_path:
+                    res_url = f"/media/{mf.relative_path.lstrip('/')}"
+                elif mf.storage_path:
+                    res_url = f"/media/{mf.storage_path.lstrip('/')}"
+
+            if res_url and request and not (res_url.startswith('http://') or res_url.startswith('https://')):
+                res_url = request.build_absolute_uri(res_url)
+
             resources_data.append({
                 'id': str(res.id),
+                'resource_uuid': str(res.id),
+                'resourceUuid': str(res.id),
                 'title': res.title,
-                'url': res.url or (res.media_file.file_url or res.media_file.relative_path if res.media_file else ''),
-                'resource_type': res.resource_type,
+                'description': res.description or '',
+                'url': res_url or '',
+                'file_url': res_url or '',
+                'fileUrl': res_url or '',
+                'resource_type': res.resource_type or 'document',
+                'resourceType': res.resource_type or 'document',
                 'allow_download': res.allow_download,
+                'allowDownload': res.allow_download,
+                'file_name': mf.original_filename if mf else (res.title or 'Resource'),
+                'fileName': mf.original_filename if mf else (res.title or 'Resource'),
+                'mime_type': mf.mime_type if mf else 'application/pdf',
+                'mimeType': mf.mime_type if mf else 'application/pdf',
+                'size_bytes': mf.size_bytes if mf else 0,
+                'fileSize': mf.size_bytes if mf else 0,
             })
 
         # Media URL (primary media if uploaded)
@@ -360,6 +392,7 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
                 'title': assignment_obj.title,
                 'instructions': assignment_obj.instructions,
                 'due_date': assignment_obj.due_date.isoformat() if assignment_obj.due_date else None,
+                'due_days': assignment_obj.due_days,
                 'max_marks': assignment_obj.max_marks,
                 'allow_text_submission': assignment_obj.allow_text_submission,
                 'allow_file_submission': assignment_obj.allow_file_submission,
@@ -385,6 +418,7 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
                 'unlocked': True,
                 'quiz': quiz_data,
                 'assignment': assignment_data,
+                'resources': resources_data,
             },
             'resources': resources_data,
         })

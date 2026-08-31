@@ -264,6 +264,53 @@ class DiscussionsChatTestCase(TestCase):
         self.assertEqual(resp_rooms.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(len(resp_rooms.json()), 1)
 
+    def test_personal_chat_file_upload_setting_enforcement(self):
+        direct_room = ChatService.get_or_create_personal_room(self.course_a, self.student, self.staff)
+        media = MediaFile.objects.create(
+            academy_uuid=self.academy.id,
+            original_filename="test.pdf",
+            stored_filename="test.pdf",
+            mime_type="application/pdf",
+            size_bytes=1024,
+            media_type=MediaType.DOCUMENT,
+            status=MediaStatus.ACTIVE
+        )
+
+        # 1. When setting is ON (default), media file attachment succeeds
+        self.academy.personal_chat_file_upload_enabled = True
+        self.academy.save()
+        msg_on = ChatService.send_message(
+            room=direct_room,
+            user=self.staff,
+            content="With attachment",
+            media_file_ids=[str(media.id)]
+        )
+        self.assertIsNotNone(msg_on)
+
+        # 2. When setting is OFF, media file attachment raises 403 structured exception
+        self.academy.personal_chat_file_upload_enabled = False
+        self.academy.save()
+
+        from core.utils import CubixSkillAPIException
+        with self.assertRaises(CubixSkillAPIException) as cm:
+            ChatService.send_message(
+                room=direct_room,
+                user=self.staff,
+                content="Disabled attachment",
+                media_file_ids=[str(media.id)]
+            )
+        self.assertEqual(cm.exception.status_code, 403)
+        self.assertEqual(cm.exception.code, "CHAT_FILE_UPLOAD_DISABLED")
+
+        # 3. Text-only message still works when setting is OFF
+        msg_text = ChatService.send_message(
+            room=direct_room,
+            user=self.staff,
+            content="Pure text message",
+            media_file_ids=[]
+        )
+        self.assertIsNotNone(msg_text)
+
     async def test_websocket_chat_consumer(self):
         room = await database_sync_to_async(ChatService.get_or_create_course_chat_room)(self.course_a)
 

@@ -82,6 +82,31 @@ class DiscussionService:
         return thread
 
     @classmethod
+    def broadcast_event(cls, academy_id: str, event_type: str, data: dict):
+        """
+        Helper method to send real-time WebSocket events to an Academy channel group safely after DB commit.
+        """
+        import uuid
+        from asgiref.sync import async_to_sync
+        from channels.layers import get_channel_layer
+
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+
+        group_name = f'academy_discussions_{academy_id or "global"}'
+        event_payload = {
+            'type': 'discussion_event',
+            'event_type': event_type,
+            'event_id': str(uuid.uuid4()),
+            'academy_id': str(academy_id) if academy_id else None,
+            'occurred_at': timezone.now().isoformat(),
+            'data': data
+        }
+
+        transaction.on_commit(lambda: async_to_sync(channel_layer.group_send)(group_name, event_payload))
+
+    @classmethod
     @transaction.atomic
     def add_reply(
         cls,
@@ -139,6 +164,18 @@ class DiscussionService:
                 except MediaFile.DoesNotExist:
                     pass
 
+        # Broadcast reply.created
+        from discussions_chat.serializers import DiscussionReplySerializer
+        academy_id = thread.academy.id if thread.academy else None
+        cls.broadcast_event(
+            academy_id=academy_id,
+            event_type='reply.created',
+            data={
+                'discussion_id': str(thread.id),
+                'reply': DiscussionReplySerializer(reply).data
+            }
+        )
+
         # Send Notification to Thread Author
         if thread.created_by and thread.created_by != user:
             EmailService.send_transactional(
@@ -180,18 +217,42 @@ class DiscussionService:
         thread.accepted_answer = reply
         thread.save(update_fields=['accepted_answer'])
 
+        from discussions_chat.serializers import DiscussionThreadSerializer
+        academy_id = thread.academy.id if thread.academy else None
+        cls.broadcast_event(
+            academy_id=academy_id,
+            event_type='discussion.answer_accepted',
+            data=DiscussionThreadSerializer(thread).data
+        )
+
         return thread
 
     @classmethod
     def toggle_pin_thread(cls, thread: DiscussionThread, staff_user, is_pinned: bool) -> DiscussionThread:
         thread.is_pinned = is_pinned
         thread.save(update_fields=['is_pinned'])
+
+        from discussions_chat.serializers import DiscussionThreadSerializer
+        academy_id = thread.academy.id if thread.academy else None
+        cls.broadcast_event(
+            academy_id=academy_id,
+            event_type='discussion.pinned' if is_pinned else 'discussion.unpinned',
+            data=DiscussionThreadSerializer(thread).data
+        )
         return thread
 
     @classmethod
     def toggle_lock_thread(cls, thread: DiscussionThread, staff_user, is_locked: bool) -> DiscussionThread:
         thread.is_locked = is_locked
         thread.save(update_fields=['is_locked'])
+
+        from discussions_chat.serializers import DiscussionThreadSerializer
+        academy_id = thread.academy.id if thread.academy else None
+        cls.broadcast_event(
+            academy_id=academy_id,
+            event_type='discussion.locked' if is_locked else 'discussion.unlocked',
+            data=DiscussionThreadSerializer(thread).data
+        )
         return thread
 
     @classmethod
@@ -202,6 +263,13 @@ class DiscussionService:
 
         thread.status = ThreadStatus.REMOVED
         thread.save(update_fields=['status'])
+
+        academy_id = thread.academy.id if thread.academy else None
+        cls.broadcast_event(
+            academy_id=academy_id,
+            event_type='discussion.deleted',
+            data={'id': str(thread.id)}
+        )
         return thread
         
 #--------------------------------------------------------------
@@ -250,7 +318,7 @@ class ChatService:
             if not has_access:
                 return False
 
-            has_feature = CourseFeatureService.has_feature(room.course, 'course_chat')
+            has_feature = CourseFeatureService.has_feature(room.course, 'COURSE_DISCUSSION')
             if not has_feature:
                 return False
 
@@ -272,6 +340,28 @@ class ChatService:
         """
         if not cls.validate_chat_access(user, room):
             raise PermissionDenied("Chat is disabled for this course or student has no access.")
+
+        # Backend check for DIRECT / Personal chat file uploads
+        if media_file_ids and room.room_type == RoomType.DIRECT:
+            academy = room.academy or getattr(user, 'academy', None)
+            if academy and not getattr(academy, 'personal_chat_file_upload_enabled', True):
+                from core.utils import CubixSkillAPIException
+                raise CubixSkillAPIException(
+                    "File uploads are disabled for personal chat.",
+                    code="CHAT_FILE_UPLOAD_DISABLED",
+                    status_code=403
+                )
+
+        # Backend check for COURSE / Community chat file uploads
+        if media_file_ids and room.room_type == RoomType.COURSE:
+            academy = room.academy or getattr(user, 'academy', None)
+            if academy and not getattr(academy, 'community_chat_file_upload_enabled', True):
+                from core.utils import CubixSkillAPIException
+                raise CubixSkillAPIException(
+                    "File uploads are disabled for community chat.",
+                    code="COMMUNITY_CHAT_FILE_UPLOAD_DISABLED",
+                    status_code=403
+                )
 
         participant, _ = ChatParticipant.objects.get_or_create(
             room=room,
@@ -359,13 +449,32 @@ class ChatService:
     def get_or_create_personal_room(cls, course, student, staff_user) -> ChatRoom:
         """
         Gets or creates a private 1-on-1 ChatRoom between a student and academy staff for a course.
-        Validates tenant and student enrollment.
+        Validates tenant and student enrollment. Identifies student vs staff dynamically if caller is student.
         """
-        if getattr(staff_user, 'academy', None) and course.academy != staff_user.academy and not getattr(staff_user, 'is_staff', False):
+        # 1. Determine student vs staff roles dynamically
+        target_student = student
+        target_staff = staff_user
+
+        # If student param is actually staff, or staff_user is not staff but student is student:
+        is_student_staff = getattr(student, 'is_staff', False) or (hasattr(student, 'academy') and course.academy and student.academy == course.academy)
+        is_staff_staff = getattr(staff_user, 'is_staff', False) or (hasattr(staff_user, 'academy') and course.academy and staff_user.academy == course.academy)
+
+        if not is_staff_staff and is_student_staff:
+            target_student, target_staff = staff_user, student
+        elif not is_staff_staff and not is_student_staff:
+            # Caller is student, student param passed is student.
+            # Resolve default academy staff (e.g. course instructor or academy owner) as staff participant
+            target_student = student if not is_student_staff else staff_user
+            target_staff = course.instructor if course.instructor else course.academy.owner if hasattr(course.academy, 'owner') else None
+            if not target_staff:
+                from users_roles.models import User
+                target_staff = User.objects.filter(academy=course.academy, is_staff=True).first() or User.objects.filter(is_superuser=True).first()
+
+        if getattr(target_staff, 'academy', None) and course.academy != target_staff.academy and not getattr(target_staff, 'is_staff', False):
             raise PermissionDenied("Course does not belong to your Academy.")
 
-        has_access, _, _ = EnrollmentAccessService.can_access_course(student, course)
-        if not has_access and not getattr(student, 'is_staff', False):
+        has_access, _, _ = EnrollmentAccessService.can_access_course(target_student, course)
+        if not has_access and not getattr(target_student, 'is_staff', False):
             raise ValidationError({"student_id": "Student is not enrolled in this course."})
 
         # Look for existing DIRECT chat room for this course and student
@@ -373,26 +482,68 @@ class ChatService:
             course=course,
             room_type=RoomType.DIRECT,
             is_active=True,
-            participants__user=student
+            participants__user=target_student
         ).distinct()
 
         if existing_rooms.exists():
             room = existing_rooms.first()
+            if target_staff and not ChatParticipant.objects.filter(room=room, user=target_staff).exists():
+                ChatParticipant.objects.get_or_create(room=room, user=target_staff)
         else:
             room = ChatRoom.objects.create(
                 academy=course.academy,
                 course=course,
                 room_type=RoomType.DIRECT,
-                name=f"Private DM: {student.full_name or student.email}",
-                created_by=staff_user,
+                name=f"Private DM: {target_student.full_name or target_student.email}",
+                created_by=target_staff or target_student,
                 is_active=True,
                 last_message_at=timezone.now()
             )
 
         # Ensure participants exist
-        ChatParticipant.objects.get_or_create(room=room, user=student)
-        ChatParticipant.objects.get_or_create(room=room, user=staff_user)
+        ChatParticipant.objects.get_or_create(room=room, user=target_student)
+        if target_staff:
+            ChatParticipant.objects.get_or_create(room=room, user=target_staff)
 
+        return room
+
+    @classmethod
+    @transaction.atomic
+    def get_or_create_community_room(cls, course, user) -> ChatRoom:
+        """
+        Gets or creates an automatic WhatsApp-style Community Group ChatRoom for a course.
+        Validates tenant access and automatically populates participant membership.
+        """
+        user_academy = getattr(user, 'academy', None)
+        if user_academy and course.academy != user_academy and not getattr(user, 'is_staff', False):
+            raise PermissionDenied("Course does not belong to your Academy.")
+
+        if not CourseFeatureService.has_feature(course, 'COURSE_DISCUSSION'):
+            raise PermissionDenied("Community discussion feature is disabled for this course.")
+
+        existing_room = ChatRoom.objects.filter(
+            course=course,
+            room_type=RoomType.COURSE,
+            is_active=True
+        ).first()
+
+        if existing_room:
+            room = existing_room
+        else:
+            room, _ = ChatRoom.objects.get_or_create(
+                course=course,
+                room_type=RoomType.COURSE,
+                defaults={
+                    'academy': course.academy,
+                    'name': f"{course.title} — Community Group",
+                    'created_by': user,
+                    'is_active': True,
+                    'last_message_at': timezone.now()
+                }
+            )
+
+        # Ensure participant membership
+        ChatParticipant.objects.get_or_create(room=room, user=user)
         return room
 
     @classmethod

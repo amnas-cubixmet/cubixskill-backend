@@ -14,8 +14,9 @@ class AcademySerializer(serializers.ModelSerializer):
         model = Academy
         fields = [
             'id', 'name', 'slug', 'email', 'phone', 'theme', 'theme_color',
-            'logo', 'favicon', 'status', 'is_active', 'is_demo', 'demo_start_date',
-            'demo_expiry_date', 'access_start_date', 'access_end_date',
+            'logo', 'favicon', 'status', 'is_active', 'is_demo', 'hls_video_enabled',
+            'personal_chat_file_upload_enabled', 'community_chat_file_upload_enabled',
+            'demo_start_date', 'demo_expiry_date', 'access_start_date', 'access_end_date',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'slug', 'created_at', 'updated_at']

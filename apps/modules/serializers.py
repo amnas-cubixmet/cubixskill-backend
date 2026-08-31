@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from modules.models import Module
+from lessons.serializers import LessonSerializer
 
 #--------------------------------------------------------------
 # Module Serializer
@@ -7,10 +8,11 @@ from modules.models import Module
 
 class ModuleSerializer(serializers.ModelSerializer):
     lesson_count = serializers.SerializerMethodField()
+    lessons = LessonSerializer(many=True, read_only=True)
 
     class Meta:
         model = Module
-        fields = ['id', 'course', 'title', 'description', 'duration_minutes', 'is_active', 'is_demo', 'order_index', 'lesson_count', 'created_at']
+        fields = ['id', 'course', 'title', 'description', 'duration_minutes', 'is_active', 'is_demo', 'order_index', 'lesson_count', 'lessons', 'created_at']
         read_only_fields = ['id', 'course', 'created_at']
 
     def get_lesson_count(self, obj):

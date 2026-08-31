@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from lessons.models import (
@@ -25,22 +26,45 @@ class ModuleLessonViewSet(viewsets.ModelViewSet):
 
     def get_module(self):
         module_id = self.kwargs.get('module_id')
+        import uuid
         try:
-            return Module.objects.get(id=module_id)
+            valid_uuid = uuid.UUID(str(module_id))
+        except (ValueError, TypeError):
+            raise CubixSkillAPIException("Invalid module ID format.", code="INVALID_UUID", status_code=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            module = Module.objects.select_related('course', 'course__academy').get(id=valid_uuid)
         except Module.DoesNotExist:
-            raise CubixSkillAPIException("Module not found.", code="NOT_FOUND", status_code=404)
+            raise CubixSkillAPIException("Module not found.", code="NOT_FOUND", status_code=status.HTTP_404_NOT_FOUND)
+
+        user = self.request.user
+        if user and getattr(user, 'academy', None) and module.course and module.course.academy != user.academy:
+            if not getattr(user, 'is_superuser', False) and getattr(user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+                raise CubixSkillAPIException("Permission denied: Module belongs to another Academy.", code="PERMISSION_DENIED", status_code=status.HTTP_403_FORBIDDEN)
+
+        return module
 
     def get_queryset(self):
         module = self.get_module()
         return LessonSelector.get_module_lessons(user=self.request.user, module=module)
 
+    @transaction.atomic
     def create(self, request, *args, **kwargs):
         module = self.get_module()
         serializer = LessonCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            return api_response(
+                data={"fields": serializer.errors},
+                message="Lesson validation failed.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_code="VALIDATION_ERROR"
+            )
+
         data = serializer.validated_data
 
         media_file_id = data.pop('media_file_id', None) or request.data.get('media_file_id') or request.data.get('media_id')
+        raw_content = data.pop('content', None) or request.data.get('content')
+        rich_content = data.pop('rich_text_content', None) or request.data.get('text_content') or (raw_content if isinstance(raw_content, str) else '')
 
         lesson = LessonService.create_lesson(
             module=module,
@@ -53,6 +77,17 @@ class ModuleLessonViewSet(viewsets.ModelViewSet):
             external_url=data.get('external_url', '')
         )
 
+        if data['lesson_type'] == 'QUIZ':
+            quiz_payload = raw_content if isinstance(raw_content, dict) else request.data
+            LessonService.save_quiz_data(lesson, quiz_payload)
+
+        if data['lesson_type'] in ['ASSIGNMENT', 'PROJECT']:
+            assignment_payload = raw_content if isinstance(raw_content, dict) else request.data
+            LessonService.save_assignment_data(lesson, assignment_payload)
+
+        if rich_content and data['lesson_type'] == 'RICH_TEXT':
+            LessonService.set_rich_text(lesson, rich_content)
+
         if media_file_id:
             from storage.models import MediaFile
             try:
@@ -64,8 +99,14 @@ class ModuleLessonViewSet(viewsets.ModelViewSet):
             except MediaFile.DoesNotExist:
                 raise CubixSkillAPIException("MediaFile not found.", code="NOT_FOUND", status_code=404)
 
+        resources_data = request.data.get('resources')
+        if not resources_data and isinstance(raw_content, dict):
+            resources_data = raw_content.get('resources')
+        if resources_data and isinstance(resources_data, list):
+            LessonService.save_resources_data(lesson, resources_data)
+
         return api_response(
-            data=LessonSerializer(lesson).data,
+            data=LessonSerializer(lesson, context={'request': request}).data,
             message="Lesson created successfully.",
             status_code=status.HTTP_201_CREATED
         )
@@ -89,6 +130,19 @@ class LessonViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         response = super().update(request, *args, **kwargs)
         lesson = self.get_object()
+
+        if lesson.lesson_type == 'QUIZ':
+            quiz_payload = request.data.get('content') if isinstance(request.data.get('content'), dict) else request.data
+            LessonService.save_quiz_data(lesson, quiz_payload)
+
+        if lesson.lesson_type in ['ASSIGNMENT', 'PROJECT']:
+            assignment_payload = request.data.get('content') if isinstance(request.data.get('content'), dict) else request.data
+            LessonService.save_assignment_data(lesson, assignment_payload)
+
+        rich_content = request.data.get('content') or request.data.get('text_content') or request.data.get('rich_text_content')
+        if rich_content and lesson.lesson_type == 'RICH_TEXT':
+            LessonService.set_rich_text(lesson, rich_content)
+
         media_file_id = request.data.get('media_file_id') or request.data.get('media_id')
         if media_file_id:
             from storage.models import MediaFile
@@ -100,7 +154,14 @@ class LessonViewSet(viewsets.ModelViewSet):
                 media_role='PRIMARY',
                 defaults={'media_file': media_file}
             )
-            response.data = LessonSerializer(lesson).data
+
+        resources_data = request.data.get('resources')
+        if not resources_data and isinstance(request.data.get('content'), dict):
+            resources_data = request.data.get('content', {}).get('resources')
+        if resources_data and isinstance(resources_data, list):
+            LessonService.save_resources_data(lesson, resources_data)
+
+        response.data = LessonSerializer(lesson, context={'request': request}).data
         return response
 
     @action(detail=True, methods=['post'], url_path='media')
@@ -209,27 +270,58 @@ class LessonResourceViewSet(viewsets.ModelViewSet):
 #--------------------------------------------------------------
 
 class QuizViewSet(viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, CanAccessAcademyPermission]
     serializer_class = QuizSerializer
     queryset = Quiz.objects.all()
 
-#--------------------------------------------------------------
-# Question ViewSet
-#--------------------------------------------------------------
+    def get_queryset(self):
+        user = self.request.user
+        qs = super().get_queryset()
+        if user and user.is_authenticated and getattr(user, 'academy', None):
+            if not getattr(user, 'is_superuser', False) and getattr(user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+                qs = qs.filter(lesson__module__course__academy=user.academy)
+        return qs
+
+    def update(self, request, *args, **kwargs):
+        quiz = self.get_object()
+        user = request.user
+        if user and getattr(user, 'academy', None) and quiz.lesson and quiz.lesson.module and quiz.lesson.module.course:
+            if quiz.lesson.module.course.academy != user.academy:
+                if not getattr(user, 'is_superuser', False) and getattr(user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+                    raise CubixSkillAPIException("Permission denied.", code="PERMISSION_DENIED", status_code=status.HTTP_403_FORBIDDEN)
+        
+        LessonService.save_quiz_data(quiz.lesson, request.data)
+        quiz.refresh_from_db()
+        return api_response(
+            data=QuizSerializer(quiz, context={'request': request}).data,
+            message="Quiz updated successfully."
+        )
 
 class QuestionViewSet(viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, CanAccessAcademyPermission]
     serializer_class = QuestionSerializer
     queryset = Question.objects.all()
 
-#--------------------------------------------------------------
-# Question Option ViewSet
-#--------------------------------------------------------------
+    def get_queryset(self):
+        user = self.request.user
+        qs = super().get_queryset()
+        if user and user.is_authenticated and getattr(user, 'academy', None):
+            if not getattr(user, 'is_superuser', False) and getattr(user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+                qs = qs.filter(quiz__lesson__module__course__academy=user.academy)
+        return qs
 
 class QuestionOptionViewSet(viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, CanAccessAcademyPermission]
     serializer_class = QuestionOptionSerializer
     queryset = QuestionOption.objects.all()
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = super().get_queryset()
+        if user and user.is_authenticated and getattr(user, 'academy', None):
+            if not getattr(user, 'is_superuser', False) and getattr(user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+                qs = qs.filter(question__quiz__lesson__module__course__academy=user.academy)
+        return qs
 
 #--------------------------------------------------------------
 # Assignment ViewSet

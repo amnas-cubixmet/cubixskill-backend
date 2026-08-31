@@ -149,3 +149,69 @@ class AcademyProfileView(APIView):
         return api_response(data=data, message="Academy profile updated successfully.")
 
 
+class AcademySettingsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        academy = request.user.academy
+        if not academy:
+            raise CubixSkillAPIException("No academy linked to current user.", code="ACADEMY_NOT_FOUND", status_code=status.HTTP_404_NOT_FOUND)
+        data = {
+            "hls_video_enabled": academy.hls_video_enabled,
+            "personal_chat_file_upload_enabled": academy.personal_chat_file_upload_enabled,
+            "community_chat_file_upload_enabled": academy.community_chat_file_upload_enabled,
+            "academy_id": str(academy.id),
+        }
+        return api_response(data=data)
+
+    def patch(self, request):
+        user = request.user
+        academy = user.academy
+        if not academy:
+            raise CubixSkillAPIException("No academy linked to current user.", code="ACADEMY_NOT_FOUND", status_code=status.HTTP_404_NOT_FOUND)
+
+        allowed_roles = ['ACADEMY_ADMIN', 'SUPER_ADMIN', 'SUPER_ADMIN_STAFF']
+        if user.role_code not in allowed_roles:
+            if user.role_code == 'ACADEMY_STAFF':
+                if not (user.has_perm('manage_settings') or user.has_perm('manage_media')):
+                    raise CubixSkillAPIException("Permission denied: Staff user lacks settings permission.", code="PERMISSION_DENIED", status_code=status.HTTP_403_FORBIDDEN)
+            else:
+                raise CubixSkillAPIException("Permission denied: Only Academy Admins can modify settings.", code="PERMISSION_DENIED", status_code=status.HTTP_403_FORBIDDEN)
+
+        update_fields = []
+        if 'hls_video_enabled' in request.data:
+            val = request.data['hls_video_enabled']
+            if isinstance(val, str):
+                val = val.lower() in ('true', '1', 'yes', 'on')
+            academy.hls_video_enabled = bool(val)
+            update_fields.append('hls_video_enabled')
+
+            from storage.models import AcademyStorageAccount
+            account = AcademyStorageAccount.objects.filter(academy_uuid=academy.id).first()
+            if account and hasattr(account, 'hls_video_enabled'):
+                account.hls_video_enabled = academy.hls_video_enabled
+                account.save(update_fields=['hls_video_enabled'])
+
+        if 'personal_chat_file_upload_enabled' in request.data:
+            val = request.data['personal_chat_file_upload_enabled']
+            if isinstance(val, str):
+                val = val.lower() in ('true', '1', 'yes', 'on')
+            academy.personal_chat_file_upload_enabled = bool(val)
+            update_fields.append('personal_chat_file_upload_enabled')
+
+        if 'community_chat_file_upload_enabled' in request.data:
+            val = request.data['community_chat_file_upload_enabled']
+            if isinstance(val, str):
+                val = val.lower() in ('true', '1', 'yes', 'on')
+            academy.community_chat_file_upload_enabled = bool(val)
+            update_fields.append('community_chat_file_upload_enabled')
+
+        if update_fields:
+            academy.save(update_fields=update_fields)
+
+        return api_response(data={
+            "hls_video_enabled": academy.hls_video_enabled,
+            "personal_chat_file_upload_enabled": academy.personal_chat_file_upload_enabled,
+            "community_chat_file_upload_enabled": academy.community_chat_file_upload_enabled,
+            "academy_id": str(academy.id),
+        }, message="Academy settings updated successfully.")

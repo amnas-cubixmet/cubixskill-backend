@@ -3,9 +3,25 @@ from .views import (
     RegisterStudentView, RegisterAcademyView, LoginView, VerifyEmailView, ResendVerificationView,
     SetupPasswordView, ForgotPasswordView, ResetPasswordView, ChangePasswordView,
     LogoutView, CurrentUserView, TokenValidateView, ResendSetupEmailView, ResendVerificationEmailView,
-    CookieTokenRefreshView
+    CookieTokenRefreshView,
+    StudentLoginView, StudentCookieTokenRefreshView, StudentLogoutView, StudentCurrentUserView,
+    InstructorLoginView, InstructorCookieTokenRefreshView, InstructorLogoutView, InstructorCurrentUserView
 )
+
 urlpatterns = [
+    # Dedicated Student Auth Endpoints
+    path('student/login/', StudentLoginView.as_view(), name='auth-student-login'),
+    path('student/refresh/', StudentCookieTokenRefreshView.as_view(), name='auth-student-refresh'),
+    path('student/logout/', StudentLogoutView.as_view(), name='auth-student-logout'),
+    path('student/me/', StudentCurrentUserView.as_view(), name='auth-student-me'),
+
+    # Dedicated Instructor Auth Endpoints
+    path('instructor/login/', InstructorLoginView.as_view(), name='auth-instructor-login'),
+    path('instructor/refresh/', InstructorCookieTokenRefreshView.as_view(), name='auth-instructor-refresh'),
+    path('instructor/logout/', InstructorLogoutView.as_view(), name='auth-instructor-logout'),
+    path('instructor/me/', InstructorCurrentUserView.as_view(), name='auth-instructor-me'),
+
+    # Generic & Public Auth Endpoints
     path('register/academy/', RegisterAcademyView.as_view(), name='auth-register-academy'),
     path('register/student/', RegisterStudentView.as_view(), name='auth-register-student'),
 
@@ -24,3 +40,4 @@ urlpatterns = [
     path('logout/', LogoutView.as_view(), name='auth-logout'),
     path('me/', CurrentUserView.as_view(), name='auth-me'),
 ]
+

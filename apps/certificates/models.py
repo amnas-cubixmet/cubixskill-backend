@@ -55,6 +55,56 @@ class CertificateStatus(models.TextChoices):
     REISSUED = 'REISSUED', 'Reissued'
     VOID = 'VOID', 'Void'
 
+class FontSourceChoices(models.TextChoices):
+    SYSTEM = 'SYSTEM', 'System Default Font'
+    ACADEMY = 'ACADEMY', 'Academy Uploaded Font'
+
+#--------------------------------------------------------------
+# CertificateFont
+#--------------------------------------------------------------
+
+class CertificateFont(BaseModel, ActiveMixin):
+    academy = models.ForeignKey(
+        'academy.Academy',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='uploaded_certificate_fonts'
+    )
+    key = models.CharField(max_length=100, db_index=True)
+    name = models.CharField(max_length=255)
+    family = models.CharField(max_length=255)
+    source = models.CharField(
+        max_length=20,
+        choices=FontSourceChoices.choices,
+        default=FontSourceChoices.SYSTEM
+    )
+    user_rights_confirmed = models.BooleanField(default=False)
+    media_file = models.ForeignKey(
+        'storage.MediaFile',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+'
+    )
+    file_url = models.CharField(max_length=500, blank=True, default='')
+    font_weight_variants = models.JSONField(default=list)
+    is_certificate_safe = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        'users_roles.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+'
+    )
+
+    class Meta:
+        db_table = 'certificate_fonts'
+        ordering = ['source', 'name']
+
+    def __str__(self):
+        return f"{self.name} ({self.source})"
+
 #--------------------------------------------------------------
 # IssueLogEventType
 #--------------------------------------------------------------

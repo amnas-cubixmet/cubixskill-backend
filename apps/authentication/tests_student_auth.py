@@ -108,67 +108,107 @@ class CookieJWTAuthTestCase(TestCase):
             status=AcademyStatus.ACTIVE,
             is_active=True
         )
-        self.user = User.objects.create_user(
+        self.student_user = User.objects.create_user(
             email="cookie_student@example.com",
             full_name="Cookie Student",
             password="securepassword123",
+            role_code="STUDENT",
+            academy=self.academy,
+            is_email_verified=True,
+            password_setup_completed=True,
+            is_active=True
+        )
+        self.instructor_user = User.objects.create_user(
+            email="cookie_instructor@example.com",
+            full_name="Cookie Instructor",
+            password="securepassword123",
+            role_code="ACADEMY_ADMIN",
             academy=self.academy,
             is_email_verified=True,
             password_setup_completed=True,
             is_active=True
         )
 
-    def test_cookie_login_sets_httponly_cookies(self):
-        response = self.client.post('/api/v1/auth/login/', data={
+    def test_student_login_sets_student_cookies(self):
+        response = self.client.post('/api/v1/auth/student/login/', data={
             "email": "cookie_student@example.com",
             "password": "securepassword123"
         }, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('access_token', response.cookies)
-        self.assertIn('refresh_token', response.cookies)
-        self.assertTrue(response.cookies['access_token']['httponly'])
-        self.assertTrue(response.cookies['refresh_token']['httponly'])
+        self.assertIn('student_access_token', response.cookies)
+        self.assertIn('student_refresh_token', response.cookies)
+        self.assertTrue(response.cookies['student_access_token']['httponly'])
+        self.assertTrue(response.cookies['student_refresh_token']['httponly'])
 
-    def test_auth_me_with_cookie(self):
-        login_res = self.client.post('/api/v1/auth/login/', data={
+    def test_instructor_login_sets_instructor_cookies(self):
+        response = self.client.post('/api/v1/auth/instructor/login/', data={
+            "email": "cookie_instructor@example.com",
+            "password": "securepassword123"
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('instructor_access_token', response.cookies)
+        self.assertIn('instructor_refresh_token', response.cookies)
+        self.assertTrue(response.cookies['instructor_access_token']['httponly'])
+        self.assertTrue(response.cookies['instructor_refresh_token']['httponly'])
+
+    def test_student_cannot_login_to_instructor_portal(self):
+        response = self.client.post('/api/v1/auth/instructor/login/', data={
             "email": "cookie_student@example.com",
             "password": "securepassword123"
         }, format='json')
-        access_cookie = login_res.cookies['access_token'].value
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        self.client.cookies['access_token'] = access_cookie
-        response = self.client.get('/api/v1/auth/me/')
+    def test_instructor_cannot_login_to_student_portal(self):
+        response = self.client.post('/api/v1/auth/student/login/', data={
+            "email": "cookie_instructor@example.com",
+            "password": "securepassword123"
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['data']['user']['email'], "cookie_student@example.com")
-
-    def test_cookie_token_refresh(self):
-        login_res = self.client.post('/api/v1/auth/login/', data={
+    def test_concurrent_sessions_and_independent_logout(self):
+        # 1. Login student
+        student_res = self.client.post('/api/v1/auth/student/login/', data={
             "email": "cookie_student@example.com",
             "password": "securepassword123"
         }, format='json')
-        refresh_cookie = login_res.cookies['refresh_token'].value
+        student_access = student_res.cookies['student_access_token'].value
+        student_refresh = student_res.cookies['student_refresh_token'].value
 
-        self.client.cookies['refresh_token'] = refresh_cookie
-        response = self.client.post('/api/v1/auth/token/refresh/')
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('access_token', response.cookies)
-        self.assertTrue(response.cookies['access_token']['httponly'])
-
-    def test_cookie_logout_clears_cookies(self):
-        login_res = self.client.post('/api/v1/auth/login/', data={
-            "email": "cookie_student@example.com",
+        # 2. Login instructor
+        instructor_res = self.client.post('/api/v1/auth/instructor/login/', data={
+            "email": "cookie_instructor@example.com",
             "password": "securepassword123"
         }, format='json')
-        self.client.cookies['access_token'] = login_res.cookies['access_token'].value
-        self.client.cookies['refresh_token'] = login_res.cookies['refresh_token'].value
+        instructor_access = instructor_res.cookies['instructor_access_token'].value
+        instructor_refresh = instructor_res.cookies['instructor_refresh_token'].value
 
-        response = self.client.post('/api/v1/auth/logout/')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Set both cookies on client
+        self.client.cookies['student_access_token'] = student_access
+        self.client.cookies['student_refresh_token'] = student_refresh
+        self.client.cookies['instructor_access_token'] = instructor_access
+        self.client.cookies['instructor_refresh_token'] = instructor_refresh
 
-        # Confirm cookies are deleted (expired or empty)
-        self.assertEqual(response.cookies['access_token'].value, '')
-        self.assertEqual(response.cookies['refresh_token'].value, '')
+        # Student /me/ returns student user
+        res_stud_me = self.client.get('/api/v1/auth/student/me/')
+        self.assertEqual(res_stud_me.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_stud_me.data['data']['user']['email'], "cookie_student@example.com")
+
+        # Instructor /me/ returns instructor user
+        res_inst_me = self.client.get('/api/v1/auth/instructor/me/')
+        self.assertEqual(res_inst_me.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_inst_me.data['data']['user']['email'], "cookie_instructor@example.com")
+
+        # Logout student
+        logout_stud = self.client.post('/api/v1/auth/student/logout/')
+        self.assertEqual(logout_stud.status_code, status.HTTP_200_OK)
+        self.assertEqual(logout_stud.cookies['student_access_token'].value, '')
+        self.client.cookies.pop('student_access_token', None)
+
+        # Instructor tab remains valid!
+        res_inst_still_ok = self.client.get('/api/v1/auth/instructor/me/')
+        self.assertEqual(res_inst_still_ok.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_inst_still_ok.data['data']['user']['email'], "cookie_instructor@example.com")
+
 

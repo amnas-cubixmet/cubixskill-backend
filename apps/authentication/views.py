@@ -27,6 +27,7 @@ from emails.services import (
 )
 from core.utils import CubixSkillAPIException, api_response
 from .cookies import set_auth_cookies, delete_auth_cookies
+from .authentication import StudentCookieJWTAuthentication, InstructorCookieJWTAuthentication
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,14 @@ def mask_email(email: str) -> str:
     else:
         masked_name = name[:2] + '*' * (len(name) - 2)
     return f"{masked_name}@{domain}"
+
+
+def create_portal_token(user, portal='student'):
+    refresh = RefreshToken.for_user(user)
+    refresh['portal'] = portal
+    refresh.access_token['portal'] = portal
+    return refresh
+
 
 
 class RegisterAcademyView(APIView):
@@ -295,11 +304,22 @@ class ResendSetupEmailView(APIView):
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    portal = None
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+
+        portal = self.portal or request.data.get('portal') or request.headers.get('X-Portal')
+        if not portal:
+            path = request.path_info.lower()
+            if '/student/' in path:
+                portal = 'student'
+            elif '/instructor/' in path:
+                portal = 'instructor'
+            else:
+                portal = 'student'
 
         email = data['email'].strip().lower()
         password = data['password']
@@ -341,13 +361,36 @@ class LoginView(APIView):
                 status_code=status.HTTP_403_FORBIDDEN
             )
 
-        refresh = RefreshToken.for_user(user)
+        # Enforce portal role restrictions
+        if portal == 'student':
+            if user.role_code != SystemRoleCode.STUDENT:
+                raise CubixSkillAPIException(
+                    "This account is not authorized to log into the Student Portal.",
+                    code="STUDENT_ROLE_REQUIRED",
+                    status_code=status.HTTP_403_FORBIDDEN
+                )
+        elif portal == 'instructor':
+            instructor_roles = {
+                SystemRoleCode.ACADEMY_ADMIN,
+                SystemRoleCode.ACADEMY_STAFF,
+                SystemRoleCode.SUPER_ADMIN,
+                SystemRoleCode.SUPER_ADMIN_STAFF,
+            }
+            if user.role_code not in instructor_roles:
+                raise CubixSkillAPIException(
+                    "This account is not authorized to log into the Instructor Portal.",
+                    code="INSTRUCTOR_ROLE_REQUIRED",
+                    status_code=status.HTTP_403_FORBIDDEN
+                )
+
+        refresh = create_portal_token(user, portal=portal)
         user.last_login = timezone.now()
         user.save(update_fields=['last_login'])
 
         resp = api_response({
             'refresh': str(refresh),
             'access': str(refresh.access_token),
+            'portal': portal,
             'user': {
                 'id': str(user.id),
                 'email': user.email,
@@ -357,7 +400,16 @@ class LoginView(APIView):
                 'academy_uuid': str(user.academy.pk) if user.academy else None
             }
         })
-        return set_auth_cookies(resp, str(refresh.access_token), str(refresh))
+        return set_auth_cookies(resp, str(refresh.access_token), str(refresh), portal=portal)
+
+
+class StudentLoginView(LoginView):
+    portal = 'student'
+
+
+class InstructorLoginView(LoginView):
+    portal = 'instructor'
+
 
 
 #--------------------------------------------------------------
@@ -485,11 +537,13 @@ class SetupPasswordView(APIView):
 
         send_password_changed_email(user=user)
 
-        refresh = RefreshToken.for_user(user)
+        portal = 'student' if user.role_code == SystemRoleCode.STUDENT else 'instructor'
+        refresh = create_portal_token(user, portal=portal)
 
         resp = api_response({
             'refresh': str(refresh),
             'access': str(refresh.access_token),
+            'portal': portal,
             'user': {
                 'id': str(user.id),
                 'email': user.email,
@@ -498,8 +552,8 @@ class SetupPasswordView(APIView):
                 'academy_id': str(user.academy.id) if user.academy else None,
                 'academy_uuid': str(user.academy.pk) if user.academy else None
             }
-        }, message="Password created successfully. Your student account is ready.")
-        return set_auth_cookies(resp, str(refresh.access_token), str(refresh))
+        }, message="Password created successfully. Your account is ready.")
+        return set_auth_cookies(resp, str(refresh.access_token), str(refresh), portal=portal)
 
 
 class ForgotPasswordView(APIView):
@@ -543,11 +597,13 @@ class ResetPasswordView(APIView):
             user.last_login = timezone.now()
             user.save(update_fields=['last_login'])
 
-        refresh = RefreshToken.for_user(user)
+        portal = 'student' if user.role_code == SystemRoleCode.STUDENT else 'instructor'
+        refresh = create_portal_token(user, portal=portal)
 
         resp = api_response({
             'access': str(refresh.access_token),
             'refresh': str(refresh),
+            'portal': portal,
             'user': {
                 'id': str(user.id),
                 'email': user.email,
@@ -557,7 +613,7 @@ class ResetPasswordView(APIView):
                 'academy_uuid': str(user.academy.pk) if user.academy else None
             }
         }, message="Password reset successfully.")
-        return set_auth_cookies(resp, str(refresh.access_token), str(refresh))
+        return set_auth_cookies(resp, str(refresh.access_token), str(refresh), portal=portal)
 
 
 class ChangePasswordView(APIView):
@@ -590,15 +646,33 @@ class ChangePasswordView(APIView):
 
 class CookieTokenRefreshView(APIView):
     permission_classes = [AllowAny]
+    portal = None
 
     def post(self, request):
-        raw_refresh = request.COOKIES.get("refresh_token") or request.data.get("refresh")
+        portal = self.portal or request.data.get('portal') or request.headers.get('X-Portal')
+        if not portal:
+            path = request.path_info.lower()
+            if '/student/' in path:
+                portal = 'student'
+            elif '/instructor/' in path:
+                portal = 'instructor'
+            else:
+                portal = 'student'
+
+        cookie_key = f"{portal}_refresh_token"
+        raw_refresh = request.COOKIES.get(cookie_key) or request.COOKIES.get("refresh_token") or request.data.get("refresh")
         if not raw_refresh:
             raise CubixSkillAPIException("Refresh token is required.", code="TOKEN_REQUIRED", status_code=status.HTTP_401_UNAUTHORIZED)
 
         try:
             token = RefreshToken(raw_refresh)
+            token_portal = token.get("portal")
+            if token_portal and token_portal != portal:
+                raise CubixSkillAPIException("Invalid portal refresh token.", code="TOKEN_INVALID", status_code=status.HTTP_401_UNAUTHORIZED)
+
+            token['portal'] = portal
             new_access = token.access_token
+            new_access['portal'] = portal
             new_refresh = None
 
             simple_jwt_settings = getattr(settings, 'SIMPLE_JWT', {})
@@ -618,17 +692,37 @@ class CookieTokenRefreshView(APIView):
             else:
                 new_refresh = raw_refresh
 
-            resp = api_response({"detail": "Access token refreshed."})
-            return set_auth_cookies(resp, str(new_access), str(new_refresh))
+            resp = api_response({"detail": "Access token refreshed.", "portal": portal})
+            return set_auth_cookies(resp, str(new_access), str(new_refresh), portal=portal)
         except TokenError as e:
             raise CubixSkillAPIException("Invalid or expired refresh token.", code="TOKEN_INVALID", status_code=status.HTTP_401_UNAUTHORIZED)
 
 
+class StudentCookieTokenRefreshView(CookieTokenRefreshView):
+    portal = 'student'
+
+
+class InstructorCookieTokenRefreshView(CookieTokenRefreshView):
+    portal = 'instructor'
+
+
 class LogoutView(APIView):
     permission_classes = [AllowAny]
+    portal = None
 
     def post(self, request):
-        refresh_token = request.COOKIES.get('refresh_token') or request.data.get('refresh')
+        portal = self.portal or request.data.get('portal') or request.headers.get('X-Portal')
+        if not portal:
+            path = request.path_info.lower()
+            if '/student/' in path:
+                portal = 'student'
+            elif '/instructor/' in path:
+                portal = 'instructor'
+            else:
+                portal = 'student'
+
+        cookie_key = f"{portal}_refresh_token"
+        refresh_token = request.COOKIES.get(cookie_key) or request.COOKIES.get('refresh_token') or request.data.get('refresh')
         if refresh_token:
             try:
                 token = RefreshToken(refresh_token)
@@ -637,7 +731,15 @@ class LogoutView(APIView):
             except Exception:
                 pass
         resp = api_response(message="Successfully logged out.")
-        return delete_auth_cookies(resp)
+        return delete_auth_cookies(resp, portal=portal)
+
+
+class StudentLogoutView(LogoutView):
+    portal = 'student'
+
+
+class InstructorLogoutView(LogoutView):
+    portal = 'instructor'
 
 
 class CurrentUserView(APIView):
@@ -693,3 +795,12 @@ class CurrentUserView(APIView):
             "features": features,
             "demo_status": demo_status
         })
+
+
+class StudentCurrentUserView(CurrentUserView):
+    authentication_classes = [StudentCookieJWTAuthentication]
+
+
+class InstructorCurrentUserView(CurrentUserView):
+    authentication_classes = [InstructorCookieJWTAuthentication]
+

@@ -21,7 +21,11 @@ class StorageMeteringService:
     @classmethod
     @transaction.atomic
     def get_or_create_account(cls, academy_uuid) -> AcademyStorageAccount:
-        account, _ = AcademyStorageAccount.objects.select_for_update().get_or_create(
+        from django.db import connection
+        qs = AcademyStorageAccount.objects
+        if connection.vendor != 'sqlite':
+            qs = qs.select_for_update()
+        account, _ = qs.get_or_create(
             academy_uuid=academy_uuid,
             defaults={'current_usage_bytes': 0, 'billing_enabled': True, 'metering_enabled_at': timezone.now()}
         )
