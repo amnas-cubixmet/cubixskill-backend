@@ -6,17 +6,21 @@ logger = logging.getLogger(__name__)
 class EmailService:
     @staticmethod
     def send_email(to_email: str, subject: str, body: str):
-        logger.info(f"Sending email to {to_email}: {subject}")
-        from emails.services import send_transactional_email
-        return send_transactional_email(recipient=to_email, template_name="base", subject=subject, context={"body": body})
+        logger.info(f"Queuing email for {to_email}: {subject}")
+        from emails.outbox_service import EmailJobService
+        return EmailJobService.create_transactional_job(
+            recipient_email=to_email,
+            subject=subject,
+            template_name="base",
+            context={"body": body}
+        )
 
     @classmethod
     def send_transactional(cls, recipient: str, template_code: str, subject: str, context: dict = None, user=None, academy=None, idempotency_key: str = None, **kwargs):
-        from emails.services import send_transactional_email
+        from emails.outbox_service import EmailJobService
         ctx = context or {}
         body = ctx.get('body', subject)
         ctx['body'] = body
-        # Map template_code to template file name if applicable
         template_map = {
             "ACADEMY_ACCOUNT_SETUP": "academy_activation",
             "PASSWORD_RESET": "password_reset",
@@ -24,11 +28,18 @@ class EmailService:
             "EMAIL_VERIFICATION": "verification"
         }
         template_name = template_map.get(template_code, "base")
-        return send_transactional_email(
-            recipient=recipient,
-            template_name=template_name,
+        acad_id = academy.id if academy else (getattr(user, 'academy_id', None) if user else None)
+        u_id = user.id if user else None
+        u_name = getattr(user, 'full_name', '') if user else ''
+        return EmailJobService.create_transactional_job(
+            recipient_email=recipient,
             subject=subject,
-            context=ctx
+            template_name=template_name,
+            context=ctx,
+            academy_uuid=acad_id,
+            recipient_user_uuid=u_id,
+            recipient_name=u_name,
+            idempotency_key=idempotency_key
         )
 
 

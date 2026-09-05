@@ -10,6 +10,9 @@ from fees.views import (
     CourseFeePaymentsLedgerView,
     GlobalFeeSummaryView,
     GlobalStudentFeeAccountListView,
+    StudentOwnFeeAccountListView,
+    StudentFeeCheckoutOrderView,
+    StudentFeeVerifyPaymentView,
 )
 
 # --------------------------------------------------------------
@@ -22,6 +25,11 @@ urlpatterns = [
     # Global Academy endpoints
     path('summary/', GlobalFeeSummaryView.as_view(), name='global-fee-summary'),
     path('accounts/', GlobalStudentFeeAccountListView.as_view(), name='global-fee-accounts'),
+
+    # Student portal endpoints
+    path('my-accounts/', StudentOwnFeeAccountListView.as_view(), name='student-fee-accounts'),
+    path('my-accounts/<uuid:account_id>/checkout/', StudentFeeCheckoutOrderView.as_view(), name='student-fee-checkout'),
+    path('my-accounts/<uuid:account_id>/verify/', StudentFeeVerifyPaymentView.as_view(), name='student-fee-verify'),
 
     # Course-level endpoints
     path('courses/<uuid:course_id>/summary/', CourseFeeSummaryView.as_view(), name='fee-summary'),

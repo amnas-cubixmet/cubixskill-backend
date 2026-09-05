@@ -30,6 +30,8 @@ class EmailJobService:
     ) -> EmailJob:
         """
         Atomically creates a durable EmailJob record in the DB outbox.
+        If scheduled_for is due immediately (<= now), enqueues process_email_job_task
+        via transaction.on_commit to ensure immediate Celery processing.
         """
         now = timezone.now()
         sched_time = scheduled_for or now
@@ -52,6 +54,61 @@ class EmailJobService:
             metadata=metadata or {}
         )
         logger.info(f"Created durable EmailJob {job.id} ({job_type}) scheduled for {sched_time}")
+
+        # Immediate dispatch nudge via Celery on transaction commit if due
+        if sched_time <= now:
+            job_id_str = str(job.id)
+            def _enqueue_immediate():
+                try:
+                    from emails.tasks import process_email_job_task
+                    process_email_job_task.delay(job_id_str)
+                    logger.info(f"Enqueued immediate EmailJob {job_id_str} to Celery worker.")
+                except Exception as exc:
+                    logger.warning(f"Could not immediately enqueue EmailJob {job_id_str} to Celery; remains PENDING for Beat dispatcher: {exc}")
+            transaction.on_commit(_enqueue_immediate)
+
+        return job
+
+    @classmethod
+    @transaction.atomic
+    def create_transactional_job(
+        cls,
+        recipient_email: str,
+        subject: str,
+        template_name: str,
+        context: Optional[dict] = None,
+        academy_uuid=None,
+        job_type: str = EmailJobType.TRANSACTIONAL,
+        recipient_user_uuid=None,
+        recipient_name: str = "",
+        idempotency_key: Optional[str] = None
+    ) -> EmailJob:
+        """
+        Creates a single-recipient transactional EmailJob with immediate Celery dispatch.
+        """
+        merged_meta = dict(context or {})
+        merged_meta.update({
+            "recipient_email": recipient_email,
+            "recipient_user_uuid": str(recipient_user_uuid) if recipient_user_uuid else None,
+            "recipient_name": recipient_name,
+        })
+        job = cls.create_job(
+            academy_uuid=academy_uuid,
+            job_type=job_type,
+            subject=subject,
+            template_name=template_name,
+            idempotency_key=idempotency_key,
+            metadata=merged_meta
+        )
+
+        EmailRecipientDelivery.objects.get_or_create(
+            job=job,
+            recipient_email=recipient_email,
+            defaults={
+                'recipient_user_uuid': recipient_user_uuid,
+                'status': EmailJobStatus.PENDING
+            }
+        )
         return job
 
     @classmethod
@@ -150,12 +207,12 @@ class EmailJobService:
     @classmethod
     def process_email_job(cls, job_id: str) -> bool:
         """
-        Worker delivery engine:
+        Worker delivery engine (runs strictly inside Celery worker):
         1. Row locks the EmailJob record to prevent duplicate worker execution.
         2. Validates job status and reference domain object.
         3. Dynamically resolves active eligible recipients at send time.
         4. Calculates and charges Email Credit cost via CreditService.
-        5. Dispatches email batches via EmailService.
+        5. Dispatches email batches via send_transactional_email.
         6. Updates EmailJob and recipient delivery records.
         """
         with transaction.atomic():
@@ -207,35 +264,51 @@ class EmailJobService:
                     job.save(update_fields=['status', 'last_error'])
                     return False
 
-                # Debit Credits idempotently via central CreditsService
+                # Debit Credits idempotently via central CreditsService using STABLE idempotency key across retries
                 try:
                     CreditsService.debit(
                         academy=academy,
                         amount=total_required_credits,
                         source_type=CreditSourceType.EMAIL_USAGE,
-                        idempotency_key=f"EMAIL_JOB_DEBIT_{job.id}_ATTEMPT_{job.attempt_count}",
+                        idempotency_key=f"EMAIL_JOB_DEBIT_{job.id}",
                         description=f"Email dispatch: {job.job_type} ({len(recipients)} recipients)",
                         reference_type='EMAIL_JOB',
                         reference_id=str(job.id)
                     )
                 except Exception as e:
                     logger.error(f"Credit debit failed for EmailJob {job.id}: {e}")
+                    job.status = EmailJobStatus.FAILED
+                    job.last_error = f"CREDIT_DEBIT_FAILED: {str(e)}"
+                    job.save(update_fields=['status', 'last_error'])
+                    return False
 
-        # Send Batch Emails
+        # Identify already SENT recipients to prevent double-sending on retries
+        already_sent_emails = set(
+            EmailRecipientDelivery.objects.filter(
+                job=job, status=EmailJobStatus.SENT
+            ).values_list('recipient_email', flat=True)
+        )
+
         sent_count = 0
         failed_count = 0
 
         for r_user_id, r_email, r_name in recipients:
-            context = {
-                "user_name": r_name,
+            if r_email in already_sent_emails:
+                sent_count += 1
+                continue
+
+            context = dict(job.metadata or {})
+            context.update({
+                "user_name": r_name or context.get("user_name", "User"),
                 "session_title": job.metadata.get("session_title", ""),
                 "start_at": job.metadata.get("start_at", ""),
                 "meeting_link": job.metadata.get("meeting_link", ""),
                 "subject": job.subject
-            }
+            })
+
             success = send_transactional_email(
                 recipient=r_email,
-                template_name=job.template_name or "live_session_created",
+                template_name=job.template_name or "base",
                 subject=job.subject,
                 context=context
             )
@@ -259,27 +332,27 @@ class EmailJobService:
 
         now = timezone.now()
 
-        if failed_count == 0 or sent_count > 0:
+        if failed_count == 0:
             job.status = EmailJobStatus.SENT
             job.completed_at = now
-            job.last_error = f"Sent to {sent_count} recipients successfully." if failed_count == 0 else f"Sent: {sent_count}, Failed: {failed_count}"
+            job.last_error = f"Sent to {sent_count} recipients successfully."
             job.save(update_fields=['status', 'completed_at', 'last_error'])
             logger.info(f"EmailJob {job.id} completed. Sent: {sent_count}, Failed: {failed_count}")
             return True
         else:
-            # Handle Retry with Exponential Backoff
+            # Handle Retry with Exponential Backoff if failed count > 0
             if job.attempt_count < job.max_attempts:
                 backoff_minutes = int(math.pow(2, job.attempt_count))
                 next_retry = now + timedelta(minutes=backoff_minutes)
                 job.status = EmailJobStatus.PENDING
                 job.next_retry_at = next_retry
-                job.last_error = f"Attempt {job.attempt_count} failed. Next retry at {next_retry}"
+                job.last_error = f"Attempt {job.attempt_count}: {sent_count} sent, {failed_count} failed. Next retry at {next_retry}"
                 job.save(update_fields=['status', 'next_retry_at', 'last_error'])
                 logger.warning(f"EmailJob {job.id} failed attempt {job.attempt_count}. Retrying at {next_retry}")
             else:
                 job.status = EmailJobStatus.FAILED
                 job.completed_at = now
-                job.last_error = f"Max attempts ({job.max_attempts}) reached. Delivery failed."
+                job.last_error = f"Max attempts ({job.max_attempts}) reached. {sent_count} sent, {failed_count} failed."
                 job.save(update_fields=['status', 'completed_at', 'last_error'])
                 logger.error(f"EmailJob {job.id} permanently FAILED after {job.attempt_count} attempts.")
             return False
@@ -289,6 +362,14 @@ class EmailJobService:
         """
         Dynamically resolves recipient (user_id, email, full_name) tuples for a job at send time.
         """
+        # 1. Single Transactional Recipient directly in job metadata
+        if job.metadata and job.metadata.get("recipient_email"):
+            r_email = job.metadata["recipient_email"]
+            r_name = job.metadata.get("recipient_name") or job.metadata.get("user_name", "")
+            r_uuid = job.metadata.get("recipient_user_uuid")
+            return [(r_uuid, r_email, r_name)]
+
+        # 2. LiveSession Course Enrollees
         if job.reference_type == "LiveSession" and job.reference_id:
             from live_classes.models import LiveSession, LiveStatus
             session = LiveSession.objects.select_related('course').filter(id=job.reference_id).first()
@@ -296,7 +377,6 @@ class EmailJobService:
                 logger.info(f"LiveSession {job.reference_id} is cancelled or ended. No recipients resolved.")
                 return []
 
-            # Find enrolled students for the course
             from enrollments.models import Enrollment
             enrollments = Enrollment.objects.filter(
                 course=session.course,

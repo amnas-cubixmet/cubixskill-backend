@@ -1,0 +1,62 @@
+{% extends "control_panel/base.html" %}
+
+{% block content %}
+<div class="cp-page-header">
+  <div class="cp-header-title">
+    <h2>Invoice Breakdown</h2>
+    <p class="cp-subtitle">Invoice ID: {{ invoice.id }} ({{ invoice.academy.name }})</p>
+  </div>
+  <a href="{% url 'control_panel:monthly_invoices_control' %}" class="cp-btn cp-btn-secondary">Back to Invoices</a>
+</div>
+
+<div class="cp-card mb-4">
+  <div class="cp-card-body" style="display:flex; justify-content:space-between;">
+    <div>
+      <p><strong>Academy:</strong> {{ invoice.academy.name }}</p>
+      <p><strong>Billing Month:</strong> {{ invoice.billing_period.period_start|date:"F Y" }}</p>
+      <p><strong>Status:</strong> <span class="cp-badge cp-badge-success">{{ invoice.status }}</span></p>
+    </div>
+    <div class="text-right">
+      <h4>Total Invoice Charged</h4>
+      <h2 style="color:#2563EB;">{{ invoice.total_credits }} Credits</h2>
+      <small class="text-muted">Finalized: {{ invoice.finalized_at|date:"Y-m-d H:i" }}</small>
+    </div>
+  </div>
+</div>
+
+<div class="cp-card">
+  <div class="cp-card-header">
+    <h3>Line Items Breakdown</h3>
+  </div>
+  <div class="cp-card-body">
+    <table class="cp-table">
+      <thead>
+        <tr>
+          <th>Item Type</th>
+          <th>Description</th>
+          <th>Quantity</th>
+          <th>Unit</th>
+          <th>Rate</th>
+          <th>Credits Charged</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in line_items %}
+        <tr>
+          <td><span class="cp-badge cp-badge-info">{{ item.item_type }}</span></td>
+          <td>{{ item.description }}</td>
+          <td>{{ item.quantity }}</td>
+          <td>{{ item.unit }}</td>
+          <td>{{ item.rate }} Credits</td>
+          <td><strong>{{ item.credits }} Credits</strong></td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6" class="text-center py-4">No line items recorded for this invoice.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -137,16 +137,47 @@ class LessonSerializer(serializers.ModelSerializer):
     quiz = QuizSerializer(read_only=True)
     assignment = AssignmentSerializer(read_only=True)
     resources = LessonResourceSerializer(many=True, read_only=True)
+    effective_locked = serializers.SerializerMethodField()
     question_count = serializers.SerializerMethodField()
+
+    media_file_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+    media_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+    content_source = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    content = serializers.JSONField(required=False, allow_null=True, write_only=True)
+    resources_payload = serializers.JSONField(required=False, allow_null=True, write_only=True)
 
     class Meta:
         model = Lesson
         fields = [
             'id', 'module', 'title', 'lesson_type', 'description', 'duration_minutes',
-            'is_demo', 'allow_download', 'external_url', 'video_url', 'audio_url', 'document_url', 'stream_url', 'original_url', 'processing_mode', 'order_index', 'is_active',
-            'media_files', 'primary_media', 'rich_text', 'quiz', 'assignment', 'resources', 'question_count', 'created_at'
+            'is_demo', 'is_locked', 'effective_locked', 'allow_download', 'external_url', 'video_url', 'audio_url', 'document_url', 'stream_url', 'original_url', 'processing_mode', 'order_index', 'is_active',
+            'media_files', 'primary_media', 'rich_text', 'quiz', 'assignment', 'resources', 'question_count', 'created_at',
+            'media_file_id', 'media_id', 'content_source', 'content', 'resources_payload'
         ]
         read_only_fields = ['id', 'module', 'created_at']
+
+    def get_effective_locked(self, obj):
+        course = getattr(getattr(obj, 'module', None), 'course', None)
+        if not course:
+            return False
+        from learning_progress.services import StudentCourseProgressionService
+        locking_enabled = StudentCourseProgressionService.is_lesson_locking_enabled(course)
+        if not locking_enabled:
+            return False
+
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if not user or not user.is_authenticated:
+            return getattr(obj, 'is_locked', False)
+
+        if getattr(user, 'is_staff', False) or (hasattr(course, 'academy') and course.academy and user == getattr(course.academy, 'owner', None)):
+            return False
+
+        progression = StudentCourseProgressionService.get_student_course_progression(user, course)
+        lesson_info = progression.get('lessons_map', {}).get(str(obj.id))
+        if lesson_info:
+            return not lesson_info.get('unlocked', True)
+        return getattr(obj, 'is_locked', False)
 
     def get_question_count(self, obj):
         if obj.lesson_type == 'QUIZ' and hasattr(obj, 'quiz') and obj.quiz:
@@ -236,7 +267,7 @@ class LessonCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Lesson
-        fields = ['title', 'lesson_type', 'description', 'duration_minutes', 'is_demo', 'allow_download', 'external_url', 'media_file_id', 'media_id', 'content_source', 'content', 'rich_text_content']
+        fields = ['title', 'lesson_type', 'description', 'duration_minutes', 'is_demo', 'is_locked', 'allow_download', 'external_url', 'media_file_id', 'media_id', 'content_source', 'content', 'rich_text_content']
 
     def validate(self, attrs):
         media_id = attrs.pop('media_id', None)

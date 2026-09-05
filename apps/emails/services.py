@@ -50,10 +50,11 @@ def send_transactional_email(
         return False
 
 
-def send_academy_activation_email(user, academy, raw_token: str, expiry_time: str = "24 hours") -> bool:
+def send_academy_activation_email(user, academy, raw_token: str, expiry_time: str = "24 hours"):
     """
-    Sends Academy Activation / Initial Admin Password Setup email.
+    Creates and enqueues an Academy Activation / Initial Admin Password Setup EmailJob.
     """
+    from emails.outbox_service import EmailJobService
     academy_uuid = str(academy.pk) if academy else None
     action_url = build_setup_password_url(raw_token, academy_uuid=academy_uuid)
     subject = SUBJECTS[EmailTemplateCodes.ACADEMY_ACTIVATION]
@@ -64,18 +65,22 @@ def send_academy_activation_email(user, academy, raw_token: str, expiry_time: st
         "expiry_time": expiry_time,
         "recipient_email": user.email,
     }
-    return send_transactional_email(
-        recipient=user.email,
-        template_name="academy_activation",
+    return EmailJobService.create_transactional_job(
+        recipient_email=user.email,
         subject=subject,
-        context=context
+        template_name="academy_activation",
+        context=context,
+        academy_uuid=academy_uuid,
+        recipient_user_uuid=getattr(user, 'id', None),
+        recipient_name=user.full_name or "Academy Admin"
     )
 
 
-def send_password_reset_email(user, raw_token: str, expiry_time: str = "1 hour") -> bool:
+def send_password_reset_email(user, raw_token: str, expiry_time: str = "1 hour"):
     """
-    Sends Password Reset link email.
+    Creates and enqueues a Password Reset EmailJob.
     """
+    from emails.outbox_service import EmailJobService
     target_academy = getattr(user, 'academy', None)
     academy_uuid = str(target_academy.pk) if target_academy else None
     action_url = build_reset_password_url(raw_token, academy_uuid=academy_uuid)
@@ -86,35 +91,45 @@ def send_password_reset_email(user, raw_token: str, expiry_time: str = "1 hour")
         "expiry_time": expiry_time,
         "recipient_email": user.email,
     }
-    return send_transactional_email(
-        recipient=user.email,
-        template_name="password_reset",
+    return EmailJobService.create_transactional_job(
+        recipient_email=user.email,
         subject=subject,
-        context=context
+        template_name="password_reset",
+        context=context,
+        academy_uuid=academy_uuid,
+        recipient_user_uuid=getattr(user, 'id', None),
+        recipient_name=user.full_name or "User"
     )
 
 
-def send_password_changed_email(user) -> bool:
+def send_password_changed_email(user):
     """
-    Sends Password Changed Confirmation email.
+    Creates and enqueues a Password Changed Confirmation EmailJob.
     """
+    from emails.outbox_service import EmailJobService
+    target_academy = getattr(user, 'academy', None)
+    academy_uuid = str(target_academy.pk) if target_academy else None
     subject = SUBJECTS[EmailTemplateCodes.PASSWORD_CHANGED]
     context = {
         "user_name": user.full_name or "User",
         "recipient_email": user.email,
     }
-    return send_transactional_email(
-        recipient=user.email,
-        template_name="password_changed",
+    return EmailJobService.create_transactional_job(
+        recipient_email=user.email,
         subject=subject,
-        context=context
+        template_name="password_changed",
+        context=context,
+        academy_uuid=academy_uuid,
+        recipient_user_uuid=getattr(user, 'id', None),
+        recipient_name=user.full_name or "User"
     )
 
 
-def send_verification_email(user, raw_token: str, academy=None) -> bool:
+def send_verification_email(user, raw_token: str, academy=None):
     """
-    Sends Email Verification link email.
+    Creates and enqueues an Email Verification EmailJob.
     """
+    from emails.outbox_service import EmailJobService
     target_academy = academy or getattr(user, 'academy', None)
     academy_uuid = str(target_academy.pk) if target_academy else None
     action_url = build_verify_email_url(raw_token, academy_uuid=academy_uuid)
@@ -126,18 +141,22 @@ def send_verification_email(user, raw_token: str, academy=None) -> bool:
         "recipient_email": user.email,
         "academy_name": academy_name,
     }
-    return send_transactional_email(
-        recipient=user.email,
-        template_name="verification",
+    return EmailJobService.create_transactional_job(
+        recipient_email=user.email,
         subject=subject,
-        context=context
+        template_name="verification",
+        context=context,
+        academy_uuid=academy_uuid,
+        recipient_user_uuid=getattr(user, 'id', None),
+        recipient_name=user.full_name or "User"
     )
 
 
-def send_student_activation_email(user, academy, raw_token: str, expiry_time: str = "24 hours") -> bool:
+def send_student_activation_email(user, academy, raw_token: str, expiry_time: str = "24 hours"):
     """
-    Sends Student Account Activation email.
+    Creates and enqueues a Student Account Activation EmailJob.
     """
+    from emails.outbox_service import EmailJobService
     academy_uuid = str(academy.pk) if academy else None
     action_url = build_setup_password_url(raw_token, academy_uuid=academy_uuid)
     academy_name = academy.name if academy else "CubixSkill Academy"
@@ -149,9 +168,12 @@ def send_student_activation_email(user, academy, raw_token: str, expiry_time: st
         "expiry_time": expiry_time,
         "recipient_email": user.email,
     }
-    return send_transactional_email(
-        recipient=user.email,
-        template_name="student_activation",
+    return EmailJobService.create_transactional_job(
+        recipient_email=user.email,
         subject=subject,
-        context=context
+        template_name="student_activation",
+        context=context,
+        academy_uuid=academy_uuid,
+        recipient_user_uuid=getattr(user, 'id', None),
+        recipient_name=user.full_name or "Student"
     )

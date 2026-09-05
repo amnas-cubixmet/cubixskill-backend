@@ -332,11 +332,13 @@ class CertificatePDFGenerator:
             raw_height = item.get('height', 0.08)
             container_height = float(raw_height) * page_height if isinstance(raw_height, (int, float)) and 0 <= raw_height <= 1 else float(raw_height)
 
-            base_max = item.get('font_size') or item.get('fontSize') or item.get('max_font_size') or item.get('maxFontSize')
-            configured_max = float(base_max) if base_max is not None else 32.0
-            configured_min = item.get('min_font_size') or item.get('minFontSize')
-            min_font_size = float(configured_min) if configured_min is not None else 1.0
+            base_max = item.get('maxFontSize') or item.get('max_font_size') or item.get('fontSize') or item.get('font_size')
+            configured_max = float(base_max) if base_max is not None else 56.0
+            configured_min = item.get('minFontSize') or item.get('min_font_size')
+            min_font_size = float(configured_min) if configured_min is not None else 12.0
             auto_fit = item.get('auto_fit', item.get('autoFit', True))
+            is_multiline = bool(item.get('multiline', False))
+            line_height = float(item.get('lineHeight') or item.get('line_height') or 1.0)
 
             padding_cfg = item.get('padding') or {}
             pad_l = float(padding_cfg.get('left', 2)) if isinstance(padding_cfg, dict) else 2.0
@@ -364,14 +366,38 @@ class CertificatePDFGenerator:
             color_hex = str(item.get('color', '#000000'))
             align = str(item.get('text_align', item.get('textAlign', 'center'))).lower()
 
-            # --- AUTOMATIC FONT FIT CALCULATOR (Width + Height scaling up to configured_max) ---
+            def test_text_fit(test_size: float) -> bool:
+                if not is_multiline:
+                    w = c.stringWidth(text_value, font_name, test_size)
+                    h = test_size * line_height
+                    return w <= avail_width and h <= avail_height
+                else:
+                    words = text_value.split()
+                    if not words:
+                        return True
+                    lines = 1
+                    cur_w = 0.0
+                    space_w = c.stringWidth(" ", font_name, test_size)
+                    for word in words:
+                        word_w = c.stringWidth(word, font_name, test_size)
+                        if word_w > avail_width:
+                            return False
+                        if cur_w == 0.0:
+                            cur_w = word_w
+                        elif cur_w + space_w + word_w <= avail_width:
+                            cur_w += space_w + word_w
+                        else:
+                            lines += 1
+                            cur_w = word_w
+                    tot_h = lines * test_size * line_height
+                    return tot_h <= avail_height
+
+            # --- AUTOMATIC FONT FIT CALCULATOR (Never exceeds configured_max, shrinks down to min_font_size) ---
             fitted_font_size = configured_max
             if auto_fit and avail_width > 0 and avail_height > 0:
                 cur_size = configured_max
                 while cur_size >= min_font_size:
-                    string_w = c.stringWidth(text_value, font_name, cur_size)
-                    string_h = cur_size * 1.0
-                    if string_w <= avail_width and string_h <= avail_height:
+                    if test_text_fit(cur_size):
                         fitted_font_size = cur_size
                         break
                     cur_size -= 0.5
@@ -397,13 +423,16 @@ class CertificatePDFGenerator:
             except Exception:
                 c.setFillColorRGB(0, 0, 0)
 
+            draw_y = clip_y + (container_height / 2.0) - (fitted_font_size * 0.35)
+
             if align == 'center':
-                c.drawCentredString(x, y, text_value)
+                c.drawCentredString(x, draw_y, text_value)
             elif align == 'right':
-                c.drawRightString(x, y, text_value)
+                right_x = clip_x + container_width - pad_r
+                c.drawRightString(right_x, draw_y, text_value)
             else:
                 left_x = clip_x + pad_l
-                c.drawString(left_x, y, text_value)
+                c.drawString(left_x, draw_y, text_value)
 
             c.restoreState()
 

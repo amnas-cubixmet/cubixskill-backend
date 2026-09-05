@@ -132,47 +132,6 @@ CHANNEL_LAYERS = {
     },
 }
 
-CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
-
-CELERY_TIMEZONE = 'UTC'
-CELERY_ENABLE_UTC = True
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = 30 * 60
-CELERY_WORKER_PREFETCH_MULTIPLIER = 1
-
-CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
-CELERY_BROKER_CONNECTION_MAX_RETRIES = 3
-CELERY_RESULT_BACKEND_MAX_RETRIES = 3
-
-CELERY_TASK_ROUTES = {
-    'emails.tasks.*': {'queue': 'email'},
-    'storage.tasks.*': {'queue': 'video_processing'},
-    'live_classes.tasks.*': {'queue': 'default'},
-}
-
-CELERY_BEAT_SCHEDULE = {
-    'dispatch-pending-email-jobs-every-minute': {
-        'task': 'emails.tasks.dispatch_pending_email_jobs',
-        'schedule': 60.0,
-    },
-    'process-pending-live-session-reminders-every-minute': {
-        'task': 'live_classes.tasks.process_pending_live_session_reminders',
-        'schedule': 60.0,
-    },
-    'update-live-session-statuses-every-minute': {
-        'task': 'live_classes.tasks.update_live_session_statuses',
-        'schedule': 60.0,
-    },
-    'cleanup-stuck-email-jobs-every-15-mins': {
-        'task': 'emails.tasks.cleanup_stuck_processing_jobs',
-        'schedule': 900.0,
-    },
-}
-
 # Storage Backend Selector (local vs s3/minio)
 STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'local' if DEBUG else 's3').lower()
 
@@ -221,9 +180,11 @@ EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply@cubixskill.com')
 
+# FFmpeg & FFprobe Configuration
+FFMPEG_BINARY = os.getenv('FFMPEG_BINARY', None)
+FFPROBE_BINARY = os.getenv('FFPROBE_BINARY', None)
+
 # CORS Configuration
-
-
 CORS_ALLOW_CREDENTIALS = True
 cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', '')
 if cors_origins_env:
@@ -262,6 +223,66 @@ FRONTEND_ACADEMY_URL = os.getenv('FRONTEND_ACADEMY_URL', 'http://localhost:5173'
 # Authentication Settings
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
+
+# --------------------------------------------------------------
+# Celery & Redis Task Queue Configuration
+# --------------------------------------------------------------
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/0')
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://127.0.0.1:6379/1')
+
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = True
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_CONNECTION_MAX_RETRIES = 3
+CELERY_RESULT_BACKEND_MAX_RETRIES = 3
+CELERY_RESULT_EXPIRES = 86400  # 24 hours
+
+CELERY_TASK_ROUTES = {
+    'emails.tasks.*': {'queue': 'email'},
+    'authentication.tasks.*': {'queue': 'email'},
+    'storage.meter_due_storage_usage': {'queue': 'default'},
+    'storage.debit_due_storage_billing_cycles': {'queue': 'default'},
+    'storage.tasks.process_video_transcoding_task': {'queue': 'video_processing'},
+    'certificates.tasks.*': {'queue': 'default'},
+    'enrollments.tasks.*': {'queue': 'default'},
+    'leads.tasks.*': {'queue': 'default'},
+    'live_classes.tasks.*': {'queue': 'default'},
+    'analytics_reports.tasks.*': {'queue': 'default'},
+}
+
+CELERY_BEAT_SCHEDULE = {
+    'dispatch-pending-email-jobs-every-minute': {
+        'task': 'emails.tasks.dispatch_pending_email_jobs',
+        'schedule': 60.0,
+    },
+    'process-pending-live-session-reminders-every-minute': {
+        'task': 'live_classes.tasks.process_pending_live_session_reminders',
+        'schedule': 60.0,
+    },
+    'update-live-session-statuses-every-minute': {
+        'task': 'live_classes.tasks.update_live_session_statuses',
+        'schedule': 60.0,
+    },
+    'cleanup-stuck-email-jobs-every-15-mins': {
+        'task': 'emails.tasks.cleanup_stuck_processing_jobs',
+        'schedule': 900.0,
+    },
+    'meter-due-storage-usage': {
+        'task': 'storage.meter_due_storage_usage',
+        'schedule': 10.0 if DEBUG else 60.0,
+    },
+    'debit-due-storage-billing-cycles': {
+        'task': 'storage.debit_due_storage_billing_cycles',
+        'schedule': 10.0 if DEBUG else 60.0,
+    },
+}
 
 
 

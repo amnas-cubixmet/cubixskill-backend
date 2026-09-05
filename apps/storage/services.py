@@ -4,6 +4,7 @@
 
 import uuid
 import logging
+from decimal import Decimal
 from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
@@ -22,7 +23,9 @@ from django.conf import settings
 
 def determine_media_category(mime_type: str) -> str:
     mime = (mime_type or '').lower()
-    if 'image' in mime:
+    if 'font' in mime or 'opentype' in mime or 'truetype' in mime or 'woff' in mime:
+        return 'fonts'
+    elif 'image' in mime:
         return 'images'
     elif 'video' in mime:
         return 'videos'
@@ -35,11 +38,14 @@ def determine_media_category(mime_type: str) -> str:
 def academy_media_upload_path(academy_uuid, mime_type: str, filename: str, course_uuid=None) -> tuple[str, str, str]:
     """
     Returns (storage_key, unique_filename, dest_path)
-    storage_key: relative Django media path, e.g. academies/<academy_uuid>/courses/<course_uuid>/images/<uuid>.jpg
+    storage_key: relative Django media path, e.g. academies/<academy_uuid>/fonts/<uuid>.otf
     """
     acad_str = str(academy_uuid) if academy_uuid else 'global'
-    category = determine_media_category(mime_type)
     safe_ext = (filename.split('.')[-1] if '.' in filename else 'bin').lower()
+    if safe_ext in ['ttf', 'otf', 'woff', 'woff2']:
+        category = 'fonts'
+    else:
+        category = determine_media_category(mime_type)
     unique_filename = f"{uuid.uuid4().hex}.{safe_ext}"
     if course_uuid:
         storage_key = f"academies/{acad_str}/courses/{course_uuid}/{category}/{unique_filename}"
@@ -63,7 +69,9 @@ class StorageService:
     @classmethod
     def deduce_media_type(cls, mime_type: str) -> str:
         mime = (mime_type or '').lower()
-        if 'image' in mime:
+        if 'font' in mime or 'opentype' in mime or 'truetype' in mime or 'woff' in mime:
+            return MediaType.FONT
+        elif 'image' in mime:
             return MediaType.IMAGE
         elif 'video' in mime:
             return MediaType.VIDEO
@@ -85,7 +93,8 @@ class StorageService:
         file_size_bytes: int,
         course_uuid=None,
         lesson_uuid=None,
-        hls_enabled_override=None
+        hls_enabled_override=None,
+        adaptive_streaming_enabled=True,
     ) -> MediaFile:
         """
         Directly upload binary media content to Django local MEDIA_ROOT folder inside per-Academy/per-Course directory.
@@ -116,6 +125,7 @@ class StorageService:
         from academy.models import Academy
         from control_panel.models import SystemSetting
         from storage.models import ProcessingMode, ProcessingStatus
+        from storage.utils import parse_bool
 
         global_hls = SystemSetting.get_bool('hls_streaming_enabled', default=True)
         academy_obj = None
@@ -128,18 +138,18 @@ class StorageService:
         academy_hls = academy_obj.hls_video_enabled if (academy_obj and hasattr(academy_obj, 'hls_video_enabled')) else True
 
         if hls_enabled_override is not None:
-            if isinstance(hls_enabled_override, str):
-                upload_hls_choice = hls_enabled_override.lower() in ('true', '1', 'yes', 'on')
-            else:
-                upload_hls_choice = bool(hls_enabled_override)
+            upload_hls_choice = parse_bool(hls_enabled_override, default=True)
         else:
             upload_hls_choice = academy_hls
 
-        effective_hls = global_hls and upload_hls_choice
-        is_video = (media_type == MediaType.VIDEO or (mime_type and mime_type.startswith('video/')))
+        is_video = (media_type == MediaType.VIDEO or (mime_type and mime_type.lower().startswith('video/')))
+        adaptive_flag = parse_bool(adaptive_streaming_enabled, default=True)
 
-        processing_mode = ProcessingMode.HLS if (is_video and effective_hls) else ProcessingMode.DIRECT
-        processing_status = ProcessingStatus.QUEUED if (is_video and effective_hls) else ProcessingStatus.READY
+        effective_hls = bool(is_video and global_hls and upload_hls_choice and adaptive_flag)
+
+        processing_mode = ProcessingMode.HLS if effective_hls else ProcessingMode.DIRECT
+        processing_status = ProcessingStatus.QUEUED if effective_hls else ProcessingStatus.READY
+        processing_progress = 5 if effective_hls else 100
 
         media_file = MediaFile.objects.create(
             academy_uuid=academy_uuid,
@@ -160,9 +170,10 @@ class StorageService:
             file_url=f"/media/{storage_key}",
             media_type=media_type,
             status=MediaStatus.ACTIVE,
+            adaptive_streaming_enabled=effective_hls,
             processing_mode=processing_mode,
             processing_status=processing_status,
-            processing_progress=5 if (is_video and global_hls) else 100,
+            processing_progress=processing_progress,
             uploaded_at=timezone.now()
         )
 
@@ -263,15 +274,29 @@ class StorageService:
         from storage.metering import StorageMeteringService
         StorageMeteringService.record_delete(media_file)
 
-        # 2. Safely remove physical local file from MEDIA_ROOT
+        # 2. Safely remove physical local file and derived HLS artifacts from MEDIA_ROOT
         if media_file.storage_key:
             local_path = os.path.join(settings.MEDIA_ROOT, media_file.storage_key)
             if os.path.exists(local_path):
                 try:
-                    os.remove(local_path)
-                    logger.info(f"Removed local media file '{local_path}'.")
+                    if os.path.isdir(local_path):
+                        import shutil
+                        shutil.rmtree(local_path)
+                    else:
+                        os.remove(local_path)
+                    logger.info(f"Removed local media file/directory '{local_path}'.")
                 except Exception as e:
                     logger.warning(f"Failed to remove local file '{local_path}': {e}")
+
+        # Safely remove derived HLS video directory if present
+        if media_file.storage_path:
+            dir_path = os.path.dirname(media_file.storage_path) if os.path.isfile(media_file.storage_path) else media_file.storage_path
+            if dir_path and os.path.exists(dir_path) and 'videos' in dir_path and dir_path != settings.MEDIA_ROOT:
+                try:
+                    import shutil
+                    shutil.rmtree(dir_path)
+                except Exception as e:
+                    logger.warning(f"Failed to remove derived HLS directory '{dir_path}': {e}")
 
         # 3. Update record
         if hard_delete:
@@ -296,3 +321,250 @@ class StorageService:
         """
         from storage.selectors import StorageSummarySelector
         return StorageSummarySelector.get_summary(academy_uuid)
+
+
+#--------------------------------------------------------------
+# Storage Settlement Service
+#--------------------------------------------------------------
+
+class StorageSettlementService:
+    @classmethod
+    @transaction.atomic
+    def settle_cycle(cls, cycle) -> tuple:
+        """
+        Performs ONE monthly storage credit settlement for the accumulated cycle.
+        Debits available credits up to cycle.accumulated_credits.
+        Does NOT allow negative credit balance.
+        Persists paid_amount, outstanding_amount, and settlement_status (PAID, PARTIALLY_PAID, UNPAID).
+        Closes old cycle and opens a new OPEN cycle.
+        """
+        from storage.models import StorageBillingCycle, StorageBillingCycleStatus, StorageSettlementStatus, StorageSettlementPayment
+        from credits.services import CreditService
+        from credits.models import CreditAccount, CreditSourceType, LedgerEntryType
+
+        if cycle.status in [StorageBillingCycleStatus.SETTLED, StorageBillingCycleStatus.DEBITED]:
+            return cycle, False
+
+        academy = cycle.academy
+        now = timezone.now()
+
+        # Lock credit account and cycle row
+        account = CreditAccount.objects.select_for_update().get(id=CreditService.get_or_create_account(academy).id)
+        cycle = StorageBillingCycle.objects.select_for_update().get(id=cycle.id)
+
+        if cycle.status in [StorageBillingCycleStatus.SETTLED, StorageBillingCycleStatus.DEBITED]:
+            return cycle, False
+
+        original_amount = cycle.accumulated_credits.quantize(Decimal("0.0000"))
+        available_credits = max(account.balance, Decimal("0.0000"))
+        paid = min(available_credits, original_amount)
+        outstanding = original_amount - paid
+
+        ledger_entry = None
+        if paid > Decimal("0.0000"):
+            start_str = cycle.cycle_start_at.strftime("%d %b %Y")
+            end_str = now.strftime("%d %b %Y")
+            description = f"Storage usage settlement from {start_str} to {end_str}"
+            idempotency_key = f"storage-settlement:{academy.id}:{cycle.id}"
+
+            ledger_entry = CreditService.debit(
+                academy=academy,
+                amount=paid,
+                source_type=CreditSourceType.STORAGE_USAGE,
+                idempotency_key=idempotency_key,
+                description=description,
+                reference_type="StorageBillingCycle",
+                reference_id=str(cycle.id),
+                allow_negative=False
+            )
+
+            StorageSettlementPayment.objects.get_or_create(
+                settlement=cycle,
+                ledger_entry=ledger_entry,
+                defaults={'amount': paid, 'paid_at': now}
+            )
+
+        cycle.original_amount = original_amount
+        cycle.paid_amount = paid
+        cycle.outstanding_amount = outstanding
+        cycle.credit_transaction = ledger_entry
+        cycle.debited_at = now
+        cycle.settled_at = now
+        cycle.cycle_end_at = now
+
+        if outstanding == Decimal("0.0000"):
+            cycle.settlement_status = StorageSettlementStatus.PAID
+        elif paid > Decimal("0.0000"):
+            cycle.settlement_status = StorageSettlementStatus.PARTIALLY_PAID
+        else:
+            cycle.settlement_status = StorageSettlementStatus.UNPAID
+
+        cycle.status = StorageBillingCycleStatus.SETTLED
+        cycle.save()
+
+        # Also sync StorageUsageCharge for legacy charge views
+        try:
+            from storage.models import StorageBillingSettings, StorageUsageCharge
+            settings_obj = StorageBillingSettings.get_settings()
+            latest_meter = cycle.meter_records.order_by('-metered_at').first()
+            last_used_bytes = latest_meter.used_bytes if latest_meter else 0
+            StorageUsageCharge.objects.update_or_create(
+                idempotency_key=cycle.idempotency_key,
+                defaults={
+                    'academy': academy,
+                    'academy_uuid': academy.id,
+                    'billing_started_at': cycle.cycle_start_at,
+                    'billing_ended_at': now,
+                    'interval': settings_obj.storage_billing_interval,
+                    'used_bytes': last_used_bytes,
+                    'rate_per_gb': settings_obj.storage_credit_rate_per_gb,
+                    'charged_credits': original_amount,
+                    'status': 'SUCCESS' if cycle.settlement_status == StorageSettlementStatus.PAID else 'PARTIALLY_PAID',
+                    'ledger_entry': ledger_entry
+                }
+            )
+        except Exception as sync_err:
+            logger.warning(f"StorageUsageCharge sync failed: {sync_err}")
+
+        # Create new OPEN cycle for future metering records
+        new_idempotency_key = f"storage-cycle:{academy.id}:{now.isoformat()}"
+        if StorageBillingCycle.objects.filter(idempotency_key=new_idempotency_key).exists():
+            new_idempotency_key = f"storage-cycle:{academy.id}:{now.isoformat()}:{uuid.uuid4().hex[:6]}"
+
+        StorageBillingCycle.objects.create(
+            academy=academy,
+            academy_uuid=academy.id,
+            cycle_start_at=now,
+            accumulated_credits=Decimal("0.0000"),
+            original_amount=Decimal("0.0000"),
+            paid_amount=Decimal("0.0000"),
+            outstanding_amount=Decimal("0.0000"),
+            status=StorageBillingCycleStatus.OPEN,
+            idempotency_key=new_idempotency_key
+        )
+
+        acad_id_str = str(academy.id)
+        current_bal_str = str(account.balance)
+        ledger_id_str = str(ledger_entry.id) if ledger_entry else None
+
+        def emit_settlement_event():
+            try:
+                from channels.layers import get_channel_layer
+                from asgiref.sync import async_to_sync
+                channel_layer = get_channel_layer()
+                if channel_layer:
+                    async_to_sync(channel_layer.group_send)(
+                        f"academy_events_{acad_id_str}",
+                        {
+                            "type": "academy_event",
+                            "data": {
+                                "type": "academy.credit_balance.updated",
+                                "academy_id": acad_id_str,
+                                "reason": "STORAGE_SETTLEMENT",
+                                "balance": current_bal_str,
+                                "ledger_entry_id": ledger_id_str,
+                                "occurred_at": now.isoformat()
+                            }
+                        }
+                    )
+            except Exception as event_err:
+                logger.warning(f"Failed to publish academy.credit_balance.updated websocket event: {event_err}")
+
+        transaction.on_commit(emit_settlement_event)
+
+        return cycle, True
+
+
+class StorageOutstandingService:
+    @classmethod
+    def get_total_outstanding_credits(cls, academy) -> Decimal:
+        """
+        Returns SUM(outstanding_amount) for all settlements where outstanding_amount > 0.
+        """
+        if not academy:
+            return Decimal("0.0000")
+        from storage.models import StorageBillingCycle
+        from django.db.models import Sum
+        total = StorageBillingCycle.objects.filter(
+            academy=academy,
+            outstanding_amount__gt=Decimal("0.0000")
+        ).aggregate(total=Sum('outstanding_amount'))['total']
+        return (total or Decimal("0.0000")).quantize(Decimal("0.0004"))
+
+    @classmethod
+    @transaction.atomic
+    def apply_available_credits(cls, academy) -> Decimal:
+        """
+        Applies newly available credits to settle oldest outstanding storage balances first.
+        Records Credit Ledger debits and StorageSettlementPayment entries.
+        """
+        if not academy:
+            return Decimal("0.0000")
+
+        from storage.models import StorageBillingCycle, StorageBillingCycleStatus, StorageSettlementStatus, StorageSettlementPayment
+        from credits.services import CreditService
+        from credits.models import CreditAccount, CreditSourceType
+
+        outstanding_cycles = StorageBillingCycle.objects.filter(
+            academy=academy,
+            outstanding_amount__gt=Decimal("0.0000"),
+            status__in=[StorageBillingCycleStatus.SETTLED, StorageBillingCycleStatus.DEBITED]
+        ).order_by('settled_at', 'cycle_start_at')
+
+        if not outstanding_cycles.exists():
+            return Decimal("0.0000")
+
+        account = CreditAccount.objects.select_for_update().get(id=CreditService.get_or_create_account(academy).id)
+        total_paid_now = Decimal("0.0000")
+        now = timezone.now()
+
+        for cycle in outstanding_cycles:
+            cycle = StorageBillingCycle.objects.select_for_update().get(id=cycle.id)
+            available = max(account.balance, Decimal("0.0000"))
+            if available <= Decimal("0.0000"):
+                break
+            if cycle.outstanding_amount <= Decimal("0.0000"):
+                continue
+
+            payment_amount = min(available, cycle.outstanding_amount).quantize(Decimal("0.0004"))
+            if payment_amount <= Decimal("0.0000"):
+                continue
+
+            idempotency_key = f"storage-outstanding-pay:{cycle.id}:{cycle.paid_amount}:{payment_amount}"
+            start_str = cycle.cycle_start_at.strftime("%d %b %Y")
+            description = f"Paid outstanding storage debt for period from {start_str}"
+
+            ledger_entry = CreditService.debit(
+                academy=academy,
+                amount=payment_amount,
+                source_type=CreditSourceType.STORAGE_USAGE,
+                idempotency_key=idempotency_key,
+                description=description,
+                reference_type="StorageBillingCycle",
+                reference_id=str(cycle.id),
+                allow_negative=False
+            )
+
+            StorageSettlementPayment.objects.create(
+                settlement=cycle,
+                ledger_entry=ledger_entry,
+                amount=payment_amount,
+                paid_at=now
+            )
+
+            cycle.paid_amount += payment_amount
+            cycle.outstanding_amount -= payment_amount
+            if cycle.outstanding_amount <= Decimal("0.0000"):
+                cycle.outstanding_amount = Decimal("0.0000")
+                cycle.settlement_status = StorageSettlementStatus.PAID
+            else:
+                cycle.settlement_status = StorageSettlementStatus.PARTIALLY_PAID
+
+            cycle.save()
+            total_paid_now += payment_amount
+
+            # Refresh account balance for next loop iteration
+            account.refresh_from_db(fields=['balance'])
+
+        return total_paid_now
+

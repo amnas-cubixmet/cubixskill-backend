@@ -27,6 +27,8 @@ from discussions_chat.models import (
 )
 from discussions_chat.services import DiscussionService, ChatService
 from discussions_chat.selectors import DiscussionSelector, ChatSelector
+from rest_framework_simplejwt.tokens import RefreshToken
+from users_roles.models import SystemRoleCode
 from config.asgi import application
 
 class DiscussionsChatTestCase(TestCase):
@@ -316,7 +318,7 @@ class DiscussionsChatTestCase(TestCase):
 
         communicator = WebsocketCommunicator(
             application,
-            f"/ws/chat/{room.id}/"
+            f"/ws/chat/{room.id}/?portal=student"
         )
         communicator.scope['user'] = self.student
 
@@ -339,3 +341,55 @@ class DiscussionsChatTestCase(TestCase):
         self.assertEqual(broadcast['data']['content'], 'Hello WebSocket Chat!')
 
         await communicator.disconnect()
+
+    async def test_token_auth_middleware_portal_isolation(self):
+        room = await database_sync_to_async(ChatService.get_or_create_course_chat_room)(self.course_a)
+
+        # Generate student token with portal=student
+        student_refresh = await database_sync_to_async(RefreshToken.for_user)(self.student)
+        student_refresh['portal'] = 'student'
+        student_access_str = str(student_refresh.access_token)
+
+        # Set staff role to ACADEMY_ADMIN
+        self.staff.role_code = SystemRoleCode.ACADEMY_ADMIN
+        await database_sync_to_async(self.staff.save)()
+
+        instructor_refresh = await database_sync_to_async(RefreshToken.for_user)(self.staff)
+        instructor_refresh['portal'] = 'instructor'
+        instructor_access_str = str(instructor_refresh.access_token)
+
+        combined_cookies = f"instructor_access_token={instructor_access_str}; student_access_token={student_access_str}".encode('utf-8')
+
+        # 1. Student portal socket with both cookies present must resolve ONLY to STUDENT user
+        comm_student = WebsocketCommunicator(
+            application,
+            f"/ws/chat/{room.id}/?portal=student",
+            headers=[(b"cookie", combined_cookies)]
+        )
+        connected, _ = await comm_student.connect()
+        self.assertTrue(connected)
+        join_event = await comm_student.receive_json_from()
+        self.assertEqual(join_event['user_id'], str(self.student.id))
+        await comm_student.disconnect()
+
+        # 2. Instructor portal socket with both cookies present must resolve ONLY to INSTRUCTOR user
+        comm_instructor = WebsocketCommunicator(
+            application,
+            f"/ws/chat/{room.id}/?portal=instructor",
+            headers=[(b"cookie", combined_cookies)]
+        )
+        connected, _ = await comm_instructor.connect()
+        self.assertTrue(connected)
+        join_event_inst = await comm_instructor.receive_json_from()
+        self.assertEqual(join_event_inst['user_id'], str(self.staff.id))
+        await comm_instructor.disconnect()
+
+        # 3. Mismatched portal token must be rejected (AnonymousUser)
+        comm_mismatch = WebsocketCommunicator(
+            application,
+            f"/ws/chat/{room.id}/?portal=student",
+            headers=[(b"cookie", f"student_access_token={instructor_access_str}".encode('utf-8'))]
+        )
+        connected, _ = await comm_mismatch.connect()
+        self.assertFalse(connected)
+

@@ -132,11 +132,61 @@ class CreateLeadSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("At least one contact method (email or phone) must be provided.")
         return attrs
 
-# --------------------------------------------------------------
-# 3. Public Lead Enquiry Serializer
-# Accepts only safe public fields required to register an enquiry.
-# Internal CRM fields (assignee, notes, lost_reason) are never exposed.
-# --------------------------------------------------------------
+class DemoLeadCreateSerializer(serializers.Serializer):
+    academy_id = serializers.UUIDField(required=True)
+    course_id = serializers.UUIDField(required=True)
+    requested_date = serializers.DateField(required=False, allow_null=True)
+    requested_time = serializers.CharField(required=False, allow_blank=True, default='')
+    phone = serializers.CharField(required=False, allow_blank=True, default='')
+    message = serializers.CharField(required=False, allow_blank=True, default='')
+
+class DemoLeadResponseSerializer(serializers.ModelSerializer):
+    academy = serializers.UUIDField(source='academy.id', read_only=True)
+    course = serializers.SerializerMethodField()
+    student = serializers.SerializerMethodField()
+    requested_date = serializers.SerializerMethodField()
+    requested_time = serializers.SerializerMethodField()
+    message = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Lead
+        fields = [
+            'id',
+            'academy',
+            'course',
+            'student',
+            'phone',
+            'requested_date',
+            'requested_time',
+            'message',
+            'status',
+            'created_at',
+        ]
+
+    def get_course(self, obj):
+        first_interest = obj.course_interests.first()
+        if first_interest and first_interest.course:
+            return {
+                'id': str(first_interest.course.id),
+                'title': first_interest.course.title,
+            }
+        return None
+
+    def get_student(self, obj):
+        return {
+            'id': str(obj.converted_user.id) if obj.converted_user else None,
+            'name': obj.full_name,
+            'email': obj.email,
+        }
+
+    def get_requested_date(self, obj):
+        return obj.metadata.get('requested_date', None)
+
+    def get_requested_time(self, obj):
+        return obj.metadata.get('requested_time', '')
+
+    def get_message(self, obj):
+        return obj.metadata.get('message', '')
 
 class PublicLeadEnquirySerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=255)

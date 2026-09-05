@@ -347,13 +347,41 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
                 'fileSize': mf.size_bytes if mf else 0,
             })
 
-        # Media URL (primary media if uploaded)
+        # Media URL & HLS metadata (primary media if uploaded)
         primary_media = lesson.media_files.filter(media_role='PRIMARY').first()
         if not primary_media:
             primary_media = lesson.media_files.first()
+
+        primary_mf_obj = primary_media.media_file if primary_media else None
+        stream_url = None
+        video_url = None
+        original_url = None
         media_url = None
-        if primary_media and primary_media.media_file:
-            media_url = primary_media.media_file.file_url or primary_media.media_file.relative_path or None
+        processing_mode = None
+        processing_status = None
+        primary_media_data = None
+
+        if primary_mf_obj:
+            from storage.serializers import MediaFileSerializer
+            primary_media_data = MediaFileSerializer(primary_mf_obj, context={'request': request}).data
+            processing_mode = primary_mf_obj.processing_mode
+            processing_status = primary_mf_obj.processing_status
+
+            if primary_mf_obj.stream_manifest_key:
+                stream_url = f"/media/{primary_mf_obj.stream_manifest_key.lstrip('/')}"
+                if request is not None:
+                    stream_url = request.build_absolute_uri(stream_url)
+
+            if primary_mf_obj.file_url:
+                video_url = primary_mf_obj.file_url
+            elif primary_mf_obj.storage_key:
+                video_url = f"/media/{primary_mf_obj.storage_key.lstrip('/')}"
+
+            if video_url and request is not None and not (video_url.startswith('http://') or video_url.startswith('https://')):
+                video_url = request.build_absolute_uri(video_url)
+
+            original_url = video_url
+            media_url = video_url
 
         # Content (rich text or description)
         rich_text_obj = getattr(lesson, 'rich_text', None)
@@ -412,7 +440,14 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
                 'is_demo': lesson.is_demo,
                 'allow_download': lesson.allow_download,
                 'external_url': lesson.external_url,
+                'stream_url': stream_url,
+                'video_url': video_url,
                 'media_url': media_url,
+                'original_url': original_url,
+                'processing_mode': processing_mode,
+                'processing_status': processing_status,
+                'primary_media': primary_media_data,
+                'media_files': [primary_media_data] if primary_media_data else [],
                 'completed': is_completed,
                 'is_completed': is_completed,
                 'unlocked': True,

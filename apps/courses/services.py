@@ -1,7 +1,128 @@
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 from courses.models import Course, CourseModule, CourseStatus
 from core.utils import CubixSkillAPIException
+
+#--------------------------------------------------------------
+# Course Publish Readiness Service
+#--------------------------------------------------------------
+
+class CoursePublishReadinessService:
+    """
+    Authoritative backend service to calculate Course Draft / Publish Readiness.
+    Evaluates real persisted DB records for Modules, Lessons, Media, and Metadata.
+    """
+    @staticmethod
+    def get_readiness(course: Course) -> dict:
+        from modules.models import Module
+        from lessons.models import Lesson, LessonMedia
+        from storage.models import ProcessingStatus
+
+        # 1. Real Canonical Module Count from DB
+        module_qs = Module.objects.filter(course=course, is_active=True)
+        module_count = module_qs.count()
+
+        # 2. Real Canonical Lesson Count from DB
+        lesson_qs = Lesson.objects.filter(module__course=course, is_active=True)
+        lesson_count = lesson_qs.count()
+
+        # 3. Video Processing / HLS Status
+        processing_count = 0
+        try:
+            processing_count = LessonMedia.objects.filter(
+                lesson__in=lesson_qs,
+                media_file__processing_status__in=[
+                    ProcessingStatus.QUEUED,
+                    ProcessingStatus.PROCESSING,
+                    ProcessingStatus.UPLOADED
+                ]
+            ).count()
+        except Exception:
+            processing_count = 0
+
+        # Readiness Checklist Items
+        title = (course.title or "").strip()
+        has_title = bool(title)
+        has_category = bool(course.category_id)
+        
+        thumbnail_url = getattr(course, 'thumbnail_url', '') or ''
+        has_thumbnail = bool(course.thumbnail_id or (thumbnail_url and thumbnail_url.strip()))
+
+        has_modules = module_count >= 1
+        has_lessons = lesson_count >= 1
+        video_processing_complete = processing_count == 0
+
+        category_name = "Added"
+        if has_category and hasattr(course, 'category') and course.category:
+            category_name = getattr(course.category, 'name', 'Added')
+
+        checklist_items = [
+            {
+                "key": "title",
+                "label": "Course Title",
+                "required": True,
+                "complete": has_title,
+                "value_text": title if has_title else "Missing"
+            },
+            {
+                "key": "category",
+                "label": "Course Category",
+                "required": True,
+                "complete": has_category,
+                "value_text": category_name if has_category else "Missing"
+            },
+            {
+                "key": "thumbnail",
+                "label": "Thumbnail / Course Image",
+                "required": True,
+                "complete": has_thumbnail,
+                "value_text": "Added" if has_thumbnail else "Missing"
+            },
+            {
+                "key": "modules",
+                "label": "Curriculum Modules",
+                "required": True,
+                "complete": has_modules,
+                "count": module_count,
+                "value_text": f"{module_count} Module{'s' if module_count != 1 else ''}"
+            },
+            {
+                "key": "lessons",
+                "label": "Curriculum Lessons",
+                "required": True,
+                "complete": has_lessons,
+                "count": lesson_count,
+                "value_text": f"{lesson_count} Lesson{'s' if lesson_count != 1 else ''}"
+            },
+            {
+                "key": "video_processing",
+                "label": "Video HLS Processing",
+                "required": False,
+                "complete": video_processing_complete,
+                "count": processing_count,
+                "status": "PROCESSING" if not video_processing_complete else "READY",
+                "value_text": f"{processing_count} Video{'s' if processing_count != 1 else ''} Processing" if not video_processing_complete else "All Media Ready"
+            }
+        ]
+
+        ready_to_publish = all(
+            item["complete"]
+            for item in checklist_items
+            if item["required"]
+        )
+
+        missing_required = [item for item in checklist_items if item["required"] and not item["complete"]]
+
+        return {
+            "course_id": str(course.id),
+            "status": course.status,
+            "ready_to_publish": ready_to_publish,
+            "module_count": module_count,
+            "lesson_count": lesson_count,
+            "processing_count": processing_count,
+            "remaining_required_count": len(missing_required),
+            "items": checklist_items
+        }
 
 #--------------------------------------------------------------
 # Course Business Services
@@ -10,9 +131,14 @@ from core.utils import CubixSkillAPIException
 class CourseService:
     @staticmethod
     def publish_course(course: Course, user) -> Course:
-        if not course.title:
-            raise CubixSkillAPIException("Course must have a title before publishing.", code="INVALID_COURSE")
-        
+        readiness = CoursePublishReadinessService.get_readiness(course)
+        if not readiness["ready_to_publish"]:
+            missing = [item["label"] for item in readiness["items"] if item["required"] and not item["complete"]]
+            raise CubixSkillAPIException(
+                f"Cannot publish course. Please complete required items: {', '.join(missing)}",
+                code="PUBLISH_NOT_READY"
+            )
+
         course.status = CourseStatus.PUBLISHED
         course.published_at = timezone.now()
         course.save()

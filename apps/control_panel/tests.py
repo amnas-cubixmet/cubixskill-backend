@@ -142,3 +142,50 @@ class RootControlPanelRoutingTestCase(TestCase):
         self.assertIsNotNone(created_role)
         self.assertEqual(created_role.name, 'Academy Manager')
         self.assertEqual(created_role.code, 'ACADEMY_MANAGER')
+
+    def test_storage_billing_settings_get_and_post_flow(self):
+        from decimal import Decimal
+        from storage.models import StorageBillingSettings
+        self.client.force_login(self.super_admin)
+
+        response = self.client.get('/billing/storage-settings/')
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.post('/billing/storage-settings/', {
+            'storage_billing_enabled': 'on',
+            'storage_billing_interval': '6_HOURS',
+            'storage_credit_rate_per_gb': '2.5000',
+            'storage_credit_debit_day': '5',
+            'storage_credit_debit_time': '11:45:00'
+        })
+        self.assertEqual(response.status_code, 302)
+
+        setting = StorageBillingSettings.get_settings()
+        self.assertTrue(setting.storage_billing_enabled)
+        self.assertEqual(setting.storage_billing_interval, '6_HOURS')
+        self.assertEqual(setting.storage_credit_rate_per_gb, Decimal('2.5000'))
+        self.assertEqual(setting.storage_credit_debit_day, 5)
+
+    def test_storage_credit_debit_history_month_year_filtering(self):
+        from django.utils import timezone
+        self.client.force_login(self.super_admin)
+
+        now = timezone.localtime()
+
+        # Default GET: current month and year
+        response = self.client.get('/billing/storage-settings/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['selected_month'], now.month)
+        self.assertEqual(response.context['selected_year'], now.year)
+
+        # Explicit GET filter params
+        response = self.client.get('/billing/storage-settings/?month=8&year=2026')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['selected_month'], 8)
+        self.assertEqual(response.context['selected_year'], 2026)
+
+        # Invalid GET query params fallback to current month & year
+        response = self.client.get('/billing/storage-settings/?month=99&year=invalid_test')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['selected_month'], now.month)
+        self.assertEqual(response.context['selected_year'], now.year)

@@ -4,16 +4,33 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.decorators import action
-from storage.models import MediaFile, UploadSession, StorageUsageRollup, StorageMonthlyBilling
+from storage.models import MediaFile, UploadSession, StorageUsageRollup
 from storage.services import StorageService
 from storage.serializers import (
-    MediaFileSerializer, UploadUrlRequestSerializer, DirectUploadSerializer,
-    UpdateMediaFileSerializer, StorageAccountSummarySerializer, StorageUsageRollupSerializer
+    MediaFileSerializer, UploadUrlRequestSerializer,
+    UpdateMediaFileSerializer, StorageUsageRollupSerializer
 )
 from core.permissions import CanAccessAcademyPermission
 from core.utils import api_response, CubixSkillAPIException
 
 logger = logging.getLogger(__name__)
+
+def safe_get_user_academy(user):
+    if not user or not user.is_authenticated:
+        return None
+    try:
+        return user.academy
+    except Exception:
+        return None
+
+def safe_get_user_academy_id(user):
+    if not user or not user.is_authenticated:
+        return None
+    acad_id = getattr(user, 'academy_id', None)
+    if acad_id:
+        return acad_id
+    acad = safe_get_user_academy(user)
+    return acad.id if acad else None
 
 #--------------------------------------------------------------
 # Pre-Signed Upload Request View
@@ -102,7 +119,7 @@ class DirectUploadView(APIView):
     def post(self, request):
         uploaded_file = request.FILES.get('file')
         if not uploaded_file:
-            raise CubixSkillAPIException("No file was provided.", code="NO_FILE", status_code=status.HTTP_400_BAD_REQUEST)
+            raise CubixSkillAPIException("File is required.", code="FILE_REQUIRED", status_code=status.HTTP_400_BAD_REQUEST)
 
         if uploaded_file.size == 0:
             raise CubixSkillAPIException("The uploaded file is empty.", code="EMPTY_FILE", status_code=status.HTTP_400_BAD_REQUEST)
@@ -125,16 +142,24 @@ class DirectUploadView(APIView):
                 status_code=status.HTTP_400_BAD_REQUEST
             )
 
-        adaptive_streaming_enabled = str(request.data.get('adaptive_streaming_enabled', 'true')).lower() in ('true', '1')
+        from storage.utils import parse_bool
 
-        acad_uuid = getattr(request.user, 'academy_id', None)
-        if not acad_uuid and hasattr(request.user, 'academy'):
-            try:
-                if request.user.academy:
-                    acad_uuid = request.user.academy.id
-            except Exception:
-                pass
+        raw_hls = request.data.get('hls_enabled') if 'hls_enabled' in request.data else request.data.get('hls')
+        hls_requested = parse_bool(raw_hls, default=True) if raw_hls is not None else None
+
+        raw_adaptive = request.data.get('adaptive_streaming_enabled') if 'adaptive_streaming_enabled' in request.data else request.data.get('adaptive_hls')
+        adaptive_streaming_enabled = parse_bool(raw_adaptive, default=True) if raw_adaptive is not None else True
+
+        user_academy = safe_get_user_academy(request.user)
+        acad_uuid = safe_get_user_academy_id(request.user)
         user_uuid = getattr(request.user, 'id', None)
+
+        if not acad_uuid and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+            raise CubixSkillAPIException(
+                "No academy linked to authenticated user.",
+                code="NO_ACADEMY",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         raw_course_uuid = request.data.get('course_uuid') or request.data.get('course_id') or request.data.get('course')
         raw_lesson_uuid = request.data.get('lesson_uuid') or request.data.get('lesson_id') or request.data.get('lesson')
@@ -144,86 +169,76 @@ class DirectUploadView(APIView):
             import uuid
             try:
                 valid_c_uuid = uuid.UUID(str(raw_course_uuid).strip())
-                from courses.models import Course
-                if request.user.role_code in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
-                    if not Course.objects.filter(id=valid_c_uuid).exists():
-                        raise CubixSkillAPIException("Course not found.", code="COURSE_NOT_FOUND", status_code=status.HTTP_404_NOT_FOUND)
-                else:
-                    if not acad_uuid or not Course.objects.filter(id=valid_c_uuid, academy_id=acad_uuid).exists():
-                        raise CubixSkillAPIException("Course not found or access denied.", code="COURSE_NOT_FOUND", status_code=status.HTTP_404_NOT_FOUND)
-                course_uuid = valid_c_uuid
-            except ValueError:
+            except (ValueError, TypeError):
                 raise CubixSkillAPIException("Invalid course UUID format.", code="INVALID_UUID", status_code=status.HTTP_400_BAD_REQUEST)
+
+            from courses.models import Course
+            if getattr(request.user, 'role_code', '') in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+                if not Course.objects.filter(id=valid_c_uuid).exists():
+                    raise CubixSkillAPIException("Course not found.", code="COURSE_NOT_FOUND", status_code=status.HTTP_404_NOT_FOUND)
+            else:
+                if not acad_uuid or not Course.objects.filter(id=valid_c_uuid, academy_id=acad_uuid).exists():
+                    raise CubixSkillAPIException("Course not found or access denied.", code="COURSE_NOT_FOUND", status_code=status.HTTP_404_NOT_FOUND)
+            course_uuid = valid_c_uuid
 
         lesson_uuid = None
         if raw_lesson_uuid and str(raw_lesson_uuid).strip():
             import uuid
             try:
-                lesson_uuid = uuid.UUID(str(raw_lesson_uuid).strip())
-            except ValueError:
-                pass
+                valid_l_uuid = uuid.UUID(str(raw_lesson_uuid).strip())
+            except (ValueError, TypeError):
+                raise CubixSkillAPIException("Invalid lesson UUID format.", code="INVALID_UUID", status_code=status.HTTP_400_BAD_REQUEST)
+
+            from lessons.models import Lesson
+            lesson_qs = Lesson.objects.filter(id=valid_l_uuid)
+            if course_uuid:
+                lesson_qs = lesson_qs.filter(module__course_id=course_uuid)
+            if getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF'] and acad_uuid:
+                lesson_qs = lesson_qs.filter(module__course__academy_id=acad_uuid)
+
+            if not lesson_qs.exists():
+                raise CubixSkillAPIException("Lesson not found or access denied.", code="LESSON_NOT_FOUND", status_code=status.HTTP_404_NOT_FOUND)
+            lesson_uuid = valid_l_uuid
+
+        from storage.models import MediaType, ProcessingMode, ProcessingStatus
+        from storage.tasks import enqueue_hls_safely
 
         try:
-            media_file = StorageService.upload_media_direct(
-                academy_uuid=acad_uuid,
-                user_uuid=user_uuid,
-                file_obj=uploaded_file,
-                original_filename=uploaded_file.name,
-                mime_type=uploaded_file.content_type or 'application/octet-stream',
-                file_size_bytes=uploaded_file.size,
-                course_uuid=course_uuid,
-                lesson_uuid=lesson_uuid
+            with transaction.atomic():
+                media_file = StorageService.upload_media_direct(
+                    academy_uuid=acad_uuid,
+                    user_uuid=user_uuid,
+                    file_obj=uploaded_file,
+                    original_filename=uploaded_file.name,
+                    mime_type=uploaded_file.content_type or 'application/octet-stream',
+                    file_size_bytes=uploaded_file.size,
+                    course_uuid=course_uuid,
+                    lesson_uuid=lesson_uuid,
+                    hls_enabled_override=hls_requested,
+                    adaptive_streaming_enabled=adaptive_streaming_enabled
+                )
+
+                should_queue_hls = (
+                    media_file.media_type == MediaType.VIDEO
+                    and media_file.processing_mode == ProcessingMode.HLS
+                    and media_file.processing_status == ProcessingStatus.QUEUED
+                )
+
+                if should_queue_hls:
+                    media_id = str(media_file.id)
+                    transaction.on_commit(lambda media_id=media_id: enqueue_hls_safely(media_id))
+
+            logger.info(
+                "Direct upload stored media_id=%s mode=%s status=%s",
+                media_file.id,
+                media_file.processing_mode,
+                media_file.processing_status,
             )
-        except Exception as exc:
-            import traceback
-            logger.error("Direct upload failed with exception:\n%s", traceback.format_exc())
-            raise exc
-
-        from control_panel.models import SystemSetting
-        global_hls_enabled = SystemSetting.get_bool('hls_streaming_enabled', default=True)
-
-        user_academy = getattr(request.user, 'academy', None)
-        academy_hls_enabled = user_academy.hls_video_enabled if user_academy else True
-
-        hls_param = request.data.get('hls_enabled') or request.POST.get('hls_enabled')
-        if hls_param is not None:
-            if isinstance(hls_param, str):
-                upload_hls_choice = hls_param.lower() in ('true', '1', 'yes', 'on')
-            else:
-                upload_hls_choice = bool(hls_param)
-        else:
-            upload_hls_choice = academy_hls_enabled
-
-        should_use_hls = global_hls_enabled and upload_hls_choice and adaptive_streaming_enabled
-
-        media_file.adaptive_streaming_enabled = should_use_hls
-        is_video = (media_file.media_type == 'VIDEO' or (uploaded_file.content_type and uploaded_file.content_type.startswith('video/')))
-
-        from storage.models import ProcessingStatus, ProcessingMode
-        if is_video and should_use_hls:
-            from storage.tasks import process_video_transcoding_task
-
-            media_file.processing_mode = ProcessingMode.HLS
-            media_file.processing_status = ProcessingStatus.QUEUED
-            media_file.processing_progress = 5
-            media_file.save(update_fields=['adaptive_streaming_enabled', 'processing_mode', 'processing_status', 'processing_progress'])
-
-            media_id = str(media_file.id)
-            def queue_transcoding():
-                try:
-                    process_video_transcoding_task.delay(media_id)
-                except Exception as exc:
-                    logger.warning(f"Could not enqueue Celery video task for media {media_id}; asset remains QUEUED in DB: {exc}")
-
-            transaction.on_commit(queue_transcoding)
-        elif is_video:
-            media_file.processing_mode = ProcessingMode.DIRECT
-            media_file.processing_status = ProcessingStatus.READY
-            media_file.processing_progress = 100
-            media_file.save(update_fields=['adaptive_streaming_enabled', 'processing_mode', 'processing_status', 'processing_progress'])
-        else:
-            media_file.processing_mode = ProcessingMode.DIRECT
-            media_file.save(update_fields=['adaptive_streaming_enabled', 'processing_mode'])
+        except CubixSkillAPIException:
+            raise
+        except Exception:
+            logger.exception("Direct storage upload failed")
+            raise
 
         return api_response(
             data=MediaFileSerializer(media_file, context={'request': request}).data,
@@ -239,7 +254,7 @@ class ConfirmUploadView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, upload_id):
-        acad_uuid = request.user.academy.id if request.user.academy else None
+        acad_uuid = safe_get_user_academy_id(request.user)
         try:
             session = UploadSession.objects.get(id=upload_id, academy_uuid=acad_uuid)
         except UploadSession.DoesNotExist:
@@ -261,7 +276,7 @@ class MediaFileViewSet(viewsets.ModelViewSet):
     parser_classes = (MultiPartParser, FormParser)
 
     def get_queryset(self):
-        acad_uuid = self.request.user.academy.id if self.request.user.academy else None
+        acad_uuid = safe_get_user_academy_id(self.request.user)
         qs = MediaFile.objects.filter(academy_uuid=acad_uuid).exclude(status='DELETED')
 
         # 1. Search Filter
@@ -407,10 +422,9 @@ class StorageUsageView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        if not hasattr(request.user, 'academy') or not request.user.academy:
+        acad_uuid = safe_get_user_academy_id(request.user)
+        if not acad_uuid and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
             raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
-
-        acad_uuid = request.user.academy.id
         from storage.selectors import StorageSummarySelector
         from storage.utils import format_bytes
 
@@ -424,10 +438,9 @@ class StorageCurrentPeriodView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        if not hasattr(request.user, 'academy') or not request.user.academy:
+        acad_uuid = safe_get_user_academy_id(request.user)
+        if not acad_uuid and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
             raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
-
-        acad_uuid = request.user.academy.id
         from storage.metering import StorageBillingService, StorageMeteringService
         from storage.utils import format_bytes
 
@@ -458,10 +471,9 @@ class StorageDailyRollupView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        if not hasattr(request.user, 'academy') or not request.user.academy:
+        acad_uuid = safe_get_user_academy_id(request.user)
+        if not acad_uuid and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
             raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
-
-        acad_uuid = request.user.academy.id
         from storage.metering import StorageBillingService
         from storage.models import StorageUsageRollup
         from storage.serializers import StorageUsageRollupSerializer
@@ -477,17 +489,299 @@ class StorageMonthlyBillingView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        if not hasattr(request.user, 'academy') or not request.user.academy:
+        academy = safe_get_user_academy(request.user)
+        if not academy and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
             raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
+        from storage.models import StorageUsageCharge
+        from storage.serializers import StorageUsageChargeSerializer
 
-        acad_uuid = request.user.academy.id
-        from storage.metering import StorageBillingService
-        from storage.models import StorageMonthlyBilling
-        from storage.serializers import StorageMonthlyBillingSerializer
+        charges = StorageUsageCharge.objects.filter(academy=academy).order_by('-billing_ended_at')
+        return api_response(data=StorageUsageChargeSerializer(charges, many=True).data)
 
-        # Ensure current month record exists
-        StorageBillingService.close_billing_period(acad_uuid)
 
-        billings = StorageMonthlyBilling.objects.filter(academy_uuid=acad_uuid).order_by('-billing_period_start')
-        return api_response(data=StorageMonthlyBillingSerializer(billings, many=True).data)
+#--------------------------------------------------------------
+# Storage Billing System Production Dashboard Views
+#--------------------------------------------------------------
+
+class StorageSummaryDashboardView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        academy = safe_get_user_academy(request.user)
+        if not academy and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+            raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
+        from decimal import Decimal, ROUND_HALF_UP
+        from django.utils import timezone
+        from storage.models import StorageBillingSettings, AcademyStorageUsage, StorageBillingCycle, StorageBillingCycleStatus
+        from storage.utils import storage_interval_delta, get_interval_label, get_next_credit_debit_datetime
+
+        settings_obj = StorageBillingSettings.get_settings()
+        usage, _ = AcademyStorageUsage.objects.get_or_create(
+            academy=academy,
+            defaults={'academy_uuid': academy.id, 'used_bytes': 0, 'file_count': 0}
+        )
+
+        now = timezone.now()
+        BYTES_PER_GB = Decimal(1024 ** 3)
+        current_gb = Decimal(usage.used_bytes) / BYTES_PER_GB
+        rate_per_gb = settings_obj.storage_credit_rate_per_gb
+
+        interval_str = settings_obj.storage_billing_interval
+        delta = storage_interval_delta(interval_str)
+        interval_label = get_interval_label(interval_str)
+
+        last_metered_at = usage.last_billed_at
+        next_meter_at = (last_metered_at + delta) if last_metered_at else (now + delta)
+        next_credit_debit_at = get_next_credit_debit_datetime(settings_obj, now=timezone.localtime())
+
+        open_cycle = StorageBillingCycle.objects.filter(
+            academy=academy,
+            status=StorageBillingCycleStatus.OPEN
+        ).order_by('-cycle_start_at').first()
+
+        current_accumulated = open_cycle.accumulated_credits if open_cycle else Decimal("0.0000")
+        current_meter_count = open_cycle.meter_records.count() if open_cycle else 0
+
+        last_debited_cycle = StorageBillingCycle.objects.filter(
+            academy=academy,
+            status__in=[StorageBillingCycleStatus.SETTLED, StorageBillingCycleStatus.DEBITED]
+        ).order_by('-settled_at', '-debited_at', '-created_at').first()
+
+        from storage.services import StorageOutstandingService
+        outstanding_credits = StorageOutstandingService.get_total_outstanding_credits(academy)
+        has_outstanding = (outstanding_credits > Decimal("0.0000"))
+
+        last_successful_debit_at = (last_debited_cycle.settled_at or last_debited_cycle.debited_at) if last_debited_cycle else None
+        last_settlement_status = last_debited_cycle.settlement_status if (last_debited_cycle and last_debited_cycle.settlement_status) else ("PAID" if last_debited_cycle else None)
+
+        return api_response(data={
+            "billing_enabled": settings_obj.storage_billing_enabled,
+            "metering_interval": interval_str,
+            "billing_interval": interval_str,
+            "billing_interval_label": interval_label,
+            "credit_rate_per_gb": f"{rate_per_gb:.4f}",
+            "debit_day": settings_obj.storage_credit_debit_day,
+            "debit_time": settings_obj.storage_credit_debit_time.strftime("%H:%M:%S") if settings_obj.storage_credit_debit_time else "00:00:00",
+            "current_storage_bytes": usage.used_bytes,
+            "current_storage_gb": f"{current_gb:.2f}",
+            "file_count": usage.file_count,
+            "current_cycle_accumulated_credits": f"{current_accumulated:.4f}",
+            "current_cycle_meter_count": current_meter_count,
+            "outstanding_storage_credits": f"{outstanding_credits:.4f}",
+            "has_outstanding_storage_balance": has_outstanding,
+            "last_settlement_status": last_settlement_status,
+            "previous_settlement_at": last_successful_debit_at.isoformat() if last_successful_debit_at else None,
+            "next_settlement_at": next_credit_debit_at.isoformat() if next_credit_debit_at else None,
+            "last_metered_at": last_metered_at.isoformat() if last_metered_at else None,
+            "next_meter_at": next_meter_at.isoformat() if next_meter_at else None,
+            "next_credit_debit_at": next_credit_debit_at.isoformat() if next_credit_debit_at else None,
+            "last_successful_debit_at": last_successful_debit_at.isoformat() if last_successful_debit_at else None,
+            "last_billed_at": last_metered_at.isoformat() if last_metered_at else None,
+            "last_debited_at": last_successful_debit_at.isoformat() if last_successful_debit_at else None,
+            "next_billing_at": next_meter_at.isoformat() if next_meter_at else None,
+        })
+
+
+class StorageSnapshotsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        academy = safe_get_user_academy(request.user)
+        if not academy and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+            raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
+        from storage.models import AcademyStorageSnapshot
+        from storage.serializers import AcademyStorageSnapshotSerializer
+
+        snapshots = AcademyStorageSnapshot.objects.filter(academy=academy).order_by('-captured_at')[:100]
+        return api_response(data=AcademyStorageSnapshotSerializer(snapshots, many=True).data)
+
+
+class StorageBillingPeriodsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        academy = safe_get_user_academy(request.user)
+        if not academy and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+            raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
+        from storage.models import StorageUsageCharge
+        from storage.serializers import StorageUsageChargeSerializer
+
+        charges = StorageUsageCharge.objects.filter(academy=academy).order_by('-billing_ended_at')
+        return api_response(data=StorageUsageChargeSerializer(charges, many=True).data)
+
+
+class ControlPanelStorageSettingsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role_code not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+            raise CubixSkillAPIException("Only Super Admins can manage platform storage settings.", code="PERMISSION_DENIED", status_code=status.HTTP_403_FORBIDDEN)
+
+        from storage.models import StorageBillingSettings
+        from storage.serializers import StorageBillingSettingsSerializer
+
+        settings_obj = StorageBillingSettings.get_settings()
+        return api_response(data=StorageBillingSettingsSerializer(settings_obj).data)
+
+    def post(self, request):
+        if request.user.role_code not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+            raise CubixSkillAPIException("Only Super Admins can manage platform storage settings.", code="PERMISSION_DENIED", status_code=status.HTTP_403_FORBIDDEN)
+
+        from decimal import Decimal
+        from storage.models import StorageBillingSettings, StorageBillingInterval
+        from storage.serializers import StorageBillingSettingsSerializer
+
+        settings_obj = StorageBillingSettings.get_settings()
+        old_data = StorageBillingSettingsSerializer(settings_obj).data
+
+        billing_enabled = request.data.get('storage_billing_enabled')
+        if billing_enabled is None:
+            billing_enabled = request.data.get('billing_enabled')
+        if billing_enabled is not None:
+            settings_obj.storage_billing_enabled = bool(billing_enabled)
+
+        billing_interval = request.data.get('storage_billing_interval')
+        if billing_interval is None:
+            billing_interval = request.data.get('billing_interval')
+        if billing_interval is not None:
+            if billing_interval not in StorageBillingInterval.values:
+                raise CubixSkillAPIException(
+                    f"Invalid billing interval '{billing_interval}'. Allowed choices: {list(StorageBillingInterval.values)}.",
+                    code="INVALID_INTERVAL",
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+            settings_obj.storage_billing_interval = billing_interval
+
+        credit_rate = request.data.get('storage_credit_rate_per_gb')
+        if credit_rate is None:
+            credit_rate = request.data.get('credit_rate_per_gb')
+        if credit_rate is None:
+            credit_rate = request.data.get('credits_per_gb_month')
+        if credit_rate is not None:
+            try:
+                settings_obj.storage_credit_rate_per_gb = Decimal(str(credit_rate))
+            except Exception:
+                raise CubixSkillAPIException("Invalid decimal format for storage credit rate.", code="INVALID_RATE", status_code=status.HTTP_400_BAD_REQUEST)
+
+        settings_obj.save()
+        new_data = StorageBillingSettingsSerializer(settings_obj).data
+
+        try:
+            from audit_logs.models import AuditLog
+            AuditLog.objects.create(
+                user=request.user,
+                action='STORAGE_SETTINGS_UPDATE',
+                resource_type='StorageBillingSettings',
+                resource_id=str(settings_obj.id),
+                changes={'old': old_data, 'new': new_data}
+            )
+        except Exception as e:
+            logger.warning(f"Audit log entry creation failed: {e}")
+
+        return api_response(
+            data=new_data,
+            message="Storage billing settings updated successfully."
+        )
+
+
+class StorageMeterLogsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        academy = safe_get_user_academy(request.user)
+        if not academy and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+            raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
+        from storage.models import StorageMeterRecord
+        from storage.serializers import StorageMeterRecordSerializer
+        from django.core.paginator import Paginator
+
+        qs = StorageMeterRecord.objects.filter(academy=academy).order_by('-metered_at')
+
+        raw_month = request.GET.get('month')
+        raw_year = request.GET.get('year')
+        if raw_month and str(raw_month).isdigit():
+            qs = qs.filter(metered_at__month=int(raw_month))
+        if raw_year and str(raw_year).isdigit():
+            qs = qs.filter(metered_at__year=int(raw_year))
+
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 25))
+
+        paginator = Paginator(qs, page_size)
+        page_obj = paginator.get_page(page)
+
+        serialized = StorageMeterRecordSerializer(page_obj.object_list, many=True).data
+
+        return api_response(data={
+            "count": paginator.count,
+            "total_pages": paginator.num_pages,
+            "page": page_obj.number,
+            "page_size": page_size,
+            "results": serialized
+        })
+
+
+class StorageSettlementHistoryView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        academy = safe_get_user_academy(request.user)
+        if not academy and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+            raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
+        from decimal import Decimal
+        from django.utils import timezone
+        import calendar
+        from storage.models import StorageBillingCycle, StorageBillingCycleStatus
+        from storage.serializers import StorageBillingCycleSerializer
+        from django.core.paginator import Paginator
+        from django.db.models import Q
+
+        qs = StorageBillingCycle.objects.filter(
+            academy=academy,
+            status__in=[StorageBillingCycleStatus.SETTLED, StorageBillingCycleStatus.DEBITED]
+        ).order_by('-settled_at', '-debited_at', '-created_at')
+
+        now = timezone.localtime()
+        raw_month = request.GET.get('month')
+        raw_year = request.GET.get('year')
+
+        selected_month = int(raw_month) if (raw_month and str(raw_month).isdigit()) else now.month
+        selected_year = int(raw_year) if (raw_year and str(raw_year).isdigit()) else now.year
+
+        filtered_qs = qs.filter(
+            Q(settled_at__year=selected_year, settled_at__month=selected_month) |
+            Q(debited_at__year=selected_year, debited_at__month=selected_month) |
+            Q(created_at__year=selected_year, created_at__month=selected_month)
+        ).distinct()
+
+        month_name = calendar.month_name[selected_month] if 1 <= selected_month <= 12 else ''
+        period_label = f"{month_name} {selected_year}".strip()
+
+        total_settlements = filtered_qs.count()
+        sum_billed = sum((c.original_amount if c.original_amount > 0 else c.accumulated_credits for c in filtered_qs), Decimal("0.0000")) if total_settlements > 0 else Decimal("0.0000")
+        sum_paid = sum((c.paid_amount for c in filtered_qs), Decimal("0.0000")) if total_settlements > 0 else Decimal("0.0000")
+        sum_outstanding = sum((c.outstanding_amount for c in filtered_qs), Decimal("0.0000")) if total_settlements > 0 else Decimal("0.0000")
+
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 25))
+
+        paginator = Paginator(filtered_qs, page_size)
+        page_obj = paginator.get_page(page)
+
+        serialized = StorageBillingCycleSerializer(page_obj.object_list, many=True).data
+
+        return api_response(data={
+            "period_label": period_label,
+            "total_settlements": total_settlements,
+            "storage_billed": f"{sum_billed:.4f}",
+            "credits_paid": f"{sum_paid:.4f}",
+            "outstanding": f"{sum_outstanding:.4f}",
+            "credits_debited": f"{sum_paid:.4f}",
+            "count": paginator.count,
+            "total_pages": paginator.num_pages,
+            "page": page_obj.number,
+            "page_size": page_size,
+            "results": serialized
+        })
+
 

@@ -70,7 +70,12 @@ class StudentCourseProgressionService:
                 lock_reason = None
                 required_lesson = None
             else:
-                if is_completed:
+                manual_locked = getattr(les, 'is_locked', False)
+                if manual_locked:
+                    unlocked = False
+                    lock_reason = 'MANUALLY_LOCKED'
+                    required_lesson = None
+                elif is_completed:
                     unlocked = True
                     lock_reason = None
                     required_lesson = None

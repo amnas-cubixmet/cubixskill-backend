@@ -56,6 +56,15 @@ Clean, permission-aware Sidebar component for CubixSkill Control Panel with stan
 
   <div class="cp-nav-section">
     <div class="cp-nav-title">MONETIZATION &amp; PRICING</div>
+
+    <a href="{% url 'control_panel:storage_billing_settings' %}" class="cp-nav-item {% if active_nav == 'storage_settings' or request.resolver_match.url_name == 'storage_billing_settings' %}active{% endif %}">
+      {% include "control_panel/components/icon.html" with name="storage" size="17" %}
+      <span>Storage Billing</span>
+    </a>
+    <a href="{% url 'control_panel:monthly_invoices_control' %}" class="cp-nav-item {% if active_nav == 'invoices' or request.resolver_match.url_name in 'monthly_invoices_control,monthly_invoice_detail_control' %}active{% endif %}">
+      {% include "control_panel/components/icon.html" with name="payments" size="17" %}
+      <span>Monthly Invoices</span>
+    </a>
     <a href="{% url 'control_panel:pricing_rules_list' %}" class="cp-nav-item {% if active_nav == 'pricing' %}active{% endif %}" {% if active_nav == 'pricing' %}aria-current="page"{% endif %}>
       {% include "control_panel/components/icon.html" with name="pricing" size="17" %}
       <span>Pricing</span>
@@ -71,10 +80,14 @@ Clean, permission-aware Sidebar component for CubixSkill Control Panel with stan
   </div>
 
   <div class="cp-nav-section">
-    <div class="cp-nav-title">INFRASTRUCTURE</div>
+    <div class="cp-nav-title">INFRASTRUCTURE &amp; SETTLEMENTS</div>
     <a href="{% url 'control_panel:payments_list' %}" class="cp-nav-item {% if active_nav == 'payments' %}active{% endif %}" {% if active_nav == 'payments' %}aria-current="page"{% endif %}>
       {% include "control_panel/components/icon.html" with name="payments" size="17" %}
       <span>Payments</span>
+    </a>
+    <a href="{% url 'control_panel:settlements_list' %}" class="cp-nav-item {% if active_nav == 'settlements' %}active{% endif %}" {% if active_nav == 'settlements' %}aria-current="page"{% endif %}>
+      {% include "control_panel/components/icon.html" with name="credits" size="17" %}
+      <span>Academy Settlements</span>
     </a>
   </div>
 

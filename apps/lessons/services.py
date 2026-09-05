@@ -8,13 +8,43 @@ from storage.models import MediaFile
 from core.utils import CubixSkillAPIException
 
 #--------------------------------------------------------------
+# Lesson Duration & Preview Calculation Helpers
+#--------------------------------------------------------------
+
+def get_lesson_actual_duration_seconds(lesson) -> int:
+    """
+    Computes real duration in seconds for a lesson.
+    Checks attached primary MediaFile.duration_seconds first,
+    or falls back to lesson.duration_minutes * 60.
+    """
+    primary = lesson.media_files.filter(media_role='PRIMARY').first()
+    if primary and primary.media_file and primary.media_file.duration_seconds > 0:
+        return int(float(primary.media_file.duration_seconds))
+    if getattr(lesson, 'duration_minutes', 0) > 0:
+        return int(lesson.duration_minutes * 60)
+    return 0
+
+def get_public_preview_duration_seconds(actual_duration_seconds: int | float) -> int:
+    """
+    Canonical public preview duration formula:
+    - If actual_duration_seconds > 300 (5 minutes): return 300 (5 minutes limit)
+    - If actual_duration_seconds <= 300: return actual_duration_seconds / 2 (50% limit)
+    """
+    if not actual_duration_seconds or actual_duration_seconds <= 0:
+        return 0
+    if actual_duration_seconds > 300:
+        return 300
+    return int(actual_duration_seconds / 2)
+
+
+#--------------------------------------------------------------
 # Lesson Services
 #--------------------------------------------------------------
 
 class LessonService:
     @staticmethod
     @transaction.atomic
-    def create_lesson(module: Module, title: str, lesson_type: str, description: str = '', duration_minutes: int = 0, is_demo: bool = False, allow_download: bool = False, external_url: str = '') -> Lesson:
+    def create_lesson(module: Module, title: str, lesson_type: str, description: str = '', duration_minutes: int = 0, is_demo: bool = False, is_locked: bool = False, allow_download: bool = False, external_url: str = '') -> Lesson:
         if lesson_type == LessonType.URL and not external_url:
             raise CubixSkillAPIException("External URL is required for URL lesson type.", code="URL_REQUIRED")
 
@@ -26,6 +56,7 @@ class LessonService:
             description=description,
             duration_minutes=duration_minutes,
             is_demo=is_demo,
+            is_locked=is_locked,
             allow_download=allow_download,
             external_url=external_url,
             order_index=max_order + 1

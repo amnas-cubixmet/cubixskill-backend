@@ -73,6 +73,18 @@ class PaymentMethod(models.TextChoices):
     CASH = 'CASH', 'Cash'
     OTHER = 'OTHER', 'Other'
 
+class PaymentAttemptStatus(models.TextChoices):
+    CREATED = 'CREATED', 'Created'
+    ORDER_CREATED = 'ORDER_CREATED', 'Order Created'
+    PENDING = 'PENDING', 'Pending'
+    AUTHORIZED = 'AUTHORIZED', 'Authorized'
+    PAID = 'PAID', 'Paid'
+    FAILED = 'FAILED', 'Failed'
+    CANCELLED = 'CANCELLED', 'Cancelled'
+    EXPIRED = 'EXPIRED', 'Expired'
+    REFUNDED = 'REFUNDED', 'Refunded'
+    PARTIALLY_REFUNDED = 'PARTIALLY_REFUNDED', 'Partially Refunded'
+
 class RefundStatus(models.TextChoices):
     REQUESTED = 'REQUESTED', 'Requested'
     PROCESSING = 'PROCESSING', 'Processing'

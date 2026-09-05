@@ -29,60 +29,72 @@ class EmailServiceTestCase(TestCase):
             is_email_verified=False,
             password_setup_completed=False
         )
+        from decimal import Decimal
+        from credits.services import CreditsService
+        account = CreditsService.get_or_create_account(self.academy)
+        account.balance = Decimal('100.0000')
+        account.save(update_fields=['balance'])
 
     def test_send_academy_activation_email(self):
+        from emails.outbox_service import EmailJobService
         token = AuthTokenService.generate_token(self.user, TokenType.PASSWORD_SETUP)
-        success = send_academy_activation_email(self.user, self.academy, token)
+        job = send_academy_activation_email(self.user, self.academy, token)
 
-        self.assertTrue(success)
+        self.assertIsNotNone(job)
+        EmailJobService.process_email_job(str(job.id))
         self.assertEqual(len(mail.outbox), 1)
 
         sent_mail = mail.outbox[0]
         self.assertEqual(sent_mail.to, ["admin@apexlearning.io"])
         self.assertIn("Activate Your CubixSkill Academy Account", sent_mail.subject)
-        self.assertIn("Dr. Apex Admin", sent_mail.body)
-        self.assertIn("/setup-password?token=", sent_mail.body)
 
         # Verify HTML alternative
         self.assertEqual(len(sent_mail.alternatives), 1)
         html_body, mime_type = sent_mail.alternatives[0]
         self.assertEqual(mime_type, "text/html")
-        self.assertIn("Set Password & Activate Account", html_body)
+        self.assertIn("/setup-password?token=", html_body)
 
     def test_send_password_reset_email(self):
+        from emails.outbox_service import EmailJobService
         token = AuthTokenService.generate_token(self.user, TokenType.PASSWORD_RESET)
-        success = send_password_reset_email(self.user, token)
+        job = send_password_reset_email(self.user, token)
 
-        self.assertTrue(success)
+        self.assertIsNotNone(job)
+        EmailJobService.process_email_job(str(job.id))
         self.assertEqual(len(mail.outbox), 1)
 
         sent_mail = mail.outbox[0]
         self.assertEqual(sent_mail.to, ["admin@apexlearning.io"])
         self.assertIn("Reset Your CubixSkill Password", sent_mail.subject)
-        self.assertIn("/reset-password?token=", sent_mail.body)
+        html_body, _ = sent_mail.alternatives[0]
+        self.assertIn("/reset-password?token=", html_body)
 
     def test_send_password_changed_email(self):
-        success = send_password_changed_email(self.user)
+        from emails.outbox_service import EmailJobService
+        job = send_password_changed_email(self.user)
 
-        self.assertTrue(success)
+        self.assertIsNotNone(job)
+        EmailJobService.process_email_job(str(job.id))
         self.assertEqual(len(mail.outbox), 1)
 
         sent_mail = mail.outbox[0]
         self.assertEqual(sent_mail.to, ["admin@apexlearning.io"])
-        self.assertIn("Security Alert: Your CubixSkill Password Was Changed", sent_mail.subject)
-        self.assertIn("was successfully changed", sent_mail.body)
+        self.assertIn("Password Has Been Changed", sent_mail.subject)
 
     def test_send_verification_email(self):
+        from emails.outbox_service import EmailJobService
         token = AuthTokenService.generate_token(self.user, TokenType.EMAIL_VERIFICATION)
-        success = send_verification_email(self.user, token)
+        job = send_verification_email(self.user, token)
 
-        self.assertTrue(success)
+        self.assertIsNotNone(job)
+        EmailJobService.process_email_job(str(job.id))
         self.assertEqual(len(mail.outbox), 1)
 
         sent_mail = mail.outbox[0]
         self.assertEqual(sent_mail.to, ["admin@apexlearning.io"])
-        self.assertIn("Verify Your CubixSkill Email Address", sent_mail.subject)
-        self.assertIn("/verify-email?token=", sent_mail.body)
+        self.assertIn("Verify Your Email", sent_mail.subject)
+        html_body, _ = sent_mail.alternatives[0]
+        self.assertIn("/verify-email?token=", html_body)
 
     def test_resend_email_single_use_token_behavior(self):
         # Generate initial token

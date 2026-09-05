@@ -805,7 +805,7 @@ def academy_courses_json_view(request, pk):
             'title': c.title,
             'category': c.category.name if c.category else 'General',
             'level': c.get_level_display() if hasattr(c, 'get_level_display') else c.level,
-            'price': f"₹{c.price}" if not c.is_free else "Free",
+            'price': f"â‚¹{c.price}" if not c.is_free else "Free",
             'status': c.get_status_display() if hasattr(c, 'get_status_display') else c.status,
             'is_free': c.is_free,
             'modules_count': modules_count
@@ -831,7 +831,7 @@ def student_create_view(request):
                 'title': c.title,
                 'category': c.category.name if c.category else 'General',
                 'level': c.get_level_display() if hasattr(c, 'get_level_display') else c.level,
-                'price': f"₹{c.price}" if not c.is_free else "Free",
+                'price': f"â‚¹{c.price}" if not c.is_free else "Free",
                 'status': c.get_status_display() if hasattr(c, 'get_status_display') else c.status,
                 'is_free': c.is_free,
             })
@@ -974,7 +974,7 @@ def student_edit_view(request, pk):
                 'title': c.title,
                 'category': c.category.name if c.category else 'General',
                 'level': c.get_level_display() if hasattr(c, 'get_level_display') else c.level,
-                'price': f"₹{c.price}" if not c.is_free else "Free",
+                'price': f"â‚¹{c.price}" if not c.is_free else "Free",
                 'status': c.get_status_display() if hasattr(c, 'get_status_display') else c.status,
                 'is_free': c.is_free,
             })
@@ -2187,7 +2187,7 @@ def credit_rate_create_view(request):
                 category=AuditCategory.SYSTEM,
                 target_type='CreditRate',
                 target_id=str(rate.id),
-                description=f"Created Credit Package '{rate.name}' ({rate.feature_key}) for ₹{price} ({credits_num} credits)."
+                description=f"Created Credit Package '{rate.name}' ({rate.feature_key}) for â‚¹{price} ({credits_num} credits)."
             )
 
             messages.success(request, f"Credit Package '{rate.name}' created successfully.")
@@ -2272,7 +2272,7 @@ def credit_rate_edit_view(request, pk):
                 category=AuditCategory.SYSTEM,
                 target_type='CreditRate',
                 target_id=str(rate.id),
-                description=f"Updated Credit Package '{rate.name}' ({rate.feature_key}) to ₹{price} ({credits_num} credits)."
+                description=f"Updated Credit Package '{rate.name}' ({rate.feature_key}) to â‚¹{price} ({credits_num} credits)."
             )
 
             messages.success(request, f"Credit Package '{rate.name}' updated successfully.")
@@ -3032,7 +3032,7 @@ def payment_refund_view(request, pk):
                 category=AuditCategory.SYSTEM,
                 target_type='PaymentOrder',
                 target_id=str(order.id),
-                description=f"Refunded payment order '{order.order_number}' (₹{order.final_amount}): {reason}"
+                description=f"Refunded payment order '{order.order_number}' (â‚¹{order.final_amount}): {reason}"
             )
 
             messages.success(request, f"Payment #{order.order_number} marked as Refunded successfully.")
@@ -3072,7 +3072,7 @@ def fee_pay_view(request, pk):
         amount = Decimal(request.POST.get('amount', '0.00'))
         method = request.POST.get('method', 'CASH')
         FeeCollectionService.record_fee_payment(account=account, amount=amount, payment_method=method, collected_by=request.user)
-        messages.success(request, f"Recorded fee payment of ₹{amount} for {account.student.full_name}.")
+        messages.success(request, f"Recorded fee payment of â‚¹{amount} for {account.student.full_name}.")
     return redirect('control_panel:fee_detail', pk=pk)
 
 # --------------------------------------------------------------
@@ -4484,5 +4484,706 @@ def system_tasks_view(request):
         'sent_today': sent_today,
     }
     return render(request, 'control_panel/system/tasks.html', context)
+
+
+# --------------------------------------------------------------
+# Super Admin Academy Settlements Views
+# --------------------------------------------------------------
+
+@super_admin_required
+def academy_settlements_list_view(request):
+    """
+    Super Admin view for Academy Settlements summary.
+    Shows Gross Gateway Collected, Gateway Charges, Platform Charges, Net Payable, Already Settled, Pending Settlement.
+    """
+    from academy.models import Academy
+    from payments.models import AcademySettlement, SettlementStatus, PaymentTransaction
+    from fees.models import FeePayment
+    from django.db.models import Sum
+
+    academies = Academy.objects.all().order_by('name')
+    records = []
+    search_query = (request.GET.get('search') or '').strip().lower()
+
+    for acad in academies:
+        if search_query and search_query not in acad.name.lower():
+            continue
+
+        fee_payments = FeePayment.objects.filter(
+            course__academy=acad,
+            collection_mode='CUBIXSKILL_GATEWAY',
+            status='COMPLETED'
+        )
+        fee_gross = fee_payments.aggregate(s=Sum('amount'))['s'] or Decimal('0.00')
+
+        course_transactions = PaymentTransaction.objects.filter(
+            academy=acad,
+            payment_mode='CUBIXSKILL_RAZORPAY',
+            status='SUCCESS'
+        )
+        tx_gross = course_transactions.aggregate(s=Sum('gross_amount'))['s'] or Decimal('0.00')
+
+        gross_collected = fee_gross + tx_gross
+        gateway_charges = (gross_collected * Decimal('0.02')).quantize(Decimal('0.01'))
+        platform_charges = (gross_collected * Decimal('0.05')).quantize(Decimal('0.01'))
+        net_payable = max(Decimal('0.00'), gross_collected - gateway_charges - platform_charges)
+
+        settlements = AcademySettlement.objects.filter(academy=acad)
+        already_settled = settlements.filter(status__in=[SettlementStatus.PAID, 'SETTLED', 'COMPLETED']).aggregate(s=Sum('net_amount'))['s'] or Decimal('0.00')
+        pending_settlement = max(Decimal('0.00'), net_payable - already_settled)
+
+        records.append({
+            'academy': acad,
+            'gross_collected': gross_collected,
+            'gateway_charges': gateway_charges,
+            'platform_charges': platform_charges,
+            'net_payable': net_payable,
+            'already_settled': already_settled,
+            'pending_settlement': pending_settlement,
+        })
+
+    context = {
+        'active_nav': 'settlements',
+        'records': records,
+        'search': search_query,
+    }
+    return render(request, 'control_panel/settlements/index.html', context)
+
+
+@super_admin_required
+def academy_settlement_detail_view(request, academy_id):
+    """
+    Super Admin view for individual Academy settlement breakdown and payment recording.
+    """
+    from academy.models import Academy
+    from payments.models import AcademySettlement, SettlementStatus, PaymentTransaction
+    from fees.models import FeePayment
+    from django.db.models import Sum
+
+    academy = get_object_or_404(Academy, pk=academy_id)
+
+    fee_payments = FeePayment.objects.filter(
+        course__academy=academy,
+        collection_mode='CUBIXSKILL_GATEWAY',
+        status='COMPLETED'
+    ).select_related('student', 'course').order_by('-payment_date', '-created_at')
+
+    settlements = AcademySettlement.objects.filter(academy=academy).order_by('-created_at')
+
+    fee_gross = fee_payments.aggregate(s=Sum('amount'))['s'] or Decimal('0.00')
+    tx_gross = PaymentTransaction.objects.filter(academy=academy, payment_mode='CUBIXSKILL_RAZORPAY', status='SUCCESS').aggregate(s=Sum('gross_amount'))['s'] or Decimal('0.00')
+    gross_collected = fee_gross + tx_gross
+    gateway_charges = (gross_collected * Decimal('0.02')).quantize(Decimal('0.01'))
+    platform_charges = (gross_collected * Decimal('0.05')).quantize(Decimal('0.01'))
+    net_payable = max(Decimal('0.00'), gross_collected - gateway_charges - platform_charges)
+    already_settled = settlements.filter(status__in=[SettlementStatus.PAID, 'SETTLED', 'COMPLETED']).aggregate(s=Sum('net_amount'))['s'] or Decimal('0.00')
+    pending_settlement = max(Decimal('0.00'), net_payable - already_settled)
+
+    context = {
+        'active_nav': 'settlements',
+        'academy': academy,
+        'fee_payments': fee_payments,
+        'settlements': settlements,
+        'gross_collected': gross_collected,
+        'gateway_charges': gateway_charges,
+        'platform_charges': platform_charges,
+        'net_payable': net_payable,
+        'already_settled': already_settled,
+        'pending_settlement': pending_settlement,
+    }
+    return render(request, 'control_panel/settlements/detail.html', context)
+
+
+@super_admin_required
+def record_academy_settlement_view(request, academy_id):
+    """
+    Super Admin POST endpoint to record payout transfer to Academy.
+    """
+    from academy.models import Academy
+    from payments.models import AcademySettlement, SettlementStatus
+
+    academy = get_object_or_404(Academy, pk=academy_id)
+
+    if request.method == 'POST':
+        try:
+            amount_val = request.POST.get('amount')
+            payout_amount = Decimal(str(amount_val))
+            method = request.POST.get('settlement_method', 'UPI')
+            reference = request.POST.get('reference_number', '').strip()
+            notes = request.POST.get('notes', '').strip()
+
+            if payout_amount <= Decimal('0.00'):
+                messages.error(request, "Settlement payout amount must be greater than 0.")
+                return redirect('control_panel:settlement_detail', academy_id=academy.id)
+
+            AcademySettlement.objects.create(
+                academy=academy,
+                period_start=timezone.now(),
+                period_end=timezone.now(),
+                gross_amount=payout_amount,
+                net_amount=payout_amount,
+                settlement_method=method,
+                provider_transfer_id=reference,
+                status=SettlementStatus.PAID,
+                processed_at=timezone.now(),
+                settled_at=timezone.now(),
+                failure_reason=notes
+            )
+            messages.success(request, f"Successfully recorded settlement payout of â‚¹{payout_amount} for {academy.name}.")
+        except Exception as e:
+            messages.error(request, f"Failed to record settlement: {e}")
+
+    return redirect('control_panel:settlement_detail', academy_id=academy.id)
+
+
+# --------------------------------------------------------------
+# Control Panel Billing Views (Section M)
+# --------------------------------------------------------------
+
+@super_admin_required
+def feature_billing_rules_view(request):
+    from credits.models import FeatureBillingRule, FeatureBillingType
+    from credits.services import FeatureBillingService
+
+    if request.method == 'POST':
+        rule_id = request.POST.get('rule_id')
+        code = request.POST.get('feature_code', '').strip()
+        b_type = request.POST.get('billing_type', FeatureBillingType.INCLUDED)
+        rate_val = Decimal(request.POST.get('credit_rate', '0'))
+        is_billable = request.POST.get('is_billable') == 'on'
+        is_active = request.POST.get('is_active') == 'on'
+
+        if rule_id:
+            rule = get_object_or_404(FeatureBillingRule, pk=rule_id)
+            rule.billing_type = b_type
+            rule.credit_rate = rate_val
+            rule.is_billable = is_billable
+            rule.is_active = is_active
+            rule.save()
+            messages.success(request, f"Updated billing rule for '{rule.feature_code}'.")
+        else:
+            FeatureBillingRule.objects.create(
+                feature_code=code,
+                billing_type=b_type,
+                credit_rate=rate_val,
+                is_billable=is_billable,
+                is_active=is_active
+            )
+            messages.success(request, f"Created feature billing rule for '{code}'.")
+
+        return redirect('control_panel:feature_billing_rules')
+
+    rules = FeatureBillingRule.objects.all().order_by('feature_code')
+    # Pre-populate default rules if empty
+    if not rules.exists():
+        default_features = ['STUDENT_BASE', 'LESSONS', 'FEE_COLLECTION', 'LIVE_CLASS', 'ONE_TO_ONE', 'CERTIFICATE', 'ANNOUNCEMENT', 'EMAIL']
+        for f in default_features:
+            FeatureBillingService.get_effective_rule(f)
+        rules = FeatureBillingRule.objects.all().order_by('feature_code')
+
+    context = {
+        'active_nav': 'pricing',
+        'rules': rules,
+        'billing_types': FeatureBillingType.choices,
+    }
+    return render(request, 'control_panel/billing/feature_rules.html', context)
+
+
+@super_admin_required
+def storage_billing_settings_view(request):
+    import logging
+    from decimal import Decimal
+    from django.db import transaction
+    from storage.models import StorageBillingSettings
+    from control_panel.forms import StorageBillingSettingsForm
+
+    logger = logging.getLogger(__name__)
+    setting = StorageBillingSettings.get_settings()
+
+    if request.method == 'POST':
+        form = StorageBillingSettingsForm(request.POST, instance=setting)
+        if form.is_valid():
+            with transaction.atomic():
+                updated_setting = form.save()
+                try:
+                    from credits.models import StorageBillingSetting as CreditStorageBillingSetting
+                    legacy_set = CreditStorageBillingSetting.objects.first()
+                    if legacy_set:
+                        legacy_set.enabled = updated_setting.storage_billing_enabled
+                        legacy_set.credits_per_gb = updated_setting.storage_credit_rate_per_gb
+                        legacy_set.save()
+                except Exception as sync_err:
+                    logger.warning(f"Legacy StorageBillingSetting sync failed: {sync_err}")
+
+            messages.success(request, "Storage billing settings saved.")
+            return redirect('control_panel:storage_billing_settings')
+        else:
+            for field, errors in form.errors.items():
+                for error in errors:
+                    label = form.fields[field].label if field in form.fields else field
+                    messages.error(request, f"{label}: {error}")
+    else:
+        form = StorageBillingSettingsForm(instance=setting)
+
+    import datetime
+    from django.utils import timezone
+    from django.core.paginator import Paginator
+    from storage.models import StorageUsageCharge
+
+    now = timezone.localtime()
+
+    # Safe parsing for month query parameter
+    raw_month = request.GET.get('month')
+    try:
+        selected_month = int(raw_month)
+        if selected_month < 1 or selected_month > 12:
+            selected_month = now.month
+    except (ValueError, TypeError):
+        selected_month = now.month
+
+    # Safe parsing for year query parameter
+    raw_year = request.GET.get('year')
+    try:
+        selected_year = int(raw_year)
+        if selected_year < 2000 or selected_year > 2100:
+            selected_year = now.year
+    except (ValueError, TypeError):
+        selected_year = now.year
+
+    # Query successful storage credit debits
+    base_qs = StorageUsageCharge.objects.filter(
+        status__in=['SUCCESS', 'CHARGED'],
+        ledger_entry__isnull=False
+    ).select_related('ledger_entry', 'academy')
+
+    # Dynamically extract available years from database
+    year_vals = list(base_qs.values_list('ledger_entry__occurred_at__year', flat=True).distinct())
+    if not year_vals or None in year_vals:
+        year_vals = list(base_qs.values_list('billing_ended_at__year', flat=True).distinct())
+    clean_years = [y for y in year_vals if y is not None]
+    available_years = sorted(list(set(clean_years + [now.year])), reverse=True)
+
+    # Filter charges for selected month and year
+    filtered_qs = base_qs.filter(
+        ledger_entry__occurred_at__year=selected_year,
+        ledger_entry__occurred_at__month=selected_month
+    ).order_by('-ledger_entry__occurred_at')
+
+    # Calculate summary metrics for selected period
+    period_label = datetime.date(selected_year, selected_month, 1).strftime("%B %Y")
+    total_debits = filtered_qs.count()
+    sum_credits = sum((c.charged_credits for c in filtered_qs), Decimal("0.0000")) if total_debits > 0 else Decimal("0.0000")
+
+    # Pagination: 25 per page
+    page_number = request.GET.get('page', 1)
+    paginator = Paginator(filtered_qs, 25)
+    history_page = paginator.get_page(page_number)
+
+    from storage.models import StorageBillingCycle, StorageBillingCycleStatus, AcademyStorageUsage
+    from storage.utils import get_next_credit_debit_datetime, storage_interval_delta, bytes_to_gb, get_interval_label
+
+    total_used_bytes = sum(u.used_bytes for u in AcademyStorageUsage.objects.all())
+    current_storage_gb = bytes_to_gb(total_used_bytes)
+    metering_interval_label = get_interval_label(setting.storage_billing_interval)
+
+    # Fetch accumulation metrics for first academy or global summary
+    open_cycle = StorageBillingCycle.objects.filter(
+        status=StorageBillingCycleStatus.OPEN
+    ).order_by('-cycle_start_at').first()
+
+    current_accumulated = open_cycle.accumulated_credits if open_cycle else Decimal("0.0000")
+    current_meter_count = open_cycle.meter_records.count() if open_cycle else 0
+
+    first_usage = AcademyStorageUsage.objects.order_by('-updated_at').first()
+    last_metered_at = first_usage.last_billed_at if first_usage else None
+    delta = storage_interval_delta(setting.storage_billing_interval)
+    next_meter_at = (last_metered_at + delta) if last_metered_at else (now + delta)
+    next_credit_debit_at = get_next_credit_debit_datetime(setting, now=now)
+
+    # Fetch last debited transaction details
+    last_debited_charge = base_qs.order_by('-ledger_entry__occurred_at').first()
+    last_storage_debit_at = last_debited_charge.debited_at if last_debited_charge else None
+    last_storage_debit_credits = last_debited_charge.charged_credits if last_debited_charge else Decimal("0.0000")
+    last_storage_debit_credits = last_debited_charge.charged_credits if last_debited_charge else Decimal("0.0000")
+    MONTH_CHOICES = [
+        (1, "January"), (2, "February"), (3, "March"), (4, "April"),
+        (5, "May"), (6, "June"), (7, "July"), (8, "August"),
+        (9, "September"), (10, "October"), (11, "November"), (12, "December")
+    ]
+
+    from academy.models import Academy
+    from storage.services import StorageOutstandingService
+    from django.db.models import Q
+    from django.core.paginator import Paginator
+
+    q = request.GET.get('q', '').strip()
+    academies_qs = Academy.objects.all()
+    if q:
+        is_valid_uuid = False
+        if len(q) == 36:
+            try:
+                import uuid
+                uuid.UUID(q)
+                is_valid_uuid = True
+            except ValueError:
+                pass
+
+        if is_valid_uuid:
+            academies_qs = academies_qs.filter(
+                Q(name__icontains=q) |
+                Q(slug__icontains=q) |
+                Q(id=q) |
+                Q(media_files__original_filename__icontains=q) |
+                Q(media_files__stored_filename__icontains=q)
+            ).distinct()
+        else:
+            academies_qs = academies_qs.filter(
+                Q(name__icontains=q) |
+                Q(slug__icontains=q) |
+                Q(media_files__original_filename__icontains=q) |
+                Q(media_files__stored_filename__icontains=q)
+            ).distinct()
+
+    academies_inspection = []
+    for acad in academies_qs:
+        acad_usage = AcademyStorageUsage.objects.filter(academy=acad).first()
+        used_bytes = acad_usage.used_bytes if acad_usage else 0
+        used_gb = bytes_to_gb(used_bytes)
+        file_cnt = acad_usage.file_count if acad_usage else 0
+
+        open_c = StorageBillingCycle.objects.filter(academy=acad, status=StorageBillingCycleStatus.OPEN).order_by('-cycle_start_at').first()
+        cycle_credits = open_c.accumulated_credits if open_c else Decimal("0.0000")
+        meter_cnt = open_c.meter_records.count() if open_c else 0
+
+        last_s = StorageBillingCycle.objects.filter(academy=acad, status__in=[StorageBillingCycleStatus.SETTLED, StorageBillingCycleStatus.DEBITED]).order_by('-settled_at', '-created_at').first()
+        acad_outstanding = StorageOutstandingService.get_total_outstanding_credits(acad)
+
+        academies_inspection.append({
+            'academy': acad,
+            'current_storage_gb': f"{used_gb:.2f}",
+            'file_count': file_cnt,
+            'current_cycle_credits': f"{cycle_credits:.4f}",
+            'meter_count': meter_cnt,
+            'last_settlement_at': last_s.settled_at or last_s.debited_at if last_s else None,
+            'original_bill': f"{(last_s.original_amount if (last_s and last_s.original_amount > 0) else (last_s.accumulated_credits if last_s else Decimal('0.0000'))):.4f}",
+            'paid_amount': f"{(last_s.paid_amount if last_s else Decimal('0.0000')):.4f}",
+            'outstanding_amount': f"{acad_outstanding:.4f}",
+            'settlement_status': last_s.settlement_status if (last_s and last_s.settlement_status) else ("PAID" if last_s else "N/A"),
+            'next_settlement_at': next_credit_debit_at
+        })
+
+    acad_page_num = request.GET.get('acad_page', 1)
+    acad_paginator = Paginator(academies_inspection, 10)
+    academies_page = acad_paginator.get_page(acad_page_num)
+
+    context = {
+        'active_nav': 'storage_settings',
+        'setting': setting,
+        'form': form,
+        'current_storage_gb': current_storage_gb,
+        'metering_interval_label': metering_interval_label,
+        'current_accumulated_credits': f"{current_accumulated:.2f}",
+        'current_meter_count': current_meter_count,
+        'last_metered_at': last_metered_at,
+        'next_meter_at': next_meter_at,
+        'next_credit_debit_at': next_credit_debit_at,
+        'last_storage_debit_at': last_storage_debit_at,
+        'last_storage_debit_credits': f"{last_storage_debit_credits:.2f}" if last_storage_debit_credits else None,
+        'academies_inspection': academies_inspection,
+        'academies_page': academies_page,
+        'q': q,
+        'month_choices': MONTH_CHOICES,
+        'available_years': available_years,
+        'selected_month': selected_month,
+        'selected_year': selected_year,
+        'period_label': period_label,
+        'total_debits': total_debits,
+        'total_credits_debited': f"-{sum_credits:.2f}" if total_debits > 0 else "0.00",
+        'history_page': history_page,
+    }
+    return render(request, 'control_panel/billing/storage_settings.html', context)
+
+
+@super_admin_required
+def academy_storage_detail_view(request, academy_id=None, pk=None):
+    from academy.models import Academy
+    from storage.models import (
+        StorageBillingSettings, AcademyStorageUsage, StorageBillingCycle,
+        StorageBillingCycleStatus, StorageMeterRecord, MediaFile, MediaStatus
+    )
+    from storage.services import StorageOutstandingService
+    from storage.utils import bytes_to_gb, get_next_credit_debit_datetime, storage_interval_delta
+    from django.core.paginator import Paginator
+    from django.db.models import Q, Sum, Max, Min, Count
+    from django.utils import timezone
+    import datetime
+
+    target_id = academy_id or pk
+    academy = get_object_or_404(Academy, pk=target_id)
+    setting = StorageBillingSettings.get_settings()
+    now = timezone.now()
+
+    usage, _ = AcademyStorageUsage.objects.get_or_create(
+        academy=academy,
+        defaults={'academy_uuid': academy.id, 'used_bytes': 0, 'file_count': 0}
+    )
+    used_gb = bytes_to_gb(usage.used_bytes)
+    delta = storage_interval_delta(setting.storage_billing_interval)
+
+    open_c = StorageBillingCycle.objects.filter(
+        academy=academy,
+        status=StorageBillingCycleStatus.OPEN
+    ).order_by('-cycle_start_at').first()
+
+    current_cycle_credits = open_c.accumulated_credits if open_c else Decimal("0.0000")
+    meter_count = open_c.meter_records.count() if open_c else 0
+
+    outstanding_credits = StorageOutstandingService.get_total_outstanding_credits(academy)
+    last_metered_at = usage.last_billed_at
+    next_meter_at = (last_metered_at + delta) if last_metered_at else (now + delta)
+
+    last_s = StorageBillingCycle.objects.filter(
+        academy=academy,
+        status__in=[StorageBillingCycleStatus.SETTLED, StorageBillingCycleStatus.DEBITED]
+    ).order_by('-settled_at', '-debited_at', '-created_at').first()
+
+    previous_settlement_at = (last_s.settled_at or last_s.debited_at) if last_s else None
+    next_settlement_at = get_next_credit_debit_datetime(setting, now=timezone.localtime())
+
+    # --- Filtering Parameters ---
+    raw_month = request.GET.get('month')
+    raw_day = request.GET.get('day')
+    raw_year = request.GET.get('year')
+    interval_filter = request.GET.get('interval', 'ALL').strip()
+    from_date_str = request.GET.get('from_date', '').strip()
+    to_date_str = request.GET.get('to_date', '').strip()
+    audit_search = request.GET.get('audit_search', '').strip()
+
+    selected_month = int(raw_month) if raw_month and raw_month.isdigit() and 1 <= int(raw_month) <= 12 else None
+    selected_day = int(raw_day) if raw_day and raw_day.isdigit() and 1 <= int(raw_day) <= 31 else None
+    selected_year = int(raw_year) if raw_year and raw_year.isdigit() else None
+
+    # Base Meter Records Queryset for Academy
+    meters_qs = StorageMeterRecord.objects.filter(academy=academy).prefetch_related('file_snapshots', 'file_snapshots__media_file').order_by('-metered_at')
+
+    if selected_year:
+        meters_qs = meters_qs.filter(metered_at__year=selected_year)
+    if selected_month:
+        meters_qs = meters_qs.filter(metered_at__month=selected_month)
+    if selected_day:
+        meters_qs = meters_qs.filter(metered_at__day=selected_day)
+    if interval_filter and interval_filter != 'ALL':
+        meters_qs = meters_qs.filter(metering_interval=interval_filter)
+
+    if from_date_str:
+        try:
+            from_date = datetime.datetime.strptime(from_date_str, "%Y-%m-%d")
+            meters_qs = meters_qs.filter(metered_at__gte=from_date)
+        except ValueError:
+            pass
+
+    if to_date_str:
+        try:
+            to_date = datetime.datetime.strptime(to_date_str, "%Y-%m-%d") + datetime.timedelta(days=1)
+            meters_qs = meters_qs.filter(metered_at__lt=to_date)
+        except ValueError:
+            pass
+
+    if audit_search:
+        meters_qs = meters_qs.filter(
+            Q(file_snapshots__filename_snapshot__icontains=audit_search) |
+            Q(file_snapshots__media_file_uuid__icontains=audit_search if len(audit_search) == 36 else '00000000-0000-0000-0000-000000000000')
+        ).distinct()
+
+    # --- Month / Day Summary Metrics ---
+    month_summary = None
+    if selected_month or selected_year:
+        agg = meters_qs.aggregate(
+            cnt=Count('id'),
+            peak_bytes=Max('used_bytes'),
+            low_bytes=Min('used_bytes'),
+            total_credits=Sum('calculated_credits')
+        )
+        files_added = MediaFile.objects.filter(academy_uuid=academy.id)
+        files_deleted = MediaFile.objects.filter(academy_uuid=academy.id, status=MediaStatus.DELETED)
+        if selected_month:
+            files_added = files_added.filter(created_at__month=selected_month)
+            files_deleted = files_deleted.filter(updated_at__month=selected_month)
+        if selected_year:
+            files_added = files_added.filter(created_at__year=selected_year)
+            files_deleted = files_deleted.filter(updated_at__year=selected_year)
+
+        month_summary = {
+            'meter_records_count': agg['cnt'] or 0,
+            'peak_storage_gb': f"{bytes_to_gb(agg['peak_bytes'] or 0):.2f}",
+            'lowest_storage_gb': f"{bytes_to_gb(agg['low_bytes'] or 0):.2f}",
+            'total_metered_credits': f"{(agg['total_credits'] or Decimal('0.0000')):.4f}",
+            'files_added': files_added.count(),
+            'files_deleted': files_deleted.count(),
+        }
+
+    day_summary = None
+    if selected_day and selected_month and selected_year:
+        day_qs = meters_qs.order_by('metered_at')
+        first_m = day_qs.first()
+        last_m = day_qs.last()
+        agg_d = day_qs.aggregate(
+            peak_bytes=Max('used_bytes'),
+            cnt=Count('id'),
+            tot_cred=Sum('calculated_credits')
+        )
+        day_summary = {
+            'start_storage_gb': f"{bytes_to_gb(first_m.used_bytes if first_m else 0):.2f}",
+            'end_storage_gb': f"{bytes_to_gb(last_m.used_bytes if last_m else 0):.2f}",
+            'peak_storage_gb': f"{bytes_to_gb(agg_d['peak_bytes'] or 0):.2f}",
+            'meter_records_count': agg_d['cnt'] or 0,
+            'calculated_credits': f"{(agg_d['tot_cred'] or Decimal('0.0000')):.4f}",
+        }
+
+    # Section 1: Paginated Storage Metering History
+    meter_page_num = request.GET.get('meter_page', 1)
+    meter_paginator = Paginator(meters_qs, 20)
+    meters_page = meter_paginator.get_page(meter_page_num)
+
+    # Pre-calculate delta / changes for items on current meters_page
+    page_items = list(meters_page.object_list)
+    for i, m in enumerate(page_items):
+        prev_m = StorageMeterRecord.objects.filter(
+            academy=academy, metered_at__lt=m.metered_at
+        ).prefetch_related('file_snapshots').order_by('-metered_at').first()
+
+        m.has_snapshots = (m.file_snapshots.count() > 0)
+        if prev_m and m.has_snapshots:
+            prev_snaps = {s.media_file_uuid: s for s in prev_m.file_snapshots.all()}
+            curr_snaps = {s.media_file_uuid: s for s in m.file_snapshots.all()}
+
+            added = [s for uuid, s in curr_snaps.items() if uuid not in prev_snaps]
+            removed = [s for uuid, s in prev_snaps.items() if uuid not in curr_snaps]
+
+            delta_bytes = m.used_bytes - prev_m.used_bytes
+
+            m.added_snapshots = added
+            m.removed_snapshots = removed
+            m.delta_bytes = delta_bytes
+            m.delta_str = f"+{bytes_to_gb(abs(delta_bytes)):.2f} GB" if delta_bytes > 0 else (f"-{bytes_to_gb(abs(delta_bytes)):.2f} GB" if delta_bytes < 0 else "0.00 GB")
+        else:
+            m.added_snapshots = []
+            m.removed_snapshots = []
+            m.delta_bytes = 0
+            m.delta_str = "0.00 GB"
+
+    # Section 2: Paginated Settlement History
+    settlements_qs = StorageBillingCycle.objects.filter(
+        academy=academy,
+        status__in=[StorageBillingCycleStatus.SETTLED, StorageBillingCycleStatus.DEBITED]
+    ).order_by('-settled_at', '-created_at')
+    settle_page_num = request.GET.get('settle_page', 1)
+    settle_paginator = Paginator(settlements_qs, 15)
+    settlements_page = settle_paginator.get_page(settle_page_num)
+
+    # Section 3: Paginated File Lifecycle History
+    status_filter = request.GET.get('status_filter', 'ALL')
+    file_search = request.GET.get('file_search', '').strip()
+
+    files_qs = MediaFile.objects.filter(academy_uuid=academy.id)
+    if status_filter == 'ACTIVE':
+        files_qs = files_qs.filter(status=MediaStatus.ACTIVE)
+    elif status_filter == 'DELETED':
+        files_qs = files_qs.filter(status=MediaStatus.DELETED)
+
+    if file_search:
+        is_valid_uuid = False
+        if len(file_search) == 36:
+            try:
+                import uuid
+                uuid.UUID(file_search)
+                is_valid_uuid = True
+            except ValueError:
+                pass
+
+        if is_valid_uuid:
+            files_qs = files_qs.filter(
+                Q(original_filename__icontains=file_search) |
+                Q(display_name__icontains=file_search) |
+                Q(id=file_search)
+            )
+        else:
+            files_qs = files_qs.filter(
+                Q(original_filename__icontains=file_search) |
+                Q(display_name__icontains=file_search)
+            )
+
+    files_qs = files_qs.order_by('-created_at')
+    file_page_num = request.GET.get('file_page', 1)
+    file_paginator = Paginator(files_qs, 20)
+    files_page = file_paginator.get_page(file_page_num)
+
+    MONTH_CHOICES = [
+        (1, "January"), (2, "February"), (3, "March"), (4, "April"),
+        (5, "May"), (6, "June"), (7, "July"), (8, "August"),
+        (9, "September"), (10, "October"), (11, "November"), (12, "December")
+    ]
+    available_years = list(range(now.year - 2, now.year + 2))
+
+    context = {
+        'active_nav': 'storage_settings',
+        'academy': academy,
+        'used_gb': f"{used_gb:.2f}",
+        'used_bytes': usage.used_bytes,
+        'file_count': usage.file_count,
+        'current_cycle_credits': f"{current_cycle_credits:.4f}",
+        'meter_count': meter_count,
+        'outstanding_credits': f"{outstanding_credits:.4f}",
+        'last_metered_at': last_metered_at,
+        'next_meter_at': next_meter_at,
+        'previous_settlement_at': previous_settlement_at,
+        'next_settlement_at': next_settlement_at,
+        'meters_page': meters_page,
+        'settlements_page': settlements_page,
+        'files_page': files_page,
+        'status_filter': status_filter,
+        'file_search': file_search,
+        'month_choices': MONTH_CHOICES,
+        'available_years': available_years,
+        'selected_month': selected_month,
+        'selected_day': selected_day,
+        'selected_year': selected_year,
+        'interval_filter': interval_filter,
+        'from_date': from_date_str,
+        'to_date': to_date_str,
+        'audit_search': audit_search,
+        'month_summary': month_summary,
+        'day_summary': day_summary,
+    }
+    return render(request, 'control_panel/billing/academy_storage_detail.html', context)
+
+
+@super_admin_required
+def monthly_invoices_control_view(request):
+    from credits.models import MonthlyBillingInvoice
+    invoices = MonthlyBillingInvoice.objects.select_related('academy', 'billing_period').all().order_by('-generated_at')
+
+    context = {
+        'active_nav': 'invoices',
+        'invoices': invoices,
+    }
+    return render(request, 'control_panel/billing/monthly_invoices.html', context)
+
+
+@super_admin_required
+def monthly_invoice_detail_control_view(request, pk):
+    from credits.models import MonthlyBillingInvoice
+    invoice = get_object_or_404(MonthlyBillingInvoice.objects.select_related('academy', 'billing_period'), pk=pk)
+    line_items = invoice.line_items.all()
+
+    context = {
+        'active_nav': 'invoices',
+        'invoice': invoice,
+        'line_items': line_items,
+    }
+    return render(request, 'control_panel/billing/invoice_detail.html', context)
+
+
+
 
 

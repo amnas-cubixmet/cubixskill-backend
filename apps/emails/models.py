@@ -13,6 +13,7 @@ class EmailJobStatus(models.TextChoices):
 
 
 class EmailJobType(models.TextChoices):
+    TRANSACTIONAL = 'TRANSACTIONAL', 'Transactional Email'
     LIVE_SESSION_CREATED_EMAIL = 'LIVE_SESSION_CREATED_EMAIL', 'Live Session Created Email'
     LIVE_SESSION_REMINDER_EMAIL = 'LIVE_SESSION_REMINDER_EMAIL', 'Live Session 1-Hour Reminder'
     LIVE_SESSION_UPDATED_EMAIL = 'LIVE_SESSION_UPDATED_EMAIL', 'Live Session Updated Email'

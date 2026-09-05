@@ -22,18 +22,26 @@ class StudentFeePlanType(models.TextChoices):
 
 class StudentFeeAccountStatus(models.TextChoices):
     NOT_CONFIGURED = 'NOT_CONFIGURED', 'Not Configured'
+    UNPAID = 'UNPAID', 'Unpaid'
     PENDING = 'PENDING', 'Pending'
     PARTIAL = 'PARTIAL', 'Partial'
+    PARTIALLY_PAID = 'PARTIALLY_PAID', 'Partially Paid'
     PAID = 'PAID', 'Paid'
     OVERDUE = 'OVERDUE', 'Overdue'
     WAIVED = 'WAIVED', 'Waived'
     CANCELLED = 'CANCELLED', 'Cancelled'
 
 
+class CollectionMode(models.TextChoices):
+    CUBIXSKILL_GATEWAY = 'CUBIXSKILL_GATEWAY', 'CubixSkill Gateway'
+    DIRECT_ACADEMY = 'DIRECT_ACADEMY', 'Direct Academy'
+
+
 class InstallmentStatus(models.TextChoices):
     UPCOMING = 'UPCOMING', 'Upcoming'
     DUE = 'DUE', 'Due'
     PARTIAL = 'PARTIAL', 'Partial'
+    PARTIALLY_PAID = 'PARTIALLY_PAID', 'Partially Paid'
     PAID = 'PAID', 'Paid'
     OVERDUE = 'OVERDUE', 'Overdue'
     WAIVED = 'WAIVED', 'Waived'
@@ -51,7 +59,7 @@ class StudentFeeAccount(BaseModel):
     total_fee_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     effective_fee_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     start_date = models.DateField(default=timezone.now)
-    status = models.CharField(max_length=20, choices=StudentFeeAccountStatus.choices, default=StudentFeeAccountStatus.PENDING, db_index=True)
+    status = models.CharField(max_length=20, choices=StudentFeeAccountStatus.choices, default=StudentFeeAccountStatus.UNPAID, db_index=True)
     notes = models.TextField(blank=True, default='')
     created_by = models.ForeignKey('users_roles.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
 
@@ -91,8 +99,12 @@ class FeePayment(BaseModel):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     currency = models.CharField(max_length=10, default='INR')
     payment_date = models.DateField(default=timezone.now, db_index=True)
+    collection_mode = models.CharField(max_length=30, choices=CollectionMode.choices, default=CollectionMode.DIRECT_ACADEMY, db_index=True)
     payment_method = models.CharField(max_length=30, choices=PaymentMethod.choices, default=PaymentMethod.UPI)
     reference_number = models.CharField(max_length=100, blank=True, default='')
+    gateway_order_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    gateway_payment_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    gateway_signature = models.CharField(max_length=512, blank=True, default='')
     notes = models.TextField(blank=True, default='')
     status = models.CharField(max_length=20, default='COMPLETED', db_index=True)
     recorded_by = models.ForeignKey('users_roles.User', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')

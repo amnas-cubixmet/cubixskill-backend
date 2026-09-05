@@ -47,7 +47,7 @@ class PublicAcademyCourseDetailView(APIView):
     def get(self, request, academy_slug, course_slug):
         academy = get_academy_by_identifier(academy_slug)
         course = WebsiteSelector.get_public_academy_course_by_slug(academy, course_slug)
-        serializer = CourseDetailSerializer(course)
+        serializer = CourseDetailSerializer(course, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 # --------------------------------------------------------------
@@ -169,3 +169,57 @@ class AcademyThemeColorUpdateView(APIView):
             "message": "Theme color updated and published successfully.",
             "theme_color": validated_color
         }, status=status.HTTP_200_OK)
+
+# --------------------------------------------------------------
+# 5. Public Lesson Preview View
+# --------------------------------------------------------------
+
+class PublicLessonPreviewView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, academy_slug, course_slug, lesson_id):
+        from website.selectors import WebsiteSelector
+        from lessons.models import Lesson
+        from lessons.services import get_lesson_actual_duration_seconds, get_public_preview_duration_seconds
+        from django.shortcuts import get_object_or_404
+
+        academy = get_academy_by_identifier(academy_slug)
+        course = WebsiteSelector.get_public_academy_course_by_slug(academy, course_slug)
+        lesson = get_object_or_404(Lesson.objects.filter(is_active=True), id=lesson_id)
+
+        # Tenant & course relationship validation
+        if not lesson.module or lesson.module.course_id != course.id:
+            return Response(
+                {"error": {"code": "LESSON_NOT_FOUND", "message": "Lesson not found in this course."}},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if not lesson.is_demo:
+            return Response(
+                {"error": {"code": "LESSON_NOT_DEMO", "message": "This lesson is not enabled for public preview. Enroll in the course to access."}},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        actual_duration = get_lesson_actual_duration_seconds(lesson)
+        preview_duration = get_public_preview_duration_seconds(actual_duration)
+
+        primary = lesson.media_files.filter(media_role='PRIMARY').first()
+        video_url = None
+        if primary and primary.media_file:
+            mf = primary.media_file
+            url_path = mf.file_url or f"/media/{mf.storage_key.lstrip('/')}"
+            video_url = request.build_absolute_uri(url_path) if request else url_path
+        elif lesson.external_url:
+            video_url = lesson.external_url
+
+        payload = {
+            "id": str(lesson.id),
+            "title": lesson.title,
+            "lesson_type": lesson.lesson_type,
+            "is_demo": True,
+            "duration_seconds": actual_duration,
+            "preview_duration_seconds": preview_duration,
+            "video_url": video_url,
+            "preview_ended_text": "Preview ended. Enroll in this course to continue watching."
+        }
+        return Response(payload, status=status.HTTP_200_OK)

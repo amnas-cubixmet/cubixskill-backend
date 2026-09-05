@@ -28,7 +28,8 @@ class FeePaymentSerializer(serializers.ModelSerializer):
         model = FeePayment
         fields = [
             'id', 'receipt_number', 'amount', 'currency', 'payment_date',
-            'payment_method', 'reference_number', 'notes', 'status', 'recorded_by_name'
+            'collection_mode', 'payment_method', 'reference_number',
+            'gateway_order_id', 'gateway_payment_id', 'notes', 'status', 'recorded_by_name'
         ]
 
 

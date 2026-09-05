@@ -130,24 +130,28 @@ class StudentViewSet(viewsets.ModelViewSet):
         if not recipient_email:
             raise CubixSkillAPIException("Student does not have a valid email address.", code="NO_EMAIL", status_code=400)
 
-        from emails.services import send_transactional_email
+        from emails.outbox_service import EmailJobService
+        acad_id = request.user.academy_id if hasattr(request.user, 'academy_id') else (request.user.academy.id if hasattr(request.user, 'academy') and request.user.academy else None)
         context = {
-            "user_name": student.display_name or student.user.full_name or "Student",
+            "user_name": student.display_name or (student.user.full_name if student.user else "Student"),
             "body": message,
             "academy_name": request.user.academy.name if (hasattr(request.user, 'academy') and request.user.academy) else "CubixSkill Academy"
         }
 
-        success = send_transactional_email(
-            recipient=recipient_email,
-            template_name="custom_notification",
+        job = EmailJobService.create_transactional_job(
+            recipient_email=recipient_email,
             subject=subject,
-            context=context
+            template_name="custom_notification",
+            context=context,
+            academy_uuid=acad_id,
+            recipient_user_uuid=student.user.id if student.user else None,
+            recipient_name=student.display_name or (student.user.full_name if student.user else "Student")
         )
 
-        if not success:
-            raise CubixSkillAPIException("Failed to deliver email via SMTP backend.", code="EMAIL_DELIVERY_FAILED", status_code=500)
-
-        return api_response(message=f"Email sent successfully to {recipient_email}.")
+        return api_response(
+            data={"job_id": str(job.id), "status": "QUEUED"},
+            message=f"Email queued successfully for {recipient_email}."
+        )
 
     @action(detail=True, methods=['post'], url_path='resend-activation')
     def resend_activation(self, request, pk=None):

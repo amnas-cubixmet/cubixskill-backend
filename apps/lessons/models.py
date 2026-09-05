@@ -52,6 +52,7 @@ class Lesson(BaseModel, ActiveMixin, OrderMixin):
 
     duration_minutes = models.PositiveIntegerField(default=0)
     is_demo = models.BooleanField(default=False)
+    is_locked = models.BooleanField(default=False)
     allow_download = models.BooleanField(default=False)
     external_url = models.URLField(blank=True, default='')
 

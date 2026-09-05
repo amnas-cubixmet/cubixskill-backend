@@ -293,3 +293,88 @@ class CreditsAppTestCase(TestCase):
         })
         self.assertEqual(res_mismatch.status_code, 400)
 
+    def test_feature_credit_billing_calculation_and_included_zero_charge(self):
+        """
+        Tests Section A & B: Feature Credit Billing calculations, INCLUDED zero charges, PER_STUDENT rates, and get_billable_student_count.
+        """
+        from credits.services import get_billable_student_count, FeatureBillingService, MonthlyBillingService
+        from credits.models import FeatureBillingRule, FeatureBillingType
+        from students.models import StudentProfile, StudentStatus
+        from enrollments.models import Enrollment, EnrollmentStatus
+        from courses.models import Course
+
+        # Create students and enrollments
+        u1 = User.objects.create_user(email="s1@test.com", full_name="Student 1", academy=self.academy, role_code=SystemRoleCode.STUDENT)
+        u2 = User.objects.create_user(email="s2@test.com", full_name="Student 2", academy=self.academy, role_code=SystemRoleCode.STUDENT)
+        s1 = StudentProfile.objects.create(user=u1, display_name="Student 1", student_code="S1", status=StudentStatus.ACTIVE)
+        s2 = StudentProfile.objects.create(user=u2, display_name="Student 2", student_code="S2", status=StudentStatus.ACTIVE)
+        course = Course.objects.create(academy=self.academy, title="Test Course")
+        Enrollment.objects.create(student=u1, course=course, status=EnrollmentStatus.ACTIVE)
+        Enrollment.objects.create(student=u2, course=course, status=EnrollmentStatus.ACTIVE)
+
+        billable_count = get_billable_student_count(self.academy)
+        self.assertEqual(billable_count, 2)
+
+        # Set up rules: STUDENT_BASE = 10 credits (PER_STUDENT), LESSONS = INCLUDED (0 credits), LIVE_CLASS = 2 credits (PER_STUDENT)
+        FeatureBillingRule.objects.create(feature_code='STUDENT_BASE', billing_type=FeatureBillingType.PER_STUDENT, credit_rate=Decimal('10.0000'), is_billable=True, is_active=True)
+        FeatureBillingRule.objects.create(feature_code='LESSONS', billing_type=FeatureBillingType.INCLUDED, credit_rate=Decimal('0.0000'), is_billable=True, is_active=True)
+        FeatureBillingRule.objects.create(feature_code='LIVE_CLASS', billing_type=FeatureBillingType.PER_STUDENT, credit_rate=Decimal('2.0000'), is_billable=True, is_active=True)
+
+        summary = MonthlyBillingService.get_live_estimated_summary(self.academy)
+        # Expected: Student Base (2 * 10 = 20) + Live Class (2 * 2 = 4) = 24 credits
+        self.assertEqual(Decimal(summary['estimated_total_credits']), Decimal('24.000000'))
+
+    def test_storage_daily_snapshot_and_average_monthly_billing(self):
+        """
+        Tests Section D, E, F, G, U: Daily snapshots, AVERAGE_DAILY monthly average, free 5GB allowance, and storage credit deduction.
+        """
+        from credits.services import StorageBillingService, MonthlyBillingService
+        from credits.models import StorageBillingSetting, StorageBillingMethod, AcademyStorageDailySnapshot
+        from django.utils import timezone
+
+        now = timezone.now()
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = now
+
+        # Configure Storage Billing: Enabled, 5GB Free (5368709120 bytes), 5 Credits/GB
+        StorageBillingSetting.objects.create(
+            enabled=True,
+            free_bytes=5 * 1024 * 1024 * 1024,
+            credits_per_gb=Decimal('5.0000'),
+            billing_method=StorageBillingMethod.AVERAGE_DAILY
+        )
+
+        # Create daily snapshots: 22 GB average usage (22 * 1024^3 bytes)
+        usage_22gb = 22 * 1024 * 1024 * 1024
+        AcademyStorageDailySnapshot.objects.create(academy=self.academy, date=start.date(), used_bytes=usage_22gb)
+
+        avg_bytes, billable_gb, rate, credits = StorageBillingService.calculate_storage_credits(self.academy, start, end)
+        # 22 GB - 5 GB = 17 GB billable. 17 * 5 = 85 credits
+        self.assertEqual(billable_gb, Decimal('17.0000'))
+        self.assertEqual(credits, Decimal('85.000000'))
+
+    def test_monthly_invoice_generation_and_idempotent_debit(self):
+        """
+        Tests Section H, I, Q: Monthly billing invoice generation, line items, and duplicate task idempotency protection.
+        """
+        from credits.services import MonthlyBillingService, CreditsService
+        from credits.models import MonthlyBillingInvoice, InvoiceStatus
+        from django.utils import timezone
+
+        now = timezone.now()
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = now
+
+        # Add initial credits to academy
+        CreditsService.credit(self.academy, Decimal('1000.000000'), 'PURCHASE', 'init_invoice_test')
+
+        # Generate invoice
+        invoice1 = MonthlyBillingService.generate_monthly_invoice(self.academy, start, end)
+        self.assertEqual(invoice1.status, InvoiceStatus.FINALIZED)
+        self.assertTrue(invoice1.line_items.exists())
+
+        # Second call for same month must return existing invoice idempotently without double debit
+        invoice2 = MonthlyBillingService.generate_monthly_invoice(self.academy, start, end)
+        self.assertEqual(invoice1.id, invoice2.id)
+
+

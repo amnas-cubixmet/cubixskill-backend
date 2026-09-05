@@ -1,0 +1,481 @@
+{% extends "control_panel/base.html" %}
+
+{% block content %}
+<style>
+  :root {
+    --brand-primary: var(--cp-primary, #2563eb);
+    --brand-primary-hover: var(--cp-primary-hover, #1d4ed8);
+    --brand-primary-foreground: #ffffff;
+
+    --page-background: var(--cp-bg, #f8fafc);
+    --surface: var(--cp-card-bg, #ffffff);
+    --surface-secondary: var(--cp-input-bg, #ffffff);
+    --surface-hover: var(--cp-border-subtle, #f1f5f9);
+
+    --text-primary: var(--cp-text-primary, #0f172a);
+    --text-secondary: var(--cp-text-secondary, #475569);
+    --text-muted: var(--cp-text-muted, #64748b);
+
+    --border: var(--cp-border, #e2e8f0);
+    --input-border: var(--cp-input-border, #cbd5e1);
+  }
+
+  [data-theme="dark"] {
+    --brand-primary: var(--cp-primary, #3b82f6);
+    --brand-primary-hover: var(--cp-primary-hover, #2563eb);
+    --brand-primary-foreground: #ffffff;
+
+    --page-background: var(--cp-bg, #0b1120);
+    --surface: var(--cp-card-bg, #111827);
+    --surface-secondary: var(--cp-input-bg, #0f172a);
+    --surface-hover: var(--cp-border-subtle, #1e293b);
+
+    --text-primary: var(--cp-text-primary, #f8fafc);
+    --text-secondary: var(--cp-text-secondary, #cbd5e1);
+    --text-muted: var(--cp-text-muted, #94a3b8);
+
+    --border: var(--cp-border, #263244);
+    --input-border: var(--cp-input-border, #334155);
+  }
+
+  .storage-settings-container {
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+
+  .cp-settings-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  .cp-settings-card-title {
+    color: var(--text-primary);
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0 0 16px 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .cp-field-group {
+    margin-bottom: 18px;
+  }
+
+  .cp-field-group:last-child {
+    margin-bottom: 0;
+  }
+
+  .cp-field-label {
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 14px;
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .cp-field-helper {
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 400;
+    display: block;
+    margin-top: 4px;
+  }
+
+  .cp-field-error {
+    color: #dc2626;
+    font-size: 12px;
+    font-weight: 500;
+    margin-top: 4px;
+    display: block;
+  }
+
+  .cp-themed-input {
+    width: 100%;
+    max-width: 380px;
+    min-height: 44px;
+    padding: 10px 14px;
+    background: var(--surface-secondary);
+    border: 1px solid var(--input-border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .cp-themed-input:focus {
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  }
+
+  input[type="time"].cp-themed-input {
+    color-scheme: light dark;
+  }
+
+  .cp-save-btn {
+    background: var(--brand-primary);
+    color: var(--brand-primary-foreground);
+    font-weight: 600;
+    min-height: 44px;
+    padding: 12px 32px;
+    font-size: 14px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .cp-save-btn:hover {
+    background: var(--brand-primary-hover);
+  }
+
+  .storage-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .storage-table-wrapper::-webkit-scrollbar {
+    display: none;
+  }
+
+  .storage-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 13px;
+  }
+
+  .storage-table th.academy-col { width: 22%; }
+  .storage-table th.storage-col { width: 11%; }
+  .storage-table th.files-col { width: 8%; }
+  .storage-table th.credits-col { width: 14%; }
+  .storage-table th.meters-col { width: 8%; }
+  .storage-table th.paid-col { width: 11%; }
+  .storage-table th.outstanding-col { width: 12%; }
+  .storage-table th.status-col { width: 10%; }
+  .storage-table th.action-col { width: 125px; text-align: right; }
+
+  .view-details-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    white-space: nowrap;
+    width: auto;
+    min-width: 105px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--brand-primary);
+    background: var(--surface-secondary);
+    border: 1px solid var(--border);
+    transition: background 0.2s;
+  }
+
+  .view-details-btn:hover {
+    background: var(--surface-hover);
+  }
+
+  .mobile-academy-cards {
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  @media (max-width: 768px) {
+    .desktop-table-view {
+      display: none;
+    }
+    .mobile-academy-cards {
+      display: flex;
+    }
+    .cp-settings-card {
+      padding: 16px;
+    }
+    .cp-themed-input {
+      max-width: 100%;
+    }
+    .cp-save-btn {
+      width: 100%;
+    }
+  }
+</style>
+
+<div class="storage-settings-container">
+
+  <!-- Page Header -->
+  <div style="margin-bottom: 20px;">
+    <h2 style="color: var(--text-primary); font-size: 22px; font-weight: 600; margin: 0 0 6px 0;">Storage Billing Settings</h2>
+    <p style="color: var(--text-muted); font-size: 14px; font-weight: 400; margin: 0;">Configure how storage usage is converted into credits and when the monthly storage debit is processed.</p>
+  </div>
+
+  {% if messages %}
+    <div style="margin-bottom: 20px;">
+      {% for message in messages %}
+        <div style="padding: 12px 16px; border-radius: 8px; font-weight: 500; font-size: 14px; margin-bottom: 8px; background: var(--surface-secondary); border: 1px solid var(--border); color: var(--text-primary);">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <!-- FORM 1: POST Storage Billing Settings Form -->
+  <form method="POST" action="{% url 'control_panel:storage_billing_settings' %}">
+    {% csrf_token %}
+
+    <!-- Card 1: Storage Pricing -->
+    <div class="cp-settings-card">
+      <h3 class="cp-settings-card-title">Storage Pricing</h3>
+
+      <!-- Storage Billing Toggle -->
+      <div class="cp-field-group">
+        <label class="cp-field-label">Storage Billing</label>
+        <label style="display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none;">
+          <input type="checkbox" name="storage_billing_enabled" id="id_storage_billing_enabled" {% if setting.storage_billing_enabled %}checked{% endif %} style="width: 20px; height: 20px; accent-color: var(--brand-primary);">
+          <span style="font-weight: 600; font-size: 14px; color: var(--text-primary);">{% if setting.storage_billing_enabled %}ON{% else %}OFF{% endif %}</span>
+        </label>
+        {% if form.storage_billing_enabled.errors %}
+          <span class="cp-field-error">{{ form.storage_billing_enabled.errors.0 }}</span>
+        {% endif %}
+      </div>
+
+      <!-- Credit Rate -->
+      <div class="cp-field-group">
+        <label class="cp-field-label" for="id_storage_credit_rate_per_gb">Credit Rate</label>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <input type="number" step="0.0001" min="0" name="storage_credit_rate_per_gb" id="id_storage_credit_rate_per_gb" class="cp-themed-input" value="{{ setting.storage_credit_rate_per_gb }}" required style="flex: 1; min-width: 180px;">
+          <span style="font-weight: 500; color: var(--text-secondary); font-size: 14px; white-space: nowrap;">Credits / GB</span>
+        </div>
+        <span class="cp-field-helper">Credits charged per configured storage unit (GB).</span>
+        {% if form.storage_credit_rate_per_gb.errors %}
+          <span class="cp-field-error">{{ form.storage_credit_rate_per_gb.errors.0 }}</span>
+        {% endif %}
+      </div>
+
+      <!-- Metering Interval -->
+      <div class="cp-field-group">
+        <label class="cp-field-label" for="id_storage_billing_interval">Metering Interval</label>
+        <select name="storage_billing_interval" id="id_storage_billing_interval" class="cp-themed-input">
+          <option value="10_SECONDS" {% if setting.storage_billing_interval == "10_SECONDS" %}selected{% endif %}>10 Seconds — Test</option>
+          <option value="6_HOURS" {% if setting.storage_billing_interval == "6_HOURS" %}selected{% endif %}>6 Hours</option>
+          <option value="12_HOURS" {% if setting.storage_billing_interval == "12_HOURS" %}selected{% endif %}>12 Hours</option>
+          <option value="18_HOURS" {% if setting.storage_billing_interval == "18_HOURS" %}selected{% endif %}>18 Hours</option>
+          <option value="1_DAY" {% if setting.storage_billing_interval == "1_DAY" %}selected{% endif %}>1 Day</option>
+        </select>
+        <span class="cp-field-helper">How often physical storage usage is measured into log records.</span>
+        {% if form.storage_billing_interval.errors %}
+          <span class="cp-field-error">{{ form.storage_billing_interval.errors.0 }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Card 2: Monthly Settlement Schedule -->
+    <div class="cp-settings-card">
+      <h3 class="cp-settings-card-title">Monthly Settlement Schedule</h3>
+
+      <!-- Settlement Day -->
+      <div class="cp-field-group">
+        <label class="cp-field-label" for="id_storage_credit_debit_day">Credit Settlement Day</label>
+        <select name="storage_credit_debit_day" id="id_storage_credit_debit_day" class="cp-themed-input">
+          {% for i in "x"|rjust:"31" %}
+            <option value="{{ forloop.counter }}" {% if setting.storage_credit_debit_day == forloop.counter %}selected{% endif %}>{{ forloop.counter }}</option>
+          {% endfor %}
+        </select>
+        <span class="cp-field-helper">The day each month (1–31) when accumulated storage credits are debited.</span>
+        {% if form.storage_credit_debit_day.errors %}
+          <span class="cp-field-error">{{ form.storage_credit_debit_day.errors.0 }}</span>
+        {% endif %}
+      </div>
+
+      <!-- Settlement Time -->
+      <div class="cp-field-group">
+        <label class="cp-field-label" for="id_storage_credit_debit_time">Credit Settlement Time</label>
+        <input type="time" name="storage_credit_debit_time" id="id_storage_credit_debit_time" class="cp-themed-input" value="{{ setting.storage_credit_debit_time|time:'H:i' }}" required>
+        <span class="cp-field-helper">The time on the selected settlement day when the deduction runs.</span>
+        {% if form.storage_credit_debit_time.errors %}
+          <span class="cp-field-error">{{ form.storage_credit_debit_time.errors.0 }}</span>
+        {% endif %}
+      </div>
+
+      <!-- Schedule Description Box -->
+      <div style="background: var(--surface-secondary); border-left: 4px solid var(--brand-primary); border-radius: 6px; padding: 12px 16px; margin-top: 16px;">
+        <p style="margin: 0; color: var(--text-muted); font-size: 13px; font-weight: 400;">
+          Every month on day <strong style="color: var(--text-primary); font-weight: 500;">{{ setting.storage_credit_debit_day }}</strong> at <strong style="color: var(--text-primary); font-weight: 500;">{{ setting.storage_credit_debit_time|time:'h:i A' }}</strong>, storage credit settlement will be processed.
+        </p>
+      </div>
+    </div>
+
+    <!-- Save Settings Button -->
+    <div style="margin-bottom: 24px;">
+      <button type="submit" class="cp-save-btn">Save Settings</button>
+    </div>
+  </form>
+
+  <!-- Section: Current Billing Cycle Overview -->
+  <div class="cp-settings-card">
+    <h3 class="cp-settings-card-title">Current Billing Cycle Overview</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+      <div>
+        <span style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 4px;">Current Storage</span>
+        <strong style="font-size: 16px; color: var(--text-primary); font-weight: 600;">{{ current_storage_gb }} GB</strong>
+      </div>
+      <div>
+        <span style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 4px;">Metering Interval</span>
+        <strong style="font-size: 16px; color: var(--text-primary); font-weight: 600;">{{ metering_interval_label }}</strong>
+      </div>
+      <div>
+        <span style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 4px;">Meter Records</span>
+        <strong style="font-size: 16px; color: var(--text-primary); font-weight: 600;">{{ current_meter_count }}</strong>
+      </div>
+      <div>
+        <span style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 4px;">Accumulated Credits</span>
+        <strong style="font-size: 16px; color: var(--brand-primary); font-weight: 600;">{{ current_accumulated_credits }} Credits</strong>
+      </div>
+      <div>
+        <span style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 4px;">Previous Settlement</span>
+        <strong style="font-size: 14px; color: var(--text-primary); font-weight: 500;">{{ last_storage_debit_at|date:"d M Y, h:i A"|default:"N/A" }}</strong>
+      </div>
+      <div>
+        <span style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 4px;">Next Settlement</span>
+        <strong style="font-size: 14px; color: var(--brand-primary); font-weight: 600;">{{ next_credit_debit_at|date:"d M Y, h:i A"|default:"N/A" }}</strong>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 4: Per-Academy Storage Inspection -->
+  <div class="cp-settings-card">
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px;">
+      <div>
+        <h3 class="cp-settings-card-title" style="margin: 0; border-bottom: none; padding-bottom: 0;">Academy Storage Inspection</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin: 4px 0 0 0;">Super Admin live audit of storage usage, interval meters, and settlement debt per Academy.</p>
+      </div>
+
+      <!-- Global Search Form (GET) -->
+      <form method="GET" action="{% url 'control_panel:storage_billing_settings' %}" style="display: flex; gap: 8px;">
+        <input type="text" name="q" value="{{ q }}" placeholder="Search academies, files, UUID..." class="cp-themed-input" style="min-width: 260px; min-height: 38px; padding: 6px 12px; font-size: 13px;" />
+        <button type="submit" class="cp-save-btn" style="min-height: 38px; padding: 6px 16px;">Search</button>
+      </form>
+    </div>
+
+    <!-- Desktop Table View -->
+    <div class="desktop-table-view storage-table-wrapper">
+      <table class="storage-table">
+        <thead>
+          <tr style="background: var(--surface-secondary); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 11px; text-transform: uppercase;">
+            <th class="academy-col" style="padding: 10px 14px;">Academy</th>
+            <th class="storage-col" style="padding: 10px 14px;">Storage</th>
+            <th class="files-col" style="padding: 10px 14px;">Files</th>
+            <th class="credits-col" style="padding: 10px 14px;">Cycle Credits</th>
+            <th class="meters-col" style="padding: 10px 14px;">Meters</th>
+            <th class="paid-col" style="padding: 10px 14px;">Paid</th>
+            <th class="outstanding-col" style="padding: 10px 14px;">Outstanding</th>
+            <th class="status-col" style="padding: 10px 14px;">Status</th>
+            <th class="action-col" style="padding: 10px 14px; text-align: right;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in academies_page.object_list %}
+            <tr style="border-bottom: 1px solid var(--border);">
+              <td style="padding: 10px 14px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                <div title="{{ item.academy.name }}">{{ item.academy.name }}</div>
+                <div style="font-size: 10px; color: var(--text-muted); font-weight: 400; overflow: hidden; text-overflow: ellipsis;" title="{{ item.academy.id }}">{{ item.academy.id }}</div>
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary);">
+                {{ item.current_storage_gb }} GB
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary);">
+                {{ item.file_count }}
+              </td>
+              <td style="padding: 10px 14px; font-weight: 600; color: var(--brand-primary);">
+                {{ item.current_cycle_credits }} Credits
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary);">
+                {{ item.meter_count }}
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary);">
+                {{ item.paid_amount }} Credits
+              </td>
+              <td style="padding: 10px 14px; font-weight: 700; color: {% if item.outstanding_amount != '0.0000' %}#dc2626{% else %}var(--text-primary){% endif %};">
+                {{ item.outstanding_amount }} Credits
+              </td>
+              <td style="padding: 10px 14px; font-weight: 600;">
+                <span style="padding: 2px 8px; border-radius: 4px; font-size: 11px; text-transform: uppercase;
+                  {% if item.settlement_status == 'PAID' %}background: #dcfce7; color: #15803d;
+                  {% elif item.settlement_status == 'PARTIALLY_PAID' %}background: #fef9c3; color: #a16207;
+                  {% else %}background: #fee2e2; color: #b91c1c;{% endif %}">
+                  {{ item.settlement_status }}
+                </span>
+              </td>
+              <td style="padding: 10px 14px; text-align: right;">
+                <a href="{% url 'control_panel:academy_storage_detail' item.academy.id %}" class="view-details-btn">
+                  View Details &rarr;
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="9" style="padding: 24px; text-align: center; color: var(--text-muted);">No matching academies found.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Mobile Responsive Cards View -->
+    <div class="mobile-academy-cards">
+      {% for item in academies_page.object_list %}
+        <div style="background: var(--surface-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
+          <div style="font-weight: 700; font-size: 15px; color: var(--text-primary);">{{ item.academy.name }}</div>
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">{{ item.academy.id }}</div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; margin-bottom: 12px;">
+            <div><span style="color: var(--text-muted);">Storage:</span> <strong>{{ item.current_storage_gb }} GB</strong></div>
+            <div><span style="color: var(--text-muted);">Files:</span> <strong>{{ item.file_count }}</strong></div>
+            <div><span style="color: var(--text-muted);">Cycle Credits:</span> <strong style="color: var(--brand-primary);">{{ item.current_cycle_credits }}</strong></div>
+            <div><span style="color: var(--text-muted);">Meters:</span> <strong>{{ item.meter_count }}</strong></div>
+            <div><span style="color: var(--text-muted);">Outstanding:</span> <strong style="color: {% if item.outstanding_amount != '0.0000' %}#dc2626{% else %}var(--text-primary){% endif %};">{{ item.outstanding_amount }}</strong></div>
+            <div><span style="color: var(--text-muted);">Status:</span> <strong>{{ item.settlement_status }}</strong></div>
+          </div>
+
+          <a href="{% url 'control_panel:academy_storage_detail' item.academy.id %}" class="view-details-btn" style="width: 100%; box-sizing: border-box;">
+            View Details &rarr;
+          </a>
+        </div>
+      {% empty %}
+        <div style="padding: 20px; text-align: center; color: var(--text-muted);">No matching academies found.</div>
+      {% endfor %}
+    </div>
+
+    <!-- Academies Pagination -->
+    {% if academies_page.has_other_pages %}
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; font-size: 13px;">
+        <span style="color: var(--text-muted);">Page {{ academies_page.number }} of {{ academies_page.paginator.num_pages }}</span>
+        <div style="display: flex; gap: 8px;">
+          {% if academies_page.has_previous %}
+            <a href="?q={{ q }}&acad_page={{ academies_page.previous_page_number }}" style="padding: 6px 14px; border: 1px solid var(--input-border); border-radius: 6px; text-decoration: none; color: var(--text-primary); font-weight: 500;">Previous</a>
+          {% endif %}
+          {% if academies_page.has_next %}
+            <a href="?q={{ q }}&acad_page={{ academies_page.next_page_number }}" style="padding: 6px 14px; border: 1px solid var(--input-border); border-radius: 6px; text-decoration: none; color: var(--text-primary); font-weight: 500;">Next</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

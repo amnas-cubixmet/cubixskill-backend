@@ -1,0 +1,51 @@
+{% extends "control_panel/base.html" %}
+
+{% block content %}
+<div class="cp-page-header">
+  <div class="cp-header-title">
+    <h2>Monthly Invoices</h2>
+    <p class="cp-subtitle">Immutable finalized monthly billing records across all platform academies</p>
+  </div>
+</div>
+
+<div class="cp-card">
+  <div class="cp-card-body">
+    <table class="cp-table">
+      <thead>
+        <tr>
+          <th>Invoice ID</th>
+          <th>Academy</th>
+          <th>Billing Period</th>
+          <th>Total Credits</th>
+          <th>Status</th>
+          <th>Finalized At</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inv in invoices %}
+        <tr>
+          <td><code>{{ inv.id }}</code></td>
+          <td><strong>{{ inv.academy.name }}</strong></td>
+          <td>{{ inv.billing_period.period_start|date:"F Y" }}</td>
+          <td><strong>{{ inv.total_credits }}</strong> Credits</td>
+          <td>
+            <span class="cp-badge {% if inv.status == 'FINALIZED' %}cp-badge-success{% else %}cp-badge-danger{% endif %}">
+              {{ inv.status }}
+            </span>
+          </td>
+          <td>{{ inv.finalized_at|date:"Y-m-d H:i"|default:"-" }}</td>
+          <td>
+            <a href="{% url 'control_panel:monthly_invoice_detail_control' pk=inv.id %}" class="cp-btn cp-btn-sm cp-btn-secondary">View Breakdown</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="text-center py-4">No monthly invoices generated yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -2,6 +2,7 @@
 # Imports
 #--------------------------------------------------------------
 
+from decimal import Decimal
 from rest_framework import serializers
 from storage.models import (
     MediaFile, AcademyStorageAccount, StorageUsageEvent,
@@ -136,3 +137,169 @@ class StorageUsageEventSerializer(serializers.ModelSerializer):
             'delta_bytes', 'storage_before_bytes', 'storage_after_bytes',
             'file_size_bytes', 'occurred_at', 'source', 'metadata'
         ]
+
+
+class StorageBillingSettingsSerializer(serializers.ModelSerializer):
+    storage_billing_enabled = serializers.BooleanField(source='billing_enabled')
+    billing_interval_label = serializers.SerializerMethodField()
+
+    class Meta:
+        from storage.models import StorageBillingSettings
+        model = StorageBillingSettings
+        fields = [
+            'id', 'storage_billing_enabled', 'billing_enabled', 'storage_billing_interval',
+            'storage_credit_rate_per_gb', 'billing_interval_label', 'is_active', 'updated_at'
+        ]
+
+    def get_billing_interval_label(self, obj):
+        from storage.utils import get_interval_label
+        return get_interval_label(obj.storage_billing_interval)
+
+
+class StorageUsageChargeSerializer(serializers.ModelSerializer):
+    storage_gb = serializers.SerializerMethodField()
+    used_gb = serializers.SerializerMethodField()
+    credit_rate_per_gb = serializers.SerializerMethodField()
+    rate_per_gb = serializers.SerializerMethodField()
+    credits_debited = serializers.SerializerMethodField()
+    charged_credits = serializers.SerializerMethodField()
+    billing_interval = serializers.CharField(source='interval')
+    billing_interval_label = serializers.SerializerMethodField()
+    interval_label = serializers.SerializerMethodField()
+    debited_at = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        from storage.models import StorageUsageCharge
+        model = StorageUsageCharge
+        fields = [
+            'id', 'billing_started_at', 'billing_ended_at', 'interval', 'billing_interval',
+            'interval_label', 'billing_interval_label', 'used_bytes', 'used_gb', 'storage_gb',
+            'rate_per_gb', 'credit_rate_per_gb', 'charged_credits', 'credits_debited',
+            'status', 'debited_at', 'created_at'
+        ]
+
+    def get_storage_gb(self, obj):
+        return f"{Decimal(obj.used_bytes) / Decimal(1024 ** 3):.2f}"
+
+    def get_used_gb(self, obj):
+        return self.get_storage_gb(obj)
+
+    def get_credit_rate_per_gb(self, obj):
+        return f"{obj.rate_per_gb:.4f}"
+
+    def get_rate_per_gb(self, obj):
+        return f"{obj.rate_per_gb:.4f}"
+
+    def get_credits_debited(self, obj):
+        if obj.status in ['SUCCESS', 'CHARGED'] and (obj.ledger_entry or obj.charged_credits == Decimal("0.0000")):
+            return f"-{obj.charged_credits:.4f}" if obj.charged_credits > 0 else "0.0000"
+        return "0.0000"
+
+    def get_charged_credits(self, obj):
+        return f"{obj.charged_credits:.4f}"
+
+    def get_interval_label(self, obj):
+        from storage.utils import get_interval_label
+        return get_interval_label(obj.interval)
+
+    def get_billing_interval_label(self, obj):
+        return self.get_interval_label(obj)
+
+    def get_status(self, obj):
+        if obj.status in ['SUCCESS', 'CHARGED'] and (obj.ledger_entry or obj.charged_credits == Decimal("0.0000")):
+            return "SUCCESS"
+        return "FAILED"
+
+    def get_debited_at(self, obj):
+        ts = obj.debited_at
+        return ts.isoformat() if ts else None
+
+
+class AcademyStorageSnapshotSerializer(serializers.ModelSerializer):
+    used_gb = serializers.SerializerMethodField()
+
+    class Meta:
+        from storage.models import AcademyStorageSnapshot
+        model = AcademyStorageSnapshot
+        fields = ['id', 'captured_at', 'used_bytes', 'used_gb', 'file_count', 'source']
+
+    def get_used_gb(self, obj):
+        return f"{Decimal(obj.used_bytes) / Decimal(1024 ** 3):.2f}"
+
+
+class StorageBillingPeriodSerializer(serializers.ModelSerializer):
+    average_used_gb = serializers.SerializerMethodField()
+    peak_used_gb = serializers.SerializerMethodField()
+    free_storage_gb = serializers.SerializerMethodField()
+    billable_storage_gb = serializers.SerializerMethodField()
+
+    class Meta:
+        from storage.models import StorageBillingPeriod
+        model = StorageBillingPeriod
+        fields = [
+            'id', 'period_start', 'period_end', 'status', 'billing_method',
+            'average_used_bytes', 'average_used_gb', 'peak_used_bytes', 'peak_used_gb',
+            'free_storage_bytes', 'free_storage_gb', 'billable_storage_bytes', 'billable_storage_gb',
+            'credits_per_gb_month', 'credits_charged', 'closed_at'
+        ]
+
+    def get_average_used_gb(self, obj):
+        return f"{Decimal(obj.average_used_bytes) / Decimal(1024 ** 3):.2f}"
+
+    def get_peak_used_gb(self, obj):
+        return f"{Decimal(obj.peak_used_bytes) / Decimal(1024 ** 3):.2f}"
+
+    def get_free_storage_gb(self, obj):
+        return f"{Decimal(obj.free_storage_bytes) / Decimal(1024 ** 3):.2f}"
+
+    def get_billable_storage_gb(self, obj):
+        return f"{Decimal(obj.billable_storage_bytes) / Decimal(1024 ** 3):.2f}"
+
+
+class StorageMeterRecordSerializer(serializers.ModelSerializer):
+    metering_interval_label = serializers.SerializerMethodField()
+
+    class Meta:
+        from storage.models import StorageMeterRecord
+        model = StorageMeterRecord
+        fields = [
+            'id', 'metered_at', 'used_bytes', 'used_gb',
+            'credit_rate_per_gb', 'calculated_credits',
+            'metering_interval', 'metering_interval_label', 'created_at'
+        ]
+
+    def get_metering_interval_label(self, obj):
+        from storage.utils import get_interval_label
+        return get_interval_label(obj.metering_interval)
+
+
+class StorageBillingCycleSerializer(serializers.ModelSerializer):
+    meter_record_count = serializers.ReadOnlyField()
+    credits_debited = serializers.SerializerMethodField()
+    credits_paid = serializers.SerializerMethodField()
+    storage_billed = serializers.SerializerMethodField()
+    outstanding = serializers.SerializerMethodField()
+
+    class Meta:
+        from storage.models import StorageBillingCycle
+        model = StorageBillingCycle
+        fields = [
+            'id', 'cycle_start_at', 'cycle_end_at', 'status', 'settlement_status',
+            'accumulated_credits', 'original_amount', 'paid_amount', 'outstanding_amount',
+            'storage_billed', 'credits_paid', 'outstanding', 'credits_debited',
+            'meter_record_count', 'debited_at', 'settled_at', 'created_at'
+        ]
+
+    def get_credits_debited(self, obj):
+        return f"{obj.paid_amount:.4f}"
+
+    def get_credits_paid(self, obj):
+        return f"{obj.paid_amount:.4f}"
+
+    def get_storage_billed(self, obj):
+        return f"{obj.original_amount:.4f}"
+
+    def get_outstanding(self, obj):
+        return f"{obj.outstanding_amount:.4f}"
+

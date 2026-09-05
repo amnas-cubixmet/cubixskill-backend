@@ -1,3 +1,4 @@
+from decimal import Decimal
 from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
@@ -42,6 +43,9 @@ class LeadsTestCase(TestCase):
         # Academies
         self.academy_a = Academy.objects.create(name="Python Academy", slug="python-academy")
         self.academy_b = Academy.objects.create(name="Design Academy", slug="design-academy")
+
+        from credits.models import CreditAccount
+        CreditAccount.objects.create(academy=self.academy_a, balance=Decimal('1000.00'))
 
         # Staff Users
         self.staff_a = User.objects.create_user(
@@ -284,3 +288,39 @@ class LeadsTestCase(TestCase):
         res_data = resp.json()
         results = res_data['results'] if isinstance(res_data, dict) and 'results' in res_data else res_data
         self.assertEqual(len(results), 2)
+
+    def test_demo_lead_creation_and_access_control(self):
+        # 1. Unauthenticated request rejected
+        unauth_resp = self.client.post("/api/v1/demo-leads/demo-leads/", {
+            "academy_id": str(self.academy_a.id),
+            "course_id": str(self.course_a1.id),
+        })
+        self.assertEqual(unauth_resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Authenticated Student request creates Demo Lead with user snapshot
+        student_user = User.objects.create_user(
+            email="student_demo@example.com",
+            password="Password123!",
+            full_name="Demo Student",
+            role_code=SystemRoleCode.STUDENT
+        )
+        self.client.force_authenticate(user=student_user)
+
+        auth_resp = self.client.post("/api/v1/demo-leads/demo-leads/", {
+            "academy_id": str(self.academy_a.id),
+            "course_id": str(self.course_a1.id),
+            "phone": "+919876543210",
+            "message": "Interested in demo session"
+        })
+        self.assertEqual(auth_resp.status_code, status.HTTP_201_CREATED)
+        res_data = auth_resp.json()
+        self.assertEqual(res_data['phone'], "+919876543210")
+        self.assertEqual(res_data['student']['email'], "student_demo@example.com")
+        self.assertEqual(res_data['status'], "NEW")
+
+        # 3. Reject cross-academy course mapping
+        cross_resp = self.client.post("/api/v1/demo-leads/demo-leads/", {
+            "academy_id": str(self.academy_b.id),
+            "course_id": str(self.course_a1.id),
+        })
+        self.assertEqual(cross_resp.status_code, status.HTTP_400_BAD_REQUEST)

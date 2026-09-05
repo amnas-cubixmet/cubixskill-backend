@@ -1,7 +1,7 @@
 import uuid
 import math
 from decimal import Decimal
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -17,12 +17,14 @@ from credits.models import (
     CreditPurchaseCoupon,
     CreditPurchase,
     StorageCreditCharge,
+    CreditUsageSubscription,
     CreditAccountStatus,
     LedgerEntryType,
     CreditSourceType,
     AdjustmentType,
     AdjustmentStatus,
     BillingType,
+    SubscriptionStatus,
     CouponDiscountType,
     PurchaseStatus,
 )
@@ -622,6 +624,15 @@ class CreditsService:
             occurred_at=now
         )
 
+        # Auto-settle old outstanding storage debt if present
+        if source_type != CreditSourceType.STORAGE_USAGE:
+            try:
+                from storage.services import StorageOutstandingService
+                StorageOutstandingService.apply_available_credits(academy)
+            except Exception as auto_pay_err:
+                import logging
+                logging.getLogger(__name__).warning(f"Auto-settle outstanding storage debt error: {auto_pay_err}")
+
         return entry
 
     @classmethod
@@ -891,9 +902,687 @@ class CreditsService:
 
         expected_balance = (credits_sum - debits_sum).quantize(Decimal('0.000001'))
         actual_balance = account.balance.quantize(Decimal('0.000001'))
+        return (expected_balance == actual_balance, expected_balance, actual_balance)
 
-        is_valid = (expected_balance == actual_balance)
-        return is_valid, expected_balance, actual_balance
+    @classmethod
+    def get_usage_preview(
+        cls,
+        academy: Academy,
+        resource_type: str,
+        resource_id: str,
+        course_id: str = None
+    ) -> dict:
+        """
+        Calculates authoritative backend preview for daily credit usage.
+        Returns trusted daily rate, current wallet balance, aggregate usage, projected usage,
+        and estimated coverage days.
+        """
+        current_balance = cls.get_balance(academy)
+
+        # Resolve rate from CreditRate or PricingRule
+        rate_obj = CreditRate.objects.filter(feature_key=resource_id, is_active=True).first()
+        if rate_obj and rate_obj.credit_cost > Decimal('0.0000'):
+            additional_daily_cost = rate_obj.credit_cost
+        else:
+            # Fallback default feature rates
+            feature_costs = {
+                'LIVE_CLASS': Decimal('10.0000'),
+                'ONE_TO_ONE_SESSION': Decimal('15.0000'),
+                'COURSE_DISCUSSION': Decimal('5.0000'),
+                'COMPLETION_CERTIFICATE': Decimal('5.0000'),
+                'LESSONS': Decimal('2.0000'),
+                'FEE_COLLECTION': Decimal('3.0000'),
+                'COURSE_ANNOUNCEMENT': Decimal('2.0000'),
+                'EMAIL_DELIVERY': Decimal('5.0000'),
+                'STORAGE_MEDIA': Decimal('10.0000'),
+            }
+            additional_daily_cost = feature_costs.get(str(resource_id).upper(), Decimal('10.0000'))
+
+        # Calculate active daily usage across Academy
+        active_subs = CreditUsageSubscription.objects.filter(academy=academy, status=SubscriptionStatus.ACTIVE)
+        already_active = active_subs.filter(resource_type=resource_type, resource_id=resource_id).exists()
+
+        current_daily_usage = active_subs.aggregate(total=Sum('daily_credit_cost'))['total'] or Decimal('0.0000')
+
+        if already_active:
+            projected_daily_usage = current_daily_usage
+        else:
+            projected_daily_usage = current_daily_usage + additional_daily_cost
+
+        estimated_days_remaining = None
+        if projected_daily_usage > Decimal('0.0000'):
+            estimated_days_remaining = int(math.floor(current_balance / projected_daily_usage))
+
+        has_enough_credits = current_balance >= additional_daily_cost
+
+        tomorrow_str = (timezone.now() + timezone.timedelta(days=1)).strftime('%Y-%m-%d')
+
+        return {
+            "billable": True,
+            "billing_type": BillingType.PER_DAY,
+            "daily_credit_cost": str(additional_daily_cost.quantize(Decimal('0.0000'))),
+            "current_balance": str(current_balance.quantize(Decimal('0.0000'))),
+            "current_daily_usage": str(current_daily_usage.quantize(Decimal('0.0000'))),
+            "additional_daily_cost": str(additional_daily_cost.quantize(Decimal('0.0000'))),
+            "projected_daily_usage": str(projected_daily_usage.quantize(Decimal('0.0000'))),
+            "estimated_days_remaining": estimated_days_remaining,
+            "first_charge": str(additional_daily_cost.quantize(Decimal('0.0000'))),
+            "next_charge_date": tomorrow_str,
+            "has_enough_credits": has_enough_credits,
+            "already_active": already_active,
+        }
+
+    @classmethod
+    @transaction.atomic
+    def activate_daily_usage(
+        cls,
+        academy: Academy,
+        resource_type: str,
+        resource_id: str,
+        course_id: str = None,
+        user: User = None
+    ) -> tuple[CreditUsageSubscription, CreditLedgerEntry, bool]:
+        """
+        Activates a daily recurring usage resource and performs the first day's atomic deduction.
+        Enforces backend rate resolution and idempotency.
+        """
+        preview = cls.get_usage_preview(academy, resource_type, resource_id, course_id)
+        daily_cost = Decimal(preview["daily_credit_cost"])
+
+        today = timezone.now().date()
+        today_str = today.strftime('%Y-%m-%d')
+        tomorrow = today + timezone.timedelta(days=1)
+
+        from courses.models import Course
+        course_obj = None
+        if course_id:
+            course_obj = Course.objects.filter(pk=course_id).first()
+
+        subscription, created = CreditUsageSubscription.objects.select_for_update().get_or_create(
+            academy=academy,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            defaults={
+                'course': course_obj,
+                'billing_type': BillingType.PER_DAY,
+                'daily_credit_cost': daily_cost,
+                'status': SubscriptionStatus.ACTIVE,
+                'started_at': timezone.now(),
+                'last_charged_date': today,
+                'next_charge_date': tomorrow,
+            }
+        )
+
+        if not created and subscription.status != SubscriptionStatus.ACTIVE:
+            subscription.status = SubscriptionStatus.ACTIVE
+            subscription.daily_credit_cost = daily_cost
+            subscription.save(update_fields=['status', 'daily_credit_cost'])
+
+        # Atomic first daily deduction using unique idempotency key
+        idempotency_key = f"daily:{academy.id}:{resource_type}:{resource_id}:{today_str}"
+        already_charged = False
+
+        existing_entry = CreditLedgerEntry.objects.filter(idempotency_key=idempotency_key).first()
+        if existing_entry:
+            already_charged = True
+            ledger_entry = existing_entry
+        else:
+            ledger_entry = cls.debit(
+                academy=academy,
+                amount=daily_cost,
+                source_type=CreditSourceType.DAILY_USAGE,
+                idempotency_key=idempotency_key,
+                description=f"Daily usage charge for {resource_id} ({today_str})",
+                reference_type="CREDIT_SUBSCRIPTION",
+                reference_id=str(subscription.id),
+                created_by=user,
+                allow_negative=False,
+                metadata={
+                    "resource_type": resource_type,
+                    "resource_id": resource_id,
+                    "course_id": str(course_id) if course_id else "",
+                    "billing_date": today_str,
+                    "billing_type": BillingType.PER_DAY,
+                }
+            )
+            subscription.last_charged_date = today
+            subscription.next_charge_date = tomorrow
+            subscription.save(update_fields=['last_charged_date', 'next_charge_date'])
+
+        return subscription, ledger_entry, already_charged
+
+
+# --------------------------------------------------------------
+# Section B: Canonical Billable Student Count Service
+# --------------------------------------------------------------
+
+def get_billable_student_count(academy: Academy, billing_period: str = None) -> int:
+    """
+    Canonical backend service to calculate active billable student count for an academy.
+    Do NOT use random .students.count() calls throughout the system.
+    Billable students are defined by active academy enrollment/access.
+    """
+    if not academy:
+        return 0
+    from students.models import StudentProfile, StudentStatus
+    from enrollments.models import Enrollment, EnrollmentStatus
+
+    # Active students in the academy who have active course enrollments (Enrollment.student points to User)
+    active_user_ids = Enrollment.objects.filter(
+        course__academy=academy,
+        status=EnrollmentStatus.ACTIVE
+    ).values_list('student_id', flat=True).distinct()
+
+    billable_count = StudentProfile.objects.filter(
+        user__academy=academy,
+        status=StudentStatus.ACTIVE,
+        user_id__in=active_user_ids
+    ).count()
+
+    # Fallback to active students count if enrollments model has no records yet
+    if billable_count == 0:
+        billable_count = StudentProfile.objects.filter(
+            user__academy=academy,
+            status=StudentStatus.ACTIVE
+        ).count()
+
+    return billable_count
+
+# --------------------------------------------------------------
+# Section A & C: Feature Billing Service
+# --------------------------------------------------------------
+
+class FeatureBillingService:
+
+    @classmethod
+    def get_effective_rule(cls, feature_code: str, target_time=None):
+        """
+        Resolves effective FeatureBillingRule for a feature code at a given point in time.
+        Falls back to Control Panel PricingRule or default.
+        """
+        if not target_time:
+            target_time = timezone.now()
+
+        from credits.models import FeatureBillingRule, FeatureBillingType
+        from django.db.models import Q
+
+        rule = FeatureBillingRule.objects.filter(
+            feature_code=feature_code,
+            is_active=True,
+            effective_from__lte=target_time
+        ).filter(
+            Q(effective_to__isnull=True) | Q(effective_to__gte=target_time)
+        ).order_by('-effective_from').first()
+
+        if rule:
+            return rule
+
+        # Fallback to Control Panel PricingRule
+        from control_panel.models import PricingRule
+        cp_rule = PricingRule.objects.filter(code=feature_code, is_active=True).first()
+        if cp_rule:
+            b_type = FeatureBillingType.PER_STUDENT if cp_rule.billing_unit == 'PER_STUDENT' else (
+                FeatureBillingType.PER_USAGE if cp_rule.billing_unit in ('PER_ACTION', 'PER_ANNOUNCEMENT', 'PER_EMAIL', 'PER_CERTIFICATE') else FeatureBillingType.PER_STUDENT
+            )
+            return FeatureBillingRule(
+                feature_code=feature_code,
+                billing_type=b_type,
+                credit_rate=Decimal(str(cp_rule.credit_cost)),
+                is_billable=True,
+                is_active=True
+            )
+
+        # Default fallback rules
+        defaults = {
+            'STUDENT_BASE': (FeatureBillingType.PER_STUDENT, Decimal('10.0000')),
+            'LESSONS': (FeatureBillingType.INCLUDED, Decimal('0.0000')),
+            'FEE_COLLECTION': (FeatureBillingType.INCLUDED, Decimal('0.0000')),
+            'LIVE_CLASS': (FeatureBillingType.PER_STUDENT, Decimal('2.0000')),
+            'ONE_TO_ONE': (FeatureBillingType.PER_STUDENT, Decimal('3.0000')),
+            'ONE_TO_ONE_SESSION': (FeatureBillingType.PER_STUDENT, Decimal('3.0000')),
+            'CERTIFICATE': (FeatureBillingType.PER_USAGE, Decimal('1.0000')),
+            'ANNOUNCEMENT': (FeatureBillingType.PER_USAGE, Decimal('1.0000')),
+            'EMAIL': (FeatureBillingType.PER_USAGE, Decimal('1.0000')),
+        }
+        b_type, rate = defaults.get(feature_code, (FeatureBillingType.INCLUDED, Decimal('0.0000')))
+        return FeatureBillingRule(
+            feature_code=feature_code,
+            billing_type=b_type,
+            credit_rate=rate,
+            is_billable=True,
+            is_active=True
+        )
+
+    @classmethod
+    def record_usage_event(cls, academy: Academy, feature_code: str, quantity: int = 1, idempotency_key: str = None, description: str = "", metadata: dict = None):
+        """
+        Records a trusted backend feature usage event (Section K).
+        """
+        if not idempotency_key:
+            idempotency_key = f"usage:{academy.id}:{feature_code}:{uuid.uuid4().hex}"
+        
+        from credits.models import FeatureUsageEvent
+        event, _ = FeatureUsageEvent.objects.get_or_create(
+            idempotency_key=idempotency_key,
+            defaults={
+                'academy': academy,
+                'feature_code': feature_code,
+                'quantity': quantity,
+                'description': description or f"Usage of {feature_code}",
+                'metadata': metadata or {}
+            }
+        )
+        return event
+
+# --------------------------------------------------------------
+# Section D & F: Storage Billing Service
+# --------------------------------------------------------------
+
+class StorageBillingService:
+    BYTES_PER_GB = Decimal('1073741824')  # 1 GB = 1024^3 bytes
+
+    @classmethod
+    def get_setting(cls, target_time=None):
+        if not target_time:
+            target_time = timezone.now()
+        from credits.models import StorageBillingSetting, StorageBillingMethod
+        setting = StorageBillingSetting.objects.filter(
+            effective_from__lte=target_time
+        ).order_by('-effective_from').first()
+
+        if not setting:
+            setting = StorageBillingSetting.objects.create(
+                enabled=True,
+                free_bytes=5 * 1024 * 1024 * 1024,  # 5 GB
+                credits_per_gb=Decimal('5.0000'),
+                billing_method=StorageBillingMethod.AVERAGE_DAILY
+            )
+        return setting
+
+    @classmethod
+    @transaction.atomic
+    def increment_storage(cls, academy: Academy, byte_count: int, file_count_delta: int = 1):
+        """
+        Increments authoritative backend storage usage upon persisted file upload (Section F).
+        """
+        if byte_count <= 0 and file_count_delta <= 0:
+            return cls.get_or_create_usage(academy)
+
+        from storage.models import AcademyStorageUsage
+        usage, _ = AcademyStorageUsage.objects.select_for_update().get_or_create(
+            academy=academy,
+            defaults={'academy_uuid': academy.id, 'used_bytes': 0, 'file_count': 0}
+        )
+        usage.used_bytes += max(0, byte_count)
+        usage.file_count += max(0, file_count_delta)
+        usage.save(update_fields=['used_bytes', 'file_count', 'updated_at'])
+        return usage
+
+    @classmethod
+    @transaction.atomic
+    def decrement_storage(cls, academy: Academy, byte_count: int, file_count_delta: int = 1):
+        """
+        Decrements authoritative backend storage usage upon permanent file deletion (Section F).
+        Clamped to prevent negative used_bytes.
+        """
+        if byte_count <= 0 and file_count_delta <= 0:
+            return cls.get_or_create_usage(academy)
+
+        from storage.models import AcademyStorageUsage
+        usage, _ = AcademyStorageUsage.objects.select_for_update().get_or_create(
+            academy=academy,
+            defaults={'academy_uuid': academy.id, 'used_bytes': 0, 'file_count': 0}
+        )
+        usage.used_bytes = max(0, usage.used_bytes - byte_count)
+        usage.file_count = max(0, usage.file_count - file_count_delta)
+        usage.save(update_fields=['used_bytes', 'file_count', 'updated_at'])
+        return usage
+
+    @classmethod
+    def get_or_create_usage(cls, academy: Academy):
+        from storage.models import AcademyStorageUsage
+        usage, _ = AcademyStorageUsage.objects.get_or_create(
+            academy=academy,
+            defaults={'academy_uuid': academy.id, 'used_bytes': 0, 'file_count': 0}
+        )
+        return usage
+
+    @classmethod
+    def take_daily_snapshot(cls, date=None):
+        """
+        Creates daily storage snapshot for all active academies (Section G).
+        Idempotent by (academy, date).
+        """
+        if not date:
+            date = timezone.now().date()
+
+        from credits.models import AcademyStorageDailySnapshot
+        snapshots = []
+        for academy in Academy.objects.all():
+            usage = cls.get_or_create_usage(academy)
+            snapshot, _ = AcademyStorageDailySnapshot.objects.update_or_create(
+                academy=academy,
+                date=date,
+                defaults={'used_bytes': usage.used_bytes}
+            )
+            snapshots.append(snapshot)
+        return snapshots
+
+    @classmethod
+    def calculate_monthly_average_bytes(cls, academy: Academy, period_start, period_end) -> int:
+        """
+        Calculates average daily storage usage for a given period: SUM(daily used_bytes) / snapshot_count (Section G).
+        """
+        from credits.models import AcademyStorageDailySnapshot
+        snapshots = AcademyStorageDailySnapshot.objects.filter(
+            academy=academy,
+            date__gte=period_start.date(),
+            date__lte=period_end.date()
+        )
+        count = snapshots.count()
+        if count == 0:
+            current_usage = cls.get_or_create_usage(academy)
+            return current_usage.used_bytes
+
+        total_bytes = snapshots.aggregate(total=Sum('used_bytes'))['total'] or 0
+        return int(total_bytes // count)
+
+    @classmethod
+    def calculate_storage_credits(cls, academy: Academy, period_start, period_end) -> tuple[int, Decimal, Decimal, Decimal]:
+        """
+        Calculates storage charges using AVERAGE_DAILY method and free storage allowance (Section D & U).
+        Formula: (average_usage_bytes - free_bytes) / 1024^3 * rate
+        Returns (average_used_bytes, billable_gb, credits_per_gb, total_credits).
+        """
+        setting = cls.get_setting(period_end)
+        avg_bytes = cls.calculate_monthly_average_bytes(academy, period_start, period_end)
+
+        if not setting.enabled:
+            return avg_bytes, Decimal('0.0000'), setting.credits_per_gb, Decimal('0.000000')
+
+        billable_bytes = max(0, avg_bytes - setting.free_bytes)
+        billable_gb = (Decimal(str(billable_bytes)) / cls.BYTES_PER_GB).quantize(Decimal('0.0001'))
+
+        total_credits = (billable_gb * setting.credits_per_gb).quantize(Decimal('0.000001'))
+        return avg_bytes, billable_gb, setting.credits_per_gb, max(Decimal('0.000000'), total_credits)
+
+# --------------------------------------------------------------
+# Section I & Q: Monthly Billing Engine
+# --------------------------------------------------------------
+
+class MonthlyBillingService:
+
+    @classmethod
+    @transaction.atomic
+    def generate_monthly_invoice(cls, academy: Academy, period_start=None, period_end=None):
+        """
+        Canonical backend Monthly Billing Engine (Section I).
+        1. Resolve billing period
+        2. Count billable students
+        3. Resolve effective feature billing rules
+        4. Calculate PER_STUDENT, PER_USAGE, PER_DAY, FIXED_MONTHLY charges
+        5. Calculate monthly average storage & storage credits
+        6. Create immutable invoice & line items
+        7. Debit academy credit account idempotently
+        """
+        now = timezone.now()
+        if not period_start or not period_end:
+            # Default to previous full calendar month if today is 1st of month, else current month to date
+            first_of_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            if now.day == 1:
+                period_end = first_of_this_month - timezone.timedelta(seconds=1)
+                period_start = (period_end.replace(day=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            else:
+                period_start = first_of_this_month
+                period_end = now
+
+        from credits.models import (
+            MonthlyBillingPeriod, MonthlyBillingPeriodStatus,
+            MonthlyBillingInvoice, MonthlyBillingLineItem, InvoiceStatus,
+            FeatureBillingType, LineItemType, FeatureUsageEvent
+        )
+
+        period, _ = MonthlyBillingPeriod.objects.get_or_create(
+            academy=academy,
+            period_start=period_start,
+            period_end=period_end,
+            defaults={'status': MonthlyBillingPeriodStatus.OPEN}
+        )
+
+        # Idempotency check: Return existing invoice if already finalized for this period
+        existing_invoice = MonthlyBillingInvoice.objects.filter(
+            academy=academy,
+            billing_period=period,
+            status=InvoiceStatus.FINALIZED
+        ).first()
+        if existing_invoice:
+            return existing_invoice
+
+        billable_students = get_billable_student_count(academy, period_start.strftime('%Y-%m'))
+        line_items_data = []
+        total_invoice_credits = Decimal('0.000000')
+
+        # 1. Student Base Access
+        base_rule = FeatureBillingService.get_effective_rule('STUDENT_BASE', period_end)
+        if base_rule.is_billable and base_rule.credit_rate > Decimal('0.0000'):
+            base_credits = (Decimal(str(billable_students)) * base_rule.credit_rate).quantize(Decimal('0.000000'))
+            line_items_data.append({
+                'item_type': LineItemType.STUDENT_BASE,
+                'feature_code': 'STUDENT_BASE',
+                'description': f'Student Base Access ({billable_students} billable students)',
+                'quantity': Decimal(str(billable_students)),
+                'unit': 'students',
+                'rate': base_rule.credit_rate,
+                'credits': base_credits,
+                'metadata': {'rate_type': base_rule.billing_type}
+            })
+            total_invoice_credits += base_credits
+
+        # 2. Per-Student Features (Live Class, One-to-One, etc.)
+        feature_codes = ['LIVE_CLASS', 'ONE_TO_ONE_SESSION', 'LESSONS', 'FEE_COLLECTION']
+        for f_code in feature_codes:
+            rule = FeatureBillingService.get_effective_rule(f_code, period_end)
+            if rule.is_billable and rule.billing_type == FeatureBillingType.PER_STUDENT and rule.credit_rate > Decimal('0.0000'):
+                f_credits = (Decimal(str(billable_students)) * rule.credit_rate).quantize(Decimal('0.000000'))
+                line_items_data.append({
+                    'item_type': LineItemType.LIVE_CLASS if f_code == 'LIVE_CLASS' else (
+                        LineItemType.ONE_TO_ONE if 'ONE_TO_ONE' in f_code else LineItemType.OTHER
+                    ),
+                    'feature_code': f_code,
+                    'description': f'{f_code.replace("_", " ").title()} ({billable_students} students)',
+                    'quantity': Decimal(str(billable_students)),
+                    'unit': 'students',
+                    'rate': rule.credit_rate,
+                    'credits': f_credits,
+                    'metadata': {'rate_type': rule.billing_type}
+                })
+                total_invoice_credits += f_credits
+
+        # 3. Usage Features (Certificate, Announcement, Email)
+        usage_codes = [
+            ('CERTIFICATE', LineItemType.CERTIFICATE, 'Certificates Issued'),
+            ('ANNOUNCEMENT', LineItemType.ANNOUNCEMENT, 'Announcements Posted'),
+            ('EMAIL', LineItemType.EMAIL, 'Emails Sent'),
+        ]
+        for f_code, item_type, label in usage_codes:
+            rule = FeatureBillingService.get_effective_rule(f_code, period_end)
+            if rule.is_billable and rule.credit_rate > Decimal('0.0000'):
+                unbilled_events = FeatureUsageEvent.objects.filter(
+                    academy=academy,
+                    feature_code=f_code,
+                    billed=False,
+                    occurred_at__gte=period_start,
+                    occurred_at__lte=period_end
+                )
+                usage_qty = unbilled_events.aggregate(total=Sum('quantity'))['total'] or 0
+                if usage_qty > 0:
+                    u_credits = (Decimal(str(usage_qty)) * rule.credit_rate).quantize(Decimal('0.000000'))
+                    line_items_data.append({
+                        'item_type': item_type,
+                        'feature_code': f_code,
+                        'description': f'{label} ({usage_qty} events)',
+                        'quantity': Decimal(str(usage_qty)),
+                        'unit': 'events',
+                        'rate': rule.credit_rate,
+                        'credits': u_credits,
+                        'metadata': {'event_count': usage_qty}
+                    })
+                    total_invoice_credits += u_credits
+                    unbilled_events.update(billed=True, billing_period=period)
+
+        # 4. Storage Monthly Charge
+        avg_bytes, billable_gb, storage_rate, storage_credits = StorageBillingService.calculate_storage_credits(
+            academy, period_start, period_end
+        )
+        if storage_credits > Decimal('0.000000') or billable_gb > Decimal('0.0000'):
+            line_items_data.append({
+                'item_type': LineItemType.STORAGE,
+                'feature_code': 'STORAGE',
+                'description': f'Cloud Storage Monthly Usage ({billable_gb} GB billable)',
+                'quantity': billable_gb,
+                'unit': 'GB',
+                'rate': storage_rate,
+                'credits': storage_credits,
+                'metadata': {'avg_bytes': avg_bytes, 'free_gb': 5}
+            })
+            total_invoice_credits += storage_credits
+
+        # Create Invoice
+        invoice = MonthlyBillingInvoice.objects.create(
+            academy=academy,
+            billing_period=period,
+            total_credits=total_invoice_credits,
+            status=InvoiceStatus.FINALIZED,
+            finalized_at=now
+        )
+
+        for item in line_items_data:
+            MonthlyBillingLineItem.objects.create(
+                invoice=invoice,
+                **item
+            )
+
+        # Debit Academy Credit Balance Idempotently
+        idempotency_key = f"monthly_invoice:{period_start.strftime('%Y%m')}:{academy.id}"
+        if total_invoice_credits > Decimal('0.000000'):
+            try:
+                ledger_entry = CreditsService.debit(
+                    academy=academy,
+                    amount=total_invoice_credits,
+                    source_type=CreditSourceType.DAILY_USAGE,
+                    idempotency_key=idempotency_key,
+                    description=f"Monthly Billing Invoice for {period_start.strftime('%B %Y')}",
+                    reference_type="MONTHLY_INVOICE",
+                    reference_id=str(invoice.id),
+                    allow_negative=True,
+                    metadata={"invoice_id": str(invoice.id), "period": period_start.strftime('%Y-%m')}
+                )
+                invoice.ledger_entry = ledger_entry
+                invoice.save(update_fields=['ledger_entry'])
+            except Exception as e:
+                invoice.status = InvoiceStatus.INSUFFICIENT_CREDITS
+                invoice.save(update_fields=['status'])
+
+        period.status = MonthlyBillingPeriodStatus.FINALIZED
+        period.closed_at = now
+        period.save(update_fields=['status', 'closed_at'])
+
+        return invoice
+
+    @classmethod
+    def get_live_estimated_summary(cls, academy: Academy) -> dict:
+        """
+        Calculates live estimated usage breakdown for current month (Section N & P).
+        Does NOT alter database state.
+        """
+        now = timezone.now()
+        first_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        from credits.models import FeatureUsageEvent
+        billable_students = get_billable_student_count(academy, now.strftime('%Y-%m'))
+        estimates = []
+        total_estimated = Decimal('0.000000')
+
+        # 1. Student Base
+        base_rule = FeatureBillingService.get_effective_rule('STUDENT_BASE', now)
+        base_credits = (Decimal(str(billable_students)) * base_rule.credit_rate).quantize(Decimal('0.000000'))
+        estimates.append({
+            'code': 'STUDENT_BASE',
+            'name': 'Student Base',
+            'detail': f'{billable_students} × {int(base_rule.credit_rate)}',
+            'credits': str(base_credits),
+            'quantity': billable_students,
+            'unit': 'students'
+        })
+        total_estimated += base_credits
+
+        # 2. Live Class
+        live_rule = FeatureBillingService.get_effective_rule('LIVE_CLASS', now)
+        if live_rule.is_billable and live_rule.credit_rate > Decimal('0.0000'):
+            live_credits = (Decimal(str(billable_students)) * live_rule.credit_rate).quantize(Decimal('0.000000'))
+            estimates.append({
+                'code': 'LIVE_CLASS',
+                'name': 'Live Class',
+                'detail': f'{billable_students} × {int(live_rule.credit_rate)}',
+                'credits': str(live_credits),
+                'quantity': billable_students,
+                'unit': 'students'
+            })
+            total_estimated += live_credits
+
+        # 3. Certificates
+        cert_rule = FeatureBillingService.get_effective_rule('CERTIFICATE', now)
+        cert_events = FeatureUsageEvent.objects.filter(
+            academy=academy, feature_code='CERTIFICATE', occurred_at__gte=first_of_month
+        ).aggregate(total=Sum('quantity'))['total'] or 0
+        cert_credits = (Decimal(str(cert_events)) * cert_rule.credit_rate).quantize(Decimal('0.000000'))
+        estimates.append({
+            'code': 'CERTIFICATE',
+            'name': 'Certificates',
+            'detail': f'{cert_events} × {int(cert_rule.credit_rate)}',
+            'credits': str(cert_credits),
+            'quantity': cert_events,
+            'unit': 'events'
+        })
+        total_estimated += cert_credits
+
+        # 4. Storage Breakdown
+        setting = StorageBillingService.get_setting(now)
+        avg_bytes, billable_gb, storage_rate, storage_credits = StorageBillingService.calculate_storage_credits(
+            academy, first_of_month, now
+        )
+        current_usage = StorageBillingService.get_or_create_usage(academy)
+
+        estimates.append({
+            'code': 'STORAGE',
+            'name': 'Storage',
+            'detail': f'{billable_gb} GB × {int(storage_rate)}',
+            'credits': str(storage_credits),
+            'quantity': float(billable_gb),
+            'unit': 'GB'
+        })
+        total_estimated += storage_credits
+
+        free_gb = (Decimal(str(setting.free_bytes)) / StorageBillingService.BYTES_PER_GB).quantize(Decimal('0.01'))
+        current_gb = (Decimal(str(current_usage.used_bytes)) / StorageBillingService.BYTES_PER_GB).quantize(Decimal('0.02'))
+        avg_gb = (Decimal(str(avg_bytes)) / StorageBillingService.BYTES_PER_GB).quantize(Decimal('0.02'))
+
+        return {
+            'estimated_total_credits': str(total_estimated),
+            'items': estimates,
+            'storage_breakdown': {
+                'current_storage_bytes': current_usage.used_bytes,
+                'current_storage_gb': str(current_gb),
+                'monthly_average_bytes': avg_bytes,
+                'monthly_average_gb': str(avg_gb),
+                'free_storage_bytes': setting.free_bytes,
+                'free_storage_gb': str(free_gb),
+                'billable_storage_gb': str(billable_gb),
+                'credit_rate_per_gb': str(storage_rate),
+                'estimated_storage_charge': str(storage_credits)
+            }
+        }
 
 
 CreditService = CreditsService
+

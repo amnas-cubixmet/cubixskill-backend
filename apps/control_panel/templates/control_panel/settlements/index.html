@@ -1,0 +1,73 @@
+{% extends "control_panel/base.html" %}
+{% load static %}
+
+{% block title %}Academy Settlements{% endblock %}
+
+{% block content %}
+<div class="cp-page">
+  <div class="cp-page-header">
+    <div>
+      <h1 class="cp-page-title">Academy Settlements Ledger</h1>
+      <p class="cp-page-subtitle">Track and settle central gateway funds for registered Academies.</p>
+    </div>
+  </div>
+
+  <div class="cp-card" style="margin-bottom: 20px; padding: 16px;">
+    <form method="GET" action="{% url 'control_panel:settlements_list' %}" style="display: flex; gap: 12px; align-items: center;">
+      <input type="text" name="search" value="{{ search }}" class="cp-input" placeholder="Search by Academy Name..." style="max-width: 360px;">
+      <button type="submit" class="cp-btn cp-btn-primary">Filter</button>
+    </form>
+  </div>
+
+  <div class="cp-card">
+    <div class="cp-table-container">
+      <table class="cp-table">
+        <thead>
+          <tr>
+            <th>Academy</th>
+            <th>Gross Gateway Collected</th>
+            <th>Gateway Charges (2%)</th>
+            <th>Platform Fee (5%)</th>
+            <th>Net Payable</th>
+            <th>Already Settled</th>
+            <th>Pending Settlement</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in records %}
+          <tr>
+            <td>
+              <strong style="color: var(--cp-text-primary);">{{ r.academy.name }}</strong>
+            </td>
+            <td>₹{{ r.gross_collected }}</td>
+            <td>₹{{ r.gateway_charges }}</td>
+            <td>₹{{ r.platform_charges }}</td>
+            <td><strong style="color: var(--cp-success);">₹{{ r.net_payable }}</strong></td>
+            <td>₹{{ r.already_settled }}</td>
+            <td>
+              {% if r.pending_settlement > 0 %}
+                <span class="cp-badge cp-badge-warning" style="font-size: 13px; font-weight: 600;">₹{{ r.pending_settlement }}</span>
+              {% else %}
+                <span class="cp-badge cp-badge-success">₹0.00</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'control_panel:settlement_detail' academy_id=r.academy.id %}" class="cp-btn cp-btn-secondary" style="height: 28px; padding: 0 12px; font-size: 12px;">
+                View &amp; Settle
+              </a>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="8" style="text-align: center; padding: 32px; color: var(--cp-text-secondary);">
+              No Academy settlement records found.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

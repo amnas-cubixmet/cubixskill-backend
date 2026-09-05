@@ -44,6 +44,7 @@ class StorageEstimateService:
             bytes_in_gb = Decimal('1073741824')
             gb_count = Decimal(str(estimated_total_bytes)) / bytes_in_gb
             estimated_monthly_credits = (gb_count * rate_cost).quantize(Decimal('0.0001'))
+            estimated_daily_credits = (estimated_monthly_credits / Decimal('30')).quantize(Decimal('0.0001'))
 
             return {
                 "filename": filename,
@@ -65,8 +66,10 @@ class StorageEstimateService:
                 "projected_storage_bytes": current_storage_bytes + estimated_total_bytes,
                 "projected_storage_display": format_bytes(current_storage_bytes + estimated_total_bytes),
                 "rate_cost": str(rate_cost),
-                "rate_display": f"{rate_cost} Credits / GB / Month",
+                "rate_display": f"{rate_cost} Credits / GB",
                 "estimated_monthly_credits": str(estimated_monthly_credits),
+                "estimated_daily_credits": str(estimated_daily_credits),
+                "daily_cost_display": f"{estimated_daily_credits} Credits / day",
                 "adaptive_streaming_enabled": adaptive_streaming_enabled if is_video else False,
                 "planned_qualities": [],
                 "renditions": []
@@ -119,6 +122,7 @@ class StorageEstimateService:
         bytes_in_gb = Decimal('1073741824')
         gb_count = Decimal(str(estimated_total_bytes)) / bytes_in_gb
         estimated_monthly_credits = (gb_count * rate_cost).quantize(Decimal('0.0001'))
+        estimated_daily_credits = (estimated_monthly_credits / Decimal('30')).quantize(Decimal('0.0001'))
 
         return {
             "filename": filename,
@@ -140,8 +144,10 @@ class StorageEstimateService:
             "projected_storage_bytes": current_storage_bytes + estimated_total_bytes,
             "projected_storage_display": format_bytes(current_storage_bytes + estimated_total_bytes),
             "rate_cost": str(rate_cost),
-            "rate_display": f"{rate_cost} Credits / GB / Month",
+            "rate_display": f"{rate_cost} Credits / GB",
             "estimated_monthly_credits": str(estimated_monthly_credits),
+            "estimated_daily_credits": str(estimated_daily_credits),
+            "daily_cost_display": f"{estimated_daily_credits} Credits / day",
             "adaptive_streaming_enabled": True,
             "planned_qualities": planned_qualities,
             "renditions": renditions_list

@@ -478,3 +478,77 @@ class AssignmentEndToEndTests(TestCase):
         data_clear = res_clear.data.get('data', res_clear.data)
         self.assertIsNone(data_clear['assignment']['due_days'])
 
+
+class DemoPreviewTestCase(TestCase):
+    def setUp(self):
+        self.academy = Academy.objects.create(
+            name="Test Academy",
+            slug="test-academy-demo",
+            is_active=True
+        )
+        self.course = Course.objects.create(
+            academy=self.academy,
+            title="Demo Test Course",
+            is_published=True
+        )
+        self.module = Module.objects.create(
+            course=self.course,
+            title="Section 1",
+            order_index=1
+        )
+        self.demo_lesson = Lesson.objects.create(
+            module=self.module,
+            title="Natus exercitation e",
+            lesson_type=LessonType.VIDEO,
+            duration_minutes=1,
+            is_demo=True
+        )
+        self.locked_lesson = Lesson.objects.create(
+            module=self.module,
+            title="Protected Lesson",
+            lesson_type=LessonType.VIDEO,
+            duration_minutes=10,
+            is_demo=False
+        )
+
+    def test_preview_duration_formula(self):
+        from lessons.services import get_public_preview_duration_seconds
+        # 12 min (720s) -> 300s (5 min max)
+        self.assertEqual(get_public_preview_duration_seconds(720), 300)
+        # 8 min (480s) -> 300s
+        self.assertEqual(get_public_preview_duration_seconds(480), 300)
+        # 5 min (300s) -> 150s (50% limit)
+        self.assertEqual(get_public_preview_duration_seconds(300), 150)
+        # 4 min (240s) -> 120s
+        self.assertEqual(get_public_preview_duration_seconds(240), 120)
+        # 1 min (60s) -> 30s
+        self.assertEqual(get_public_preview_duration_seconds(60), 30)
+
+    def test_demo_lesson_serializer(self):
+        from courses.serializers import PublicLessonSerializer
+        serializer = PublicLessonSerializer(self.demo_lesson)
+        data = serializer.data
+
+        self.assertEqual(data["is_demo"], True)
+        self.assertEqual(data["is_preview"], True)
+        self.assertEqual(data["preview_available"], True)
+        self.assertEqual(data["locked"], False)
+        self.assertEqual(data["public_locked"], False)
+        self.assertEqual(data["public_access_state"], "PREVIEW")
+        self.assertEqual(data["duration_seconds"], 60)
+        self.assertEqual(data["preview_duration_seconds"], 30)
+
+    def test_locked_lesson_serializer(self):
+        from courses.serializers import PublicLessonSerializer
+        serializer = PublicLessonSerializer(self.locked_lesson)
+        data = serializer.data
+
+        self.assertEqual(data["is_demo"], False)
+        self.assertEqual(data["is_preview"], False)
+        self.assertEqual(data["preview_available"], False)
+        self.assertEqual(data["locked"], True)
+        self.assertEqual(data["public_locked"], True)
+        self.assertEqual(data["public_access_state"], "LOCKED")
+        self.assertEqual(data["preview_duration_seconds"], 0)
+
+

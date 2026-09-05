@@ -18,6 +18,7 @@ urlpatterns = [
     path('chat/', include('discussions_chat.urls')),
     path('courses/<uuid:course_id>/discussions/', include('discussions_chat.urls')),
     path('leads/', include('leads.urls')),
+    path('demo-leads/', include('leads.urls')),
     path('payments/', include('payments.urls')),
     path('fees/', include('fees.urls')),
     path('credits/', include('credits.urls')),

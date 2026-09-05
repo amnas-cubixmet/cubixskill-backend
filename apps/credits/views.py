@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, PermissionDenied
+from core.exceptions import CubixSkillAPIException
 
 def normalize_indian_phone(phone: str) -> str:
     if not phone:
@@ -27,7 +28,6 @@ def normalize_indian_phone(phone: str) -> str:
 
 from academy.models import Academy
 from credits.models import (
-    CreditAccount,
     CreditLedgerEntry,
     CreditRate,
     CreditPackage,
@@ -56,7 +56,6 @@ from credits.serializers import (
     ManualAdjustmentRequestSerializer,
     ReversalRequestSerializer,
 )
-from core.permissions import IsSuperAdminOrStaff
 
 # --------------------------------------------------------------
 # 1. Staff Credit Wallet Endpoints
@@ -95,10 +94,20 @@ class CreditSummaryView(APIView):
 
     def get(self, request):
         academy = getattr(request.user, 'academy', None)
-        if not academy and not getattr(request.user, 'is_staff', False):
-            raise ValidationError({"academy": "User must belong to an Academy to access credit summary."})
+        if not academy and hasattr(request.user, 'academy_memberships'):
+            m = request.user.academy_memberships.first()
+            if m: academy = m.academy
+        if not academy:
+            academy = CreditsService.get_or_create_account(None).academy
 
         summary_data = CreditSelector.get_academy_summary(academy)
+        from credits.services import MonthlyBillingService
+        estimated_data = MonthlyBillingService.get_live_estimated_summary(academy)
+
+        summary_data['this_month_estimated_total'] = estimated_data['estimated_total_credits']
+        summary_data['estimated_breakdown'] = estimated_data['items']
+        summary_data['storage_breakdown'] = estimated_data['storage_breakdown']
+
         return Response(summary_data, status=status.HTTP_200_OK)
 
 class CreditUsageView(APIView):
@@ -111,6 +120,74 @@ class CreditUsageView(APIView):
 
         breakdown = CreditSelector.get_usage_breakdown(academy)
         return Response({"usage": breakdown}, status=status.HTTP_200_OK)
+
+class CreditUsagePreviewView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        academy = getattr(request.user, 'academy', None)
+        if not academy and hasattr(request.user, 'academy_memberships'):
+            membership = request.user.academy_memberships.first()
+            if membership:
+                academy = membership.academy
+        if not academy:
+            account = CreditsService.get_or_create_account(None)
+            academy = account.academy
+
+        resource_type = request.data.get('resource_type', 'COURSE_FEATURE')
+        resource_id = request.data.get('resource_id', 'LIVE_CLASS')
+        course_id = request.data.get('course_id')
+
+        preview = CreditsService.get_usage_preview(
+            academy=academy,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            course_id=course_id
+        )
+        return Response(preview, status=status.HTTP_200_OK)
+
+class CreditActivateUsageView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        academy = getattr(request.user, 'academy', None)
+        if not academy and hasattr(request.user, 'academy_memberships'):
+            membership = request.user.academy_memberships.first()
+            if membership:
+                academy = membership.academy
+        if not academy:
+            account = CreditsService.get_or_create_account(None)
+            academy = account.academy
+
+        resource_type = request.data.get('resource_type', 'COURSE_FEATURE')
+        resource_id = request.data.get('resource_id', 'LIVE_CLASS')
+        course_id = request.data.get('course_id')
+
+        try:
+            subscription, ledger_entry, already_charged = CreditsService.activate_daily_usage(
+                academy=academy,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                course_id=course_id,
+                user=request.user
+            )
+            current_balance = CreditsService.get_balance(academy)
+
+            return Response({
+                "success": True,
+                "already_charged": already_charged,
+                "subscription_id": str(subscription.id),
+                "resource_type": subscription.resource_type,
+                "resource_id": subscription.resource_id,
+                "billing_type": subscription.billing_type,
+                "daily_credit_cost": str(subscription.daily_credit_cost),
+                "wallet_balance": str(current_balance),
+                "next_charge_date": subscription.next_charge_date.strftime('%Y-%m-%d') if subscription.next_charge_date else None,
+            }, status=status.HTTP_200_OK)
+        except CubixSkillAPIException as api_err:
+            raise api_err
+        except Exception as err:
+            raise ValidationError({"detail": str(err)})
 
 class CreditPurchaseRatesView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -386,3 +463,31 @@ class AdminReversalView(APIView):
             "message": "Ledger entry reversed successfully via compensating entry.",
             "compensating_entry": CreditLedgerEntrySerializer(compensating_entry).data
         }, status=status.HTTP_200_OK)
+
+# --------------------------------------------------------------
+# 3. Instructor Billing & Storage Summary API Views (Section O)
+# --------------------------------------------------------------
+
+class StorageSummaryView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from storage.views import StorageSummaryDashboardView
+        return StorageSummaryDashboardView().get(request)
+
+class MonthlyInvoicesViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+    from credits.serializers import MonthlyBillingInvoiceSerializer
+    serializer_class = MonthlyBillingInvoiceSerializer
+
+    def get_queryset(self):
+        academy = getattr(self.request.user, 'academy', None)
+        if not academy and hasattr(self.request.user, 'academy_memberships'):
+            m = self.request.user.academy_memberships.first()
+            if m: academy = m.academy
+        if not academy:
+            academy = CreditsService.get_or_create_account(None).academy
+
+        from credits.models import MonthlyBillingInvoice
+        return MonthlyBillingInvoice.objects.filter(academy=academy).prefetch_related('line_items')
+

@@ -7,7 +7,9 @@ from rest_framework.routers import DefaultRouter
 from storage.views import (
     RequestUploadUrlView, DirectUploadView, ConfirmUploadView, MediaFileViewSet,
     StorageUsageView, EstimateUploadCostView, StorageCurrentPeriodView,
-    StorageDailyRollupView, StorageMonthlyBillingView
+    StorageDailyRollupView, StorageMonthlyBillingView,
+    StorageSummaryDashboardView, StorageSnapshotsView, StorageBillingPeriodsView,
+    ControlPanelStorageSettingsView, StorageMeterLogsView, StorageSettlementHistoryView
 )
 
 #--------------------------------------------------------------
@@ -18,6 +20,13 @@ router = DefaultRouter()
 router.register(r'files', MediaFileViewSet, basename='storage-file')
 
 urlpatterns = [
+    path('summary/', StorageSummaryDashboardView.as_view(), name='storage-summary-dashboard'),
+    path('meter-logs/', StorageMeterLogsView.as_view(), name='storage-meter-logs'),
+    path('settlements/', StorageSettlementHistoryView.as_view(), name='storage-settlements'),
+    path('snapshots/', StorageSnapshotsView.as_view(), name='storage-snapshots'),
+    path('billing-periods/', StorageBillingPeriodsView.as_view(), name='storage-billing-periods'),
+    path('control-panel/settings/', ControlPanelStorageSettingsView.as_view(), name='storage-cp-settings'),
+
     path('estimate/', EstimateUploadCostView.as_view(), name='storage-estimate'),
     path('estimate-upload/', EstimateUploadCostView.as_view(), name='storage-estimate-upload'),
     path('upload-url/', RequestUploadUrlView.as_view(), name='storage-upload-url'),
@@ -29,3 +38,4 @@ urlpatterns = [
     path('billing/', StorageMonthlyBillingView.as_view(), name='storage-monthly-billings'),
     path('', include(router.urls)),
 ]
+

@@ -66,6 +66,14 @@ class StorageMeteringService:
             source='MEDIA_LIBRARY'
         )
 
+        # Sync with AcademyStorageUsage model (Section F)
+        if media_file.academy_uuid:
+            from academy.models import Academy
+            from credits.services import StorageBillingService as CreditStorageBillingService
+            acad = Academy.objects.filter(id=media_file.academy_uuid).first()
+            if acad:
+                CreditStorageBillingService.increment_storage(acad, charge_bytes)
+
         logger.info(f"Storage UPLOAD event recorded: Academy {media_file.academy_uuid}, +{charge_bytes} bytes")
         return event
 
@@ -102,6 +110,14 @@ class StorageMeteringService:
             performed_by=user,
             source='MEDIA_LIBRARY'
         )
+
+        # Sync with AcademyStorageUsage model (Section F)
+        if media_file.academy_uuid:
+            from academy.models import Academy
+            from credits.services import StorageBillingService as CreditStorageBillingService
+            acad = Academy.objects.filter(id=media_file.academy_uuid).first()
+            if acad:
+                CreditStorageBillingService.decrement_storage(acad, media_file.size_bytes)
 
         logger.info(f"Storage DELETE event recorded: Academy {media_file.academy_uuid}, -{media_file.size_bytes} bytes")
         return event

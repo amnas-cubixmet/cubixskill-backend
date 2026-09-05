@@ -171,6 +171,20 @@ class CertificateTemplateViewSet(viewsets.ModelViewSet):
             raise ValidationError("User is not associated with an Academy.")
         serializer.save(academy=academy)
 
+    def destroy(self, request, *args, **kwargs):
+        template = self.get_object()
+        has_issued = template.issued_certificates.exists()
+        if has_issued:
+            # Soft delete / deactivate to preserve historical issued certificate snapshots
+            template.is_active = False
+            template.save()
+            return Response(
+                {"code": "TEMPLATE_IN_USE", "message": "Certificate template has been deactivated because it was used to issue certificates."},
+                status=status.HTTP_200_OK
+            )
+        template.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @action(detail=True, methods=['post'])
     def preview(self, request, pk=None):
         template = self.get_object()
@@ -511,14 +525,28 @@ class CertificateFontViewSet(viewsets.ModelViewSet):
             raise ValidationError("You cannot delete this font.")
 
         from certificates.models import CertificateTemplate
+        font_id_str = str(font.id)
         in_use = CertificateTemplate.objects.filter(
-            template_data__icontains=font.key
+            models.Q(template_data__icontains=font.key) | models.Q(template_data__icontains=font_id_str)
         ).exists()
 
         if in_use:
             font.is_active = False
             font.save()
-            return Response({"message": "Font marked inactive for new designs as it is used in existing templates."}, status=status.HTTP_200_OK)
+            return Response(
+                {"code": "FONT_IN_USE", "message": "Font deactivated because it is referenced in existing templates."},
+                status=status.HTTP_200_OK
+            )
+
+        if font.media_file:
+            try:
+                from storage.services import StorageService
+                if hasattr(StorageService, 'delete_media_file'):
+                    StorageService.delete_media_file(font.media_file.id)
+                else:
+                    font.media_file.delete()
+            except Exception as e:
+                logger.warning(f"Failed to delete font media file on font destroy: {e}")
 
         font.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

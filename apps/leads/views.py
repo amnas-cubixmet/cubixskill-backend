@@ -22,6 +22,8 @@ from leads.services import (
 from leads.serializers import (
     LeadSerializer,
     PublicLeadEnquirySerializer,
+    DemoLeadCreateSerializer,
+    DemoLeadResponseSerializer,
     AssignLeadSerializer,
     TransitionStatusSerializer,
     ConvertLeadSerializer,
@@ -83,6 +85,54 @@ class PublicLeadEnquiryView(APIView):
             "message": "Thank you for your enquiry. Our team will contact you shortly.",
             "success": True
         }, status=status.HTTP_201_CREATED)
+
+class DemoLeadCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = DemoLeadCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        academy = get_object_or_404(Academy, id=data['academy_id'])
+        course = get_object_or_404(Course, id=data['course_id'])
+
+        if course.academy != academy:
+            raise ValidationError({"course": "Requested course does not belong to the specified academy."})
+
+        user = request.user
+        full_name = getattr(user, 'full_name', '') or getattr(user, 'get_full_name', lambda: '')() or user.username or user.email
+        email = user.email or ''
+        phone = data.get('phone', '') or getattr(user, 'phone', '') or ''
+
+        metadata = {
+            'requested_date': str(data['requested_date']) if data.get('requested_date') else None,
+            'requested_time': data.get('requested_time', ''),
+            'message': data.get('message', ''),
+            'name_snapshot': full_name,
+            'email_snapshot': email,
+            'phone_snapshot': phone,
+        }
+
+        lead, created = LeadService.create_or_update_lead(
+            academy=academy,
+            full_name=full_name,
+            email=email,
+            phone=phone,
+            source='DEMO_REQUEST',
+            source_detail=f"Requested demo for {course.title}",
+            priority='NORMAL',
+            preferred_contact_method='PHONE' if phone else 'EMAIL',
+            course=course,
+            metadata=metadata,
+            created_by=user
+        )
+
+        if user and not lead.converted_user:
+            lead.converted_user = user
+            lead.save(update_fields=['converted_user'])
+
+        return Response(DemoLeadResponseSerializer(lead).data, status=status.HTTP_201_CREATED)
 
 from core.utils import StandardPagination
 

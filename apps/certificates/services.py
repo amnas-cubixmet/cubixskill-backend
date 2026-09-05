@@ -196,6 +196,17 @@ class CertificateService:
 
         resolved_data = CertificateDataResolver.resolve_data(student=student, course=course, enrollment=enrollment)
 
+        if template and template.template_data:
+            cls.validate_template_text_fit(
+                template_data=template.template_data,
+                resolved_data=resolved_data,
+                orientation=template.orientation,
+                page_size=template.page_size,
+                custom_width=template.custom_width,
+                custom_height=template.custom_height,
+                custom_unit=template.custom_unit
+            )
+
         template_snapshot = {}
         if template:
             template_snapshot = {
@@ -387,6 +398,110 @@ class CertificateService:
             show_student_photo=template.show_student_photo,
             student_photo_shape=template.student_photo_shape or 'CIRCLE',
         )
+
+    @classmethod
+    def validate_template_text_fit(cls, template_data: dict, resolved_data: dict, orientation='LANDSCAPE', page_size='A4', custom_width=None, custom_height=None, custom_unit=None):
+        if not template_data or not isinstance(template_data, dict):
+            return
+
+        elements = template_data.get('elements', [])
+        if not elements and isinstance(template_data, list):
+            elements = template_data
+
+        if not elements:
+            return
+
+        from certificates.generator import resolve_page_size, resolve_reportlab_font
+        page_w, page_h = resolve_page_size(page_size=page_size, custom_width=custom_width, custom_height=custom_height, custom_unit=custom_unit, orientation=orientation)
+
+        import io
+        from reportlab.pdfgen import canvas
+        dummy_buf = io.BytesIO()
+        c = canvas.Canvas(dummy_buf, pagesize=(page_w, page_h))
+
+        for item in elements:
+            if not isinstance(item, dict):
+                continue
+
+            binding = item.get('binding') or item.get('field', '')
+            text_value = item.get('text', '')
+            prefix = item.get('prefix', '')
+            suffix = item.get('suffix', '')
+
+            if binding and binding != 'static':
+                val = resolved_data.get(binding, '')
+                text_value = f"{prefix}{val}{suffix}".strip() if val != '' else ''
+            elif text_value:
+                for k, v in resolved_data.items():
+                    if isinstance(text_value, str) and f"{{{{{k}}}}}" in text_value:
+                        text_value = text_value.replace(f"{{{{{k}}}}}", str(v))
+                text_value = f"{prefix}{text_value}{suffix}".strip()
+
+            if not text_value:
+                continue
+
+            raw_w = item.get('width', 0.8)
+            raw_h = item.get('height', 0.08)
+            container_w = float(raw_w) * page_w if isinstance(raw_w, (int, float)) and 0 <= raw_w <= 1 else float(raw_w)
+            container_h = float(raw_h) * page_h if isinstance(raw_h, (int, float)) and 0 <= raw_h <= 1 else float(raw_h)
+
+            padding_cfg = item.get('padding') or {}
+            pad_l = float(padding_cfg.get('left', 2)) if isinstance(padding_cfg, dict) else 2.0
+            pad_r = float(padding_cfg.get('right', 2)) if isinstance(padding_cfg, dict) else 2.0
+            pad_t = float(padding_cfg.get('top', 1)) if isinstance(padding_cfg, dict) else 1.0
+            pad_b = float(padding_cfg.get('bottom', 1)) if isinstance(padding_cfg, dict) else 1.0
+
+            avail_w = max(1.0, container_w - (pad_l + pad_r))
+            avail_h = max(1.0, container_h - (pad_t + pad_b))
+
+            configured_min = item.get('minFontSize') or item.get('min_font_size')
+            min_font_size = float(configured_min) if configured_min is not None else 12.0
+
+            raw_font = item.get('fontKey') or item.get('font_key') or item.get('fontFamily') or item.get('font_family', 'Inter')
+            font_weight = str(item.get('font_weight', item.get('fontWeight', 'normal'))).lower()
+            font_name = resolve_reportlab_font(raw_font, font_weight)
+
+            is_multiline = bool(item.get('multiline', False))
+            line_height = float(item.get('lineHeight') or item.get('line_height') or 1.0)
+
+            fits_at_min = False
+            if not is_multiline:
+                string_w = c.stringWidth(text_value, font_name, min_font_size)
+                string_h = min_font_size * line_height
+                fits_at_min = (string_w <= avail_w and string_h <= avail_h)
+            else:
+                words = text_value.split()
+                if not words:
+                    fits_at_min = True
+                else:
+                    lines = 1
+                    cur_w = 0.0
+                    space_w = c.stringWidth(" ", font_name, min_font_size)
+                    for word in words:
+                        word_w = c.stringWidth(word, font_name, min_font_size)
+                        if word_w > avail_w:
+                            fits_at_min = False
+                            break
+                        if cur_w == 0.0:
+                            cur_w = word_w
+                        elif cur_w + space_w + word_w <= avail_w:
+                            cur_w += space_w + word_w
+                        else:
+                            lines += 1
+                            cur_w = word_w
+                    else:
+                        tot_h = lines * min_font_size * line_height
+                        fits_at_min = (tot_h <= avail_h)
+
+            if not fits_at_min:
+                field_key = binding or 'text'
+                label_name = item.get('label') or field_key.replace('.', ' ').replace('_', ' ').title()
+                raise ValidationError({
+                    'code': 'CERTIFICATE_FIELD_TEXT_TOO_LONG',
+                    'field': field_key,
+                    'label': label_name,
+                    'message': f"{label_name} is too long for the configured certificate field."
+                })
 
     @classmethod
     def reissue_certificate(cls, certificate, reissued_by=None, reason: str = "Reissued", **kwargs):

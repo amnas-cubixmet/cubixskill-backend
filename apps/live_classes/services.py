@@ -29,7 +29,7 @@ class LiveSessionEmailService:
 
     @classmethod
     def send_session_scheduled_emails(cls, session: LiveSession, students: list) -> int:
-        from emails.services import send_transactional_email
+        from emails.outbox_service import EmailJobService
 
         course = session.course
         academy = course.academy if course else None
@@ -77,27 +77,31 @@ class LiveSessionEmailService:
             }
 
             try:
-                success = send_transactional_email(
-                    recipient=student.email,
-                    template_name="live_session_scheduled",
+                from emails.outbox_service import EmailJobService
+                EmailJobService.create_transactional_job(
+                    recipient_email=student.email,
                     subject=subject,
-                    context=context
+                    template_name="live_session_scheduled",
+                    context=context,
+                    academy_uuid=academy.id if academy else None,
+                    recipient_user_uuid=student.id,
+                    recipient_name=student.full_name or student.email.split('@')[0],
+                    idempotency_key=idempotency_key
                 )
-                if success:
-                    sent_count += 1
-                    LiveSessionEvent.objects.create(
-                        session=session,
-                        event_type='EMAIL_SENT',
-                        payload={'type': 'SCHEDULED', 'recipient': student.email, 'idempotency_key': idempotency_key}
-                    )
+                sent_count += 1
+                LiveSessionEvent.objects.create(
+                    session=session,
+                    event_type='EMAIL_SENT',
+                    payload={'type': 'SCHEDULED', 'recipient': student.email, 'idempotency_key': idempotency_key}
+                )
             except Exception as e:
-                logger.error(f"Failed to send scheduled email to {student.email}: {e}")
+                logger.error(f"Failed to queue scheduled email for {student.email}: {e}")
 
         return sent_count
 
     @classmethod
     def send_session_reminder_emails(cls, session: LiveSession, students: list) -> int:
-        from emails.services import send_transactional_email
+        from emails.outbox_service import EmailJobService
 
         course = session.course
         academy = course.academy if course else None
@@ -142,21 +146,24 @@ class LiveSessionEmailService:
             }
 
             try:
-                success = send_transactional_email(
-                    recipient=student.email,
-                    template_name="live_session_reminder",
+                EmailJobService.create_transactional_job(
+                    recipient_email=student.email,
                     subject=subject,
-                    context=context
+                    template_name="live_session_reminder",
+                    context=context,
+                    academy_uuid=academy.id if academy else None,
+                    recipient_user_uuid=student.id,
+                    recipient_name=student.full_name or student.email.split('@')[0],
+                    idempotency_key=idempotency_key
                 )
-                if success:
-                    sent_count += 1
-                    LiveSessionEvent.objects.create(
-                        session=session,
-                        event_type='EMAIL_SENT',
-                        payload={'type': 'REMINDER', 'recipient': student.email, 'idempotency_key': idempotency_key}
-                    )
+                sent_count += 1
+                LiveSessionEvent.objects.create(
+                    session=session,
+                    event_type='EMAIL_SENT',
+                    payload={'type': 'REMINDER', 'recipient': student.email, 'idempotency_key': idempotency_key}
+                )
             except Exception as e:
-                logger.error(f"Failed to send reminder email to {student.email}: {e}")
+                logger.error(f"Failed to queue reminder email for {student.email}: {e}")
 
         return sent_count
 

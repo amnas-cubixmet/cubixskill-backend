@@ -21,9 +21,11 @@ from channels.routing import ProtocolTypeRouter, URLRouter
 try:
     from discussions_chat.middleware import TokenAuthMiddleware
     import discussions_chat.routing as chat_routing
+    import academy.routing as academy_routing
 except ImportError:
     from apps.discussions_chat.middleware import TokenAuthMiddleware
     import apps.discussions_chat.routing as chat_routing
+    import apps.academy.routing as academy_routing
 
 # --------------------------------------------------------------
 # ASGI Application Router
@@ -34,7 +36,7 @@ application = ProtocolTypeRouter({
     'http': django_asgi_app,
     'websocket': TokenAuthMiddleware(
         URLRouter(
-            chat_routing.websocket_urlpatterns
+            chat_routing.websocket_urlpatterns + academy_routing.websocket_urlpatterns
         )
     ),
 })

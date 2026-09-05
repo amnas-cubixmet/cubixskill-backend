@@ -1,95 +1,227 @@
-#--------------------------------------------------------------
-# Imports
-#--------------------------------------------------------------
-
+import datetime
 import logging
 from celery import shared_task
+from django.db import models, transaction
 from django.utils import timezone
 from datetime import timedelta
 from storage.models import (
-    AcademyStorageAccount, StorageUsageEvent, StorageUsageRollup, StoragePricingRule
+    AcademyStorageAccount, StorageUsageEvent, StorageUsageRollup, StoragePricingRule,
+    StorageBillingSettings, AcademyStorageUsage, AcademyStorageSnapshot,
+    AcademyStorageDailyUsage, StorageBillingPeriod, MediaFile, MediaStatus,
+    StorageBillingCycle, StorageMeterRecord, StorageUsageCharge, StorageBillingCycleStatus
 )
-from credits.services import CreditService
-from credits.models import CreditSourceType
-from decimal import Decimal
+from academy.models import Academy
+from decimal import Decimal, ROUND_HALF_UP
+from storage.utils import storage_interval_delta, get_interval_label, get_storage_debit_datetime, bytes_to_gb, BYTES_PER_GB
 
 logger = logging.getLogger(__name__)
 
-# --------------------------------------------------------------
-# 12-Hour Storage Billing Job
-# Calculates time-weighted storage GB-hours for each Academy.
-# Operation is idempotent per 12-hour period snapshot.
-# Physical files are stored locally during development.
-# Deleting a file affects future usage only; historical usage is preserved.
-# --------------------------------------------------------------
 
-@shared_task(name="storage.calculate_12hr_storage_usage")
-def calculate_12hr_storage_usage():
+@shared_task(name="storage.process_video_transcoding_task")
+def process_video_transcoding_task(media_file_id: str):
     """
-    Finalizes 12-hour storage usage snapshot and debits credits.
-    Idempotent operation keyed by academy and period timestamps.
+    Celery task that delegates real FFmpeg HLS video transcoding to VideoTranscoder.process_media_video.
+    Accepts string ID to ensure JSON-serializable arguments across Celery broker queues.
     """
-    now = timezone.now()
-    period_end = now
-    period_start = now - timedelta(hours=12)
-
-    pricing_rule = StoragePricingRule.objects.filter(is_active=True).first()
-    rate = pricing_rule.credits_per_gb_hour if pricing_rule else 0.001
-
-    accounts = AcademyStorageAccount.objects.all()
-    for account in accounts:
-        acad_id = account.academy_uuid
-        if not acad_id:
-            continue
-
-        if StorageUsageRollup.objects.filter(academy_uuid=acad_id, period_start=period_start, period_end=period_end).exists():
-            continue
-
-        opening_usage = account.current_usage_bytes
-        closing_usage = account.current_usage_bytes
-
-        byte_hours = float(opening_usage) * 12.0
-        gb_hours = byte_hours / (1024 * 1024 * 1024)
-
-        StorageUsageRollup.objects.create(
-            academy_uuid=acad_id,
-            period_start=period_start,
-            period_end=period_end,
-            opening_bytes=opening_usage,
-            closing_bytes=closing_usage,
-            peak_bytes=max(opening_usage, closing_usage),
-            interval_type='DAILY',
-            calculated_at=timezone.now(),
-            status='FINALIZED'
-        )
-
-        # Debit credits via central CreditService
-        credit_cost = int(float(gb_hours) * float(rate))
-        if credit_cost > 0:
-            try:
-                from academy.models import Academy
-                academy_obj = Academy.objects.filter(id=acad_id).first()
-                if academy_obj:
-                    CreditService.debit(
-                        academy=academy_obj,
-                        amount=Decimal(str(credit_cost)),
-                        source_type=CreditSourceType.STORAGE_USAGE,
-                        description=f"Storage usage charge for 12hr period ({gb_hours:.2f} GB-hours)",
-                        idempotency_key=f"storage-billing:{acad_id}:{period_start.isoformat()}"
-                    )
-            except Exception as exc:
-                logger.error(f"Failed to debit credits for academy {acad_id}: {exc}")
+    from storage.transcoder import VideoTranscoder
+    logger.info("Celery HLS transcoding task started for media_file_id=%s", media_file_id)
+    try:
+        return VideoTranscoder.process_media_video(media_file_id)
+    except Exception as exc:
+        logger.exception("Celery HLS transcoding task failed for media_file_id=%s: %s", media_file_id, exc)
+        raise exc
 
 
-@shared_task(bind=True, queue='video_processing', ignore_result=True, max_retries=3, default_retry_delay=60)
-def process_video_transcoding_task(self, media_file_id: str):
+def enqueue_hls_safely(media_id: str):
     """
-    Celery task to execute background HLS video transcoding safely.
+    Safely enqueues the Celery video transcoding task.
+    If the Celery broker is unavailable or fails to queue the task, updates MediaFile status to FAILED
+    with an error message instead of causing an unhandled HTTP 500 error in the request thread.
     """
     try:
-        from storage.transcoder import VideoTranscoder
-        VideoTranscoder.process_media_video(media_file_id)
-        return f"Completed video transcoding for media {media_file_id}"
+        process_video_transcoding_task.delay(str(media_id))
+        logger.info("HLS Celery task queued media_id=%s", media_id)
     except Exception as exc:
-        logger.error(f"Error in process_video_transcoding_task for media {media_file_id}: {exc}")
-        raise self.retry(exc=exc)
+        logger.exception("Unable to enqueue HLS Celery task media_id=%s: %s", media_id, exc)
+        from storage.models import MediaFile, ProcessingStatus
+        MediaFile.objects.filter(
+            id=media_id,
+            processing_status=ProcessingStatus.QUEUED,
+        ).update(
+            processing_status=ProcessingStatus.FAILED,
+            processing_progress=0,
+            processing_error="Video processing queue is temporarily unavailable.",
+        )
+
+
+@shared_task(name="storage.meter_due_storage_usage")
+def meter_due_storage_usage():
+    """
+    Periodically measures physical storage usage, creates a StorageMeterRecord,
+    and atomically accumulates calculated credits into the current OPEN StorageBillingCycle.
+    Does NOT debit credit balance directly.
+    """
+    settings_obj = StorageBillingSettings.get_settings()
+    if not settings_obj.storage_billing_enabled:
+        logger.info("Storage billing is disabled in settings. Skipping metering.")
+        return "Storage billing disabled"
+
+    interval_str = settings_obj.storage_billing_interval
+    rate_per_gb = settings_obj.storage_credit_rate_per_gb
+    delta = storage_interval_delta(interval_str)
+    now = timezone.now()
+    metered_count = 0
+
+    academies = Academy.objects.all()
+    for academy in academies:
+        usage, _ = AcademyStorageUsage.objects.get_or_create(
+            academy=academy,
+            defaults={'academy_uuid': academy.id, 'used_bytes': 0, 'file_count': 0}
+        )
+
+        last_billed = usage.last_billed_at
+        if last_billed:
+            next_due_at = last_billed + delta
+            if now < next_due_at:
+                logger.info(
+                    "Storage meter skipped academy=%s reason=not_due next_due_at=%s",
+                    academy.id,
+                    next_due_at,
+                )
+                continue
+
+        active_files = list(MediaFile.objects.filter(academy_uuid=academy.id, status=MediaStatus.ACTIVE))
+        actual_file_bytes = sum((f.total_storage_bytes or f.size_bytes) for f in active_files)
+        used_bytes = max(usage.used_bytes, actual_file_bytes)
+        used_gb = bytes_to_gb(used_bytes)
+        calculated_credits = (used_gb * rate_per_gb).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+        logger.info(f"Storage meter start academy={academy.id} used_bytes={used_bytes} rate={rate_per_gb} calculated_credits={calculated_credits}")
+
+        try:
+            with transaction.atomic():
+                open_cycle = StorageBillingCycle.objects.select_for_update().filter(
+                    academy=academy,
+                    status=StorageBillingCycleStatus.OPEN
+                ).order_by('-cycle_start_at').first()
+
+                if not open_cycle:
+                    import uuid
+                    idempotency_key = f"storage-cycle:{academy.id}:{now.isoformat()}"
+                    if StorageBillingCycle.objects.filter(idempotency_key=idempotency_key).exists():
+                        idempotency_key = f"storage-cycle:{academy.id}:{now.isoformat()}:{uuid.uuid4().hex[:6]}"
+
+                    open_cycle = StorageBillingCycle.objects.create(
+                        academy=academy,
+                        academy_uuid=academy.id,
+                        cycle_start_at=now,
+                        accumulated_credits=Decimal("0.0000"),
+                        status=StorageBillingCycleStatus.OPEN,
+                        idempotency_key=idempotency_key
+                    )
+
+                meter_rec = StorageMeterRecord.objects.create(
+                    academy=academy,
+                    academy_uuid=academy.id,
+                    billing_cycle=open_cycle,
+                    metered_at=now,
+                    used_bytes=used_bytes,
+                    used_gb=used_gb,
+                    credit_rate_per_gb=rate_per_gb,
+                    calculated_credits=calculated_credits,
+                    metering_interval=interval_str,
+                    file_count=len(active_files)
+                )
+
+                from storage.models import StorageMeterFileSnapshot
+                snapshots = [
+                    StorageMeterFileSnapshot(
+                        meter_record=meter_rec,
+                        academy=academy,
+                        academy_uuid=academy.id,
+                        media_file=f,
+                        media_file_uuid=f.id,
+                        filename_snapshot=f.display_name or f.original_filename,
+                        media_type_snapshot=f.media_type,
+                        size_bytes_snapshot=f.total_storage_bytes or f.size_bytes,
+                        uploaded_at_snapshot=f.uploaded_at or f.created_at,
+                        storage_key_snapshot=f.storage_key or ''
+                    )
+                    for f in active_files
+                ]
+                if snapshots:
+                    StorageMeterFileSnapshot.objects.bulk_create(snapshots)
+
+                open_cycle.accumulated_credits = models.F('accumulated_credits') + calculated_credits
+                open_cycle.save(update_fields=['accumulated_credits'])
+                open_cycle.refresh_from_db(fields=['accumulated_credits'])
+
+                usage.last_billed_at = now
+                usage.save(update_fields=['last_billed_at'])
+                metered_count += 1
+                logger.info(f"Storage meter created academy={academy.id} meter={meter_rec.id}")
+
+        except Exception as exc:
+            logger.exception(f"Error metering storage for academy {academy.id}: {exc}")
+
+    return f"Metered storage for {metered_count} academies"
+
+
+@shared_task(name="storage.debit_due_storage_billing_cycles")
+def debit_due_storage_billing_cycles(force_debit=False):
+    """
+    Checks whether the configured Credit Settlement Day + Credit Settlement Time has arrived.
+    Executes ONE monthly storage credit settlement using StorageSettlementService.settle_cycle.
+    """
+    settings_obj = StorageBillingSettings.get_settings()
+    if not settings_obj.storage_billing_enabled:
+        return "Storage billing disabled"
+
+    now_tz = timezone.localtime()
+    day = settings_obj.storage_credit_debit_day or 1
+    debit_time = settings_obj.storage_credit_debit_time or datetime.time(0, 0)
+    tz = timezone.get_current_timezone()
+
+    debit_count = 0
+    academies = Academy.objects.all()
+
+    for academy in academies:
+        open_cycle = StorageBillingCycle.objects.filter(
+            academy=academy,
+            status=StorageBillingCycleStatus.OPEN
+        ).order_by('-cycle_start_at').first()
+
+        if not open_cycle:
+            continue
+
+        is_due = False
+        if force_debit:
+            if open_cycle.accumulated_credits <= 0 and StorageUsageCharge.objects.filter(academy=academy).exists():
+                continue
+            is_due = True
+        else:
+            scheduled_due = get_storage_debit_datetime(now_tz.year, now_tz.month, day, debit_time, tz)
+            is_due = (now_tz >= scheduled_due and open_cycle.cycle_start_at < scheduled_due)
+
+        if not is_due:
+            continue
+
+        try:
+            from storage.services import StorageSettlementService
+            cycle, processed = StorageSettlementService.settle_cycle(open_cycle)
+            if processed:
+                debit_count += 1
+        except Exception as exc:
+            logger.exception(f"Error executing storage settlement for academy {academy.id}: {exc}")
+
+    return f"Processed debit for {debit_count} storage billing cycles"
+
+
+@shared_task(name="storage.capture_and_bill_due_storage_usage")
+def capture_and_bill_due_storage_usage():
+    """
+    Combined runner for metering and debit tasks (manual and test invocation).
+    """
+    res1 = meter_due_storage_usage()
+    res2 = debit_due_storage_billing_cycles(force_debit=True)
+    return f"{res1}; {res2}"

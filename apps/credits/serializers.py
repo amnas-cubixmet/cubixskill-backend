@@ -186,3 +186,38 @@ class ManualAdjustmentRequestSerializer(serializers.Serializer):
 
 class ReversalRequestSerializer(serializers.Serializer):
     reason = serializers.CharField()
+
+class MonthlyBillingLineItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        from credits.models import MonthlyBillingLineItem
+        model = MonthlyBillingLineItem
+        fields = [
+            'id',
+            'item_type',
+            'feature_code',
+            'description',
+            'quantity',
+            'unit',
+            'rate',
+            'credits',
+            'metadata'
+        ]
+
+class MonthlyBillingInvoiceSerializer(serializers.ModelSerializer):
+    line_items = MonthlyBillingLineItemSerializer(many=True, read_only=True)
+    billing_period_label = serializers.CharField(source='billing_period.period_start', read_only=True)
+
+    class Meta:
+        from credits.models import MonthlyBillingInvoice
+        model = MonthlyBillingInvoice
+        fields = [
+            'id',
+            'billing_period',
+            'billing_period_label',
+            'total_credits',
+            'status',
+            'generated_at',
+            'finalized_at',
+            'line_items'
+        ]
+

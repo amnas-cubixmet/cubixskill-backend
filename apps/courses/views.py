@@ -36,6 +36,13 @@ class CourseViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(academy=self.request.user.academy)
 
+    @action(detail=True, methods=['get'], url_path='publish-readiness')
+    def publish_readiness(self, request, pk=None):
+        course = self.get_object()
+        from courses.services import CoursePublishReadinessService
+        readiness = CoursePublishReadinessService.get_readiness(course)
+        return Response(readiness, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['post'])
     def publish(self, request, pk=None):
         course = self.get_object()

@@ -96,6 +96,22 @@ class AnalyticsSelector:
         # 8. Certificates
         certificates_issued = Certificate.objects.filter(student__academy=academy, status='ISSUED').count() if academy else 0
 
+        # 9. Storage Billing Outstanding
+        from storage.services import StorageOutstandingService
+        from storage.models import StorageBillingCycle, StorageBillingCycleStatus
+        outstanding_credits = StorageOutstandingService.get_total_outstanding_credits(academy) if academy else Decimal("0.0000")
+        has_outstanding = (outstanding_credits > Decimal("0.0000"))
+        open_cycle = StorageBillingCycle.objects.filter(
+            academy=academy,
+            status=StorageBillingCycleStatus.OPEN
+        ).order_by('-cycle_start_at').first() if academy else None
+        current_cycle_credits = open_cycle.accumulated_credits if open_cycle else Decimal("0.0000")
+
+        storage_billing = {
+            "outstanding_credits": f"{outstanding_credits:.4f}",
+            "has_outstanding": has_outstanding,
+            "current_cycle_credits": f"{current_cycle_credits:.4f}"
+        }
 
         return {
             'total_students': total_students,
@@ -113,6 +129,7 @@ class AnalyticsSelector:
             'storage_gb': storage_gb,
             'credit_balance': credit_balance,
             'certificates_issued': certificates_issued,
+            'storage_billing': storage_billing,
         }
 
     @classmethod

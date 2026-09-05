@@ -9,6 +9,8 @@ from certificates.models import (
 
 class CertificateFontSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()
+    runtime_family = serializers.SerializerMethodField()
+    display_name = serializers.SerializerMethodField()
 
     class Meta:
         model = CertificateFont
@@ -17,6 +19,8 @@ class CertificateFontSerializer(serializers.ModelSerializer):
             'key',
             'name',
             'family',
+            'display_name',
+            'runtime_family',
             'source',
             'user_rights_confirmed',
             'file_url',
@@ -27,9 +31,20 @@ class CertificateFontSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at']
 
+    def get_display_name(self, obj) -> str:
+        return obj.name or obj.family
+
+    def get_runtime_family(self, obj) -> str:
+        if obj.source == 'ACADEMY':
+            return f"cubix-font-{obj.id}"
+        return obj.family
+
     def get_file_url(self, obj) -> str:
         if obj.media_file:
-            return getattr(obj.media_file, 'relative_path', '') or obj.file_url
+            raw_path = getattr(obj.media_file, 'file_url', '') or getattr(obj.media_file, 'relative_path', '')
+            if raw_path and not raw_path.startswith('/media/') and not raw_path.startswith('http'):
+                return f"/media/{raw_path.lstrip('/')}"
+            return raw_path or obj.file_url
         return obj.file_url or ''
 
 class CertificateFontUploadSerializer(serializers.Serializer):
@@ -48,6 +63,32 @@ class CertificateFontUploadSerializer(serializers.Serializer):
             raise serializers.ValidationError("Only .ttf, .otf, .woff, and .woff2 font formats are supported.")
         if value.size > 15 * 1024 * 1024:
             raise serializers.ValidationError("Font file size must not exceed 15MB.")
+
+        # Read first 16 bytes for binary magic header validation
+        try:
+            value.seek(0)
+            header = value.read(16)
+            value.seek(0)
+
+            # Magic headers:
+            # TTF / TrueType: \x00\x01\x00\x00 or 'true' (\x74\x72\x75\x65)
+            # OTF / OpenType: 'OTTO' (\x4F\x54\x54\x4F)
+            # WOFF: 'wOFF' (\x77\x4F\x46\x46)
+            # WOFF2: 'wOF2' (\x77\x4F\x46\x32)
+            is_valid_binary = (
+                header.startswith(b'\x00\x01\x00\x00') or
+                header.startswith(b'OTTO') or
+                header.startswith(b'wOFF') or
+                header.startswith(b'wOF2') or
+                header.startswith(b'true')
+            )
+            if not is_valid_binary:
+                raise serializers.ValidationError("The uploaded file is not a valid font binary.")
+        except Exception as e:
+            if isinstance(e, serializers.ValidationError):
+                raise e
+            raise serializers.ValidationError("Failed to validate binary signature of font file.")
+
         return value
 
 #--------------------------------------------------------------
@@ -138,15 +179,26 @@ class CertificateTemplateSerializer(serializers.ModelSerializer):
                 from certificates.selectors import CertificateFontSelector
                 available_fonts = CertificateFontSelector.get_available_fonts(academy)
                 valid_keys = set(available_fonts.values_list('key', flat=True))
+                valid_ids = set(str(fid) for fid in available_fonts.values_list('id', flat=True))
                 valid_families = set(f.lower() for f in available_fonts.values_list('family', flat=True))
 
                 for el in elements:
                     if isinstance(el, dict):
+                        font_id = str(el.get('fontId') or el.get('font_id') or '')
                         font_key = el.get('fontKey') or el.get('font_key')
-                        font_fam = el.get('font_family') or el.get('fontFamily')
+                        font_fam = el.get('font_family') or el.get('fontFamily') or ''
+                        
+                        # Validate font reference if provided
+                        if font_id and font_id in valid_ids:
+                            continue
+                        if font_key and font_key in valid_keys:
+                            continue
+                        if font_fam:
+                            if font_fam.lower() in valid_families or font_fam.startswith('cubix-font-'):
+                                continue
                         if font_key and font_key not in valid_keys and (font_fam and font_fam.lower() not in valid_families):
                             raise serializers.ValidationError({
-                                "template_data": f"Font '{font_key}' is not available for this academy."
+                                "template_data": f"Font '{font_key or font_fam or font_id}' is not available for this academy."
                             })
 
         return attrs

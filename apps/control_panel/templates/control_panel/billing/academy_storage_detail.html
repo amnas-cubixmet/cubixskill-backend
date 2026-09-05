@@ -1,0 +1,525 @@
+{% extends "control_panel/base.html" %}
+
+{% block content %}
+<style>
+  :root {
+    --brand-primary: var(--cp-primary, #2563eb);
+    --brand-primary-hover: var(--cp-primary-hover, #1d4ed8);
+    --brand-primary-foreground: #ffffff;
+
+    --page-background: var(--cp-bg, #f8fafc);
+    --surface: var(--cp-card-bg, #ffffff);
+    --surface-secondary: var(--cp-input-bg, #ffffff);
+    --surface-hover: var(--cp-border-subtle, #f1f5f9);
+
+    --text-primary: var(--cp-text-primary, #0f172a);
+    --text-secondary: var(--cp-text-secondary, #475569);
+    --text-muted: var(--cp-text-muted, #64748b);
+
+    --border: var(--cp-border, #e2e8f0);
+    --input-border: var(--cp-input-border, #cbd5e1);
+  }
+
+  [data-theme="dark"] {
+    --brand-primary: var(--cp-primary, #3b82f6);
+    --brand-primary-hover: var(--cp-primary-hover, #2563eb);
+    --brand-primary-foreground: #ffffff;
+
+    --page-background: var(--cp-bg, #0b1120);
+    --surface: var(--cp-card-bg, #111827);
+    --surface-secondary: var(--cp-input-bg, #0f172a);
+    --surface-hover: var(--cp-border-subtle, #1e293b);
+
+    --text-primary: var(--cp-text-primary, #f8fafc);
+    --text-secondary: var(--cp-text-secondary, #cbd5e1);
+    --text-muted: var(--cp-text-muted, #94a3b8);
+
+    --border: var(--cp-border, #263244);
+    --input-border: var(--cp-input-border, #334155);
+  }
+
+  .cp-settings-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .cp-settings-card-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 12px 0;
+  }
+  .cp-themed-input {
+    background: var(--surface-secondary);
+    border: 1px solid var(--input-border);
+    color: var(--text-primary);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+  .cp-save-btn {
+    background: var(--brand-primary);
+    color: var(--brand-primary-foreground);
+    border: none;
+    border-radius: 8px;
+    padding: 6px 16px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
+</style>
+
+<div style="padding: 24px; max-width: 1400px; margin: 0 auto; font-family: system-ui, -apple-system, sans-serif;">
+
+  <!-- Header & Navigation -->
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <div>
+      <a href="{% url 'control_panel:storage_billing_settings' %}" style="font-size: 13px; color: var(--brand-primary); text-decoration: none; font-weight: 500; display: inline-block; margin-bottom: 6px;">
+        &larr; Back to Storage Settings
+      </a>
+      <h1 style="font-size: 22px; font-weight: 700; color: var(--text-primary); margin: 0;">
+        Storage Audit: {{ academy.name }}
+      </h1>
+      <span style="font-size: 12px; color: var(--text-muted);">UUID: {{ academy.id }}</span>
+    </div>
+  </div>
+
+  <!-- Card 1: Overview Summary Cards -->
+  <div class="cp-settings-card">
+    <h3 class="cp-settings-card-title">Storage Overview</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px;">
+      <div style="background: var(--surface-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
+        <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Current Storage</span>
+        <strong style="display: block; font-size: 20px; font-weight: 700; color: var(--text-primary); margin-top: 4px;">{{ used_gb }} GB</strong>
+        <span style="font-size: 11px; color: var(--text-muted);">{{ used_bytes|filesizeformat }}</span>
+      </div>
+
+      <div style="background: var(--surface-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
+        <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Active File Count</span>
+        <strong style="display: block; font-size: 20px; font-weight: 700; color: var(--text-primary); margin-top: 4px;">{{ file_count }}</strong>
+        <span style="font-size: 11px; color: var(--text-muted);">Registered tenant files</span>
+      </div>
+
+      <div style="background: var(--surface-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
+        <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Current Cycle Credits</span>
+        <strong style="display: block; font-size: 20px; font-weight: 700; color: var(--brand-primary); margin-top: 4px;">{{ current_cycle_credits }} Credits</strong>
+        <span style="font-size: 11px; color: var(--text-muted);">{{ meter_count }} meter records in cycle</span>
+      </div>
+
+      <div style="background: var(--surface-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
+        <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Outstanding Debt</span>
+        <strong style="display: block; font-size: 20px; font-weight: 700; color: {% if outstanding_credits != '0.0000' %}#dc2626{% else %}var(--text-primary){% endif %}; margin-top: 4px;">{{ outstanding_credits }} Credits</strong>
+        <span style="font-size: 11px; color: var(--text-muted);">Unpaid storage balance</span>
+      </div>
+
+      <div style="background: var(--surface-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
+        <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Last / Next Meter</span>
+        <div style="font-size: 12px; font-weight: 600; color: var(--text-primary); margin-top: 4px;">{{ last_metered_at|date:"d M Y, h:i A"|default:"N/A" }}</div>
+        <span style="font-size: 11px; color: var(--text-muted);">Next: {{ next_meter_at|date:"d M Y, h:i A"|default:"N/A" }}</span>
+      </div>
+
+      <div style="background: var(--surface-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 14px;">
+        <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Next Monthly Settlement</span>
+        <strong style="display: block; font-size: 13px; font-weight: 600; color: var(--text-primary); margin-top: 4px;">{{ next_settlement_at|date:"d M Y, h:i A" }}</strong>
+        <span style="font-size: 11px; color: var(--text-muted);">Prev: {{ previous_settlement_at|date:"d M Y, h:i A"|default:"N/A" }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 2: Storage Metering History (Immutable Intervals + File Snapshots + Filtering) -->
+  <div class="cp-settings-card">
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px;">
+      <div>
+        <h3 class="cp-settings-card-title" style="margin: 0;">Storage Metering Audit</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin: 4px 0 0 0;">Immutable interval logs recording exact calculated credits, storage deltas, and file snapshots.</p>
+      </div>
+
+      <!-- Audit Filters Form -->
+      <form method="GET" action="" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+        <select name="month" class="cp-themed-input" style="min-width: 110px;">
+          <option value="">All Months</option>
+          {% for m_val, m_name in month_choices %}
+            <option value="{{ m_val }}" {% if selected_month == m_val %}selected{% endif %}>{{ m_name }}</option>
+          {% endfor %}
+        </select>
+
+        <select name="day" class="cp-themed-input" style="min-width: 90px;">
+          <option value="">All Days</option>
+          {% for d in "x"|rjust:"31" %}
+            <option value="{{ forloop.counter }}" {% if selected_day == forloop.counter %}selected{% endif %}>Day {{ forloop.counter }}</option>
+          {% endfor %}
+        </select>
+
+        <select name="year" class="cp-themed-input" style="min-width: 90px;">
+          <option value="">All Years</option>
+          {% for yr in available_years %}
+            <option value="{{ yr }}" {% if selected_year == yr %}selected{% endif %}>{{ yr }}</option>
+          {% endfor %}
+        </select>
+
+        <select name="interval" class="cp-themed-input" style="min-width: 130px;">
+          <option value="ALL" {% if interval_filter == 'ALL' %}selected{% endif %}>All Intervals</option>
+          <option value="10_SECONDS" {% if interval_filter == '10_SECONDS' %}selected{% endif %}>10 Seconds — Test</option>
+          <option value="6_HOURS" {% if interval_filter == '6_HOURS' %}selected{% endif %}>6 Hours</option>
+          <option value="12_HOURS" {% if interval_filter == '12_HOURS' %}selected{% endif %}>12 Hours</option>
+          <option value="18_HOURS" {% if interval_filter == '18_HOURS' %}selected{% endif %}>18 Hours</option>
+          <option value="1_DAY" {% if interval_filter == '1_DAY' %}selected{% endif %}>1 Day</option>
+        </select>
+
+        <input type="text" name="audit_search" value="{{ audit_search }}" placeholder="Search file in audit..." class="cp-themed-input" style="min-width: 160px;" />
+        <button type="submit" class="cp-save-btn">Filter Audit</button>
+      </form>
+    </div>
+
+    <!-- Month / Day Summary Bar -->
+    {% if month_summary or day_summary %}
+      <div style="background: var(--surface-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; flex-wrap: wrap; gap: 20px; font-size: 13px;">
+        {% if month_summary %}
+          <div><strong>Month Summary:</strong> {{ month_summary.meter_records_count }} Records | Peak: {{ month_summary.peak_storage_gb }} GB | Low: {{ month_summary.lowest_storage_gb }} GB | Total Credits: {{ month_summary.total_metered_credits }}</div>
+        {% endif %}
+        {% if day_summary %}
+          <div><strong>Day Summary:</strong> Start: {{ day_summary.start_storage_gb }} GB &rarr; End: {{ day_summary.end_storage_gb }} GB | Day Credits: {{ day_summary.calculated_credits }}</div>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 8px;">
+      <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+        <thead>
+          <tr style="background: var(--surface-secondary); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 11px; text-transform: uppercase;">
+            <th style="padding: 10px 14px;">Metered Date & Time</th>
+            <th style="padding: 10px 14px;">Interval</th>
+            <th style="padding: 10px 14px;">Storage Used</th>
+            <th style="padding: 10px 14px;">Net Change</th>
+            <th style="padding: 10px 14px;">Rate / GB</th>
+            <th style="padding: 10px 14px;">Calculated Credits</th>
+            <th style="padding: 10px 14px;">Files</th>
+            <th style="padding: 10px 14px; text-align: right;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in meters_page.object_list %}
+            <tr style="border-bottom: 1px solid var(--border);">
+              <td style="padding: 10px 14px; font-weight: 600; color: var(--text-primary);">
+                {{ m.metered_at|date:"d M Y, h:i:s A" }}
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary);">
+                {{ m.metering_interval }}
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary);">
+                {{ m.used_gb }} GB ({{ m.used_bytes|filesizeformat }})
+              </td>
+              <td style="padding: 10px 14px; font-weight: 600; color: {% if m.delta_bytes > 0 %}#16a34a{% elif m.delta_bytes < 0 %}#dc2626{% else %}var(--text-muted){% endif %};">
+                {{ m.delta_str }}
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary);">
+                {{ m.credit_rate_per_gb }}
+              </td>
+              <td style="padding: 10px 14px; font-weight: 700; color: var(--brand-primary);">
+                {{ m.calculated_credits }} Credits
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary);">
+                {{ m.file_count|default:m.file_snapshots.count }} files
+              </td>
+              <td style="padding: 10px 14px; text-align: right;">
+                <button type="button" onclick="document.getElementById('meter-detail-{{ m.id }}').toggleAttribute('hidden')" style="padding: 4px 10px; background: var(--surface-secondary); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; color: var(--text-primary);">
+                  View Details &darr;
+                </button>
+              </td>
+            </tr>
+            <tr id="meter-detail-{{ m.id }}" hidden style="background: var(--surface-secondary); border-bottom: 1px solid var(--border);">
+              <td colspan="8" style="padding: 16px 20px;">
+
+                {% if not m.has_snapshots %}
+                  <div style="font-size: 13px; color: var(--text-muted); font-style: italic;">
+                    Historical file breakdown unavailable for this pre-snapshot meter.
+                  </div>
+                {% else %}
+
+                  <!-- Storage Net Change Breakdown -->
+                  <div style="display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 12px; font-size: 12px;">
+                    <div><strong>Net Storage Change:</strong> <span style="color: {% if m.delta_bytes > 0 %}#16a34a{% elif m.delta_bytes < 0 %}#dc2626{% else %}var(--text-muted){% endif %}; font-weight: 700;">{{ m.delta_str }}</span></div>
+                    <div><strong>Rate:</strong> {{ m.credit_rate_per_gb }} Credits / GB / Interval</div>
+                    <div><strong>Calculated:</strong> {{ m.calculated_credits }} Credits</div>
+                  </div>
+
+                  {% if m.added_snapshots %}
+                    <div style="margin-bottom: 8px; font-size: 11px; color: #16a34a; font-weight: 600;">
+                      + Added since previous meter:
+                      {% for add_f in m.added_snapshots %}
+                        <span style="background: #dcfce7; padding: 2px 6px; border-radius: 4px; margin-left: 4px; color: #15803d;">+ {{ add_f.filename_snapshot }} ({{ add_f.size_bytes_snapshot|filesizeformat }})</span>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+
+                  {% if m.removed_snapshots %}
+                    <div style="margin-bottom: 8px; font-size: 11px; color: #dc2626; font-weight: 600;">
+                      - Removed since previous meter:
+                      {% for rem_f in m.removed_snapshots %}
+                        <span style="background: #fee2e2; padding: 2px 6px; border-radius: 4px; margin-left: 4px; color: #b91c1c;">- {{ rem_f.filename_snapshot }} ({{ rem_f.size_bytes_snapshot|filesizeformat }})</span>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+
+                  <div style="font-weight: 700; font-size: 12px; margin-bottom: 8px; color: var(--text-primary);">
+                    Files Present During Meter Document ({{ m.metered_at|date:"d M Y, h:i:s A" }}):
+                  </div>
+
+                  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px;">
+                    {% for snap in m.file_snapshots.all %}
+                      <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 11px;">
+                        <strong style="color: var(--text-primary); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ snap.filename_snapshot }}</strong>
+                        <div style="color: var(--text-muted); display: flex; justify-content: space-between; margin-top: 4px;">
+                          <span>Type: {{ snap.media_type_snapshot }}</span>
+                          <span>{{ snap.size_bytes_snapshot|filesizeformat }}</span>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px; display: flex; justify-content: space-between; align-items: center;">
+                          <span>Uploaded: {{ snap.uploaded_at_snapshot|date:"d M Y"|default:"N/A" }}</span>
+                          {% if snap.media_file and snap.media_file.status == 'ACTIVE' %}
+                            {% if snap.media_file.media_type == 'VIDEO' or snap.media_file.media_type == 'AUDIO' %}
+                              <button type="button" onclick="openMediaPreview('{{ snap.filename_snapshot }}', '{{ snap.media_file.id }}')" style="background: var(--brand-primary); color: white; border: none; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer;">Play Media</button>
+                            {% endif %}
+                          {% else %}
+                            <span style="color: #b91c1c; font-weight: 600;">File no longer available</span>
+                          {% endif %}
+                        </div>
+                      </div>
+                    {% endfor %}
+                  </div>
+
+                {% endif %}
+
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="8" style="padding: 20px; text-align: center; color: var(--text-muted);">No meter records matching the filter criteria.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Metering Pagination -->
+    {% if meters_page.has_other_pages %}
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; font-size: 12px;">
+        <span style="color: var(--text-muted);">Page {{ meters_page.number }} of {{ meters_page.paginator.num_pages }}</span>
+        <div style="display: flex; gap: 8px;">
+          {% if meters_page.has_previous %}
+            <a href="?month={{ selected_month|default:'' }}&day={{ selected_day|default:'' }}&year={{ selected_year|default:'' }}&interval={{ interval_filter }}&audit_search={{ audit_search }}&meter_page={{ meters_page.previous_page_number }}" style="padding: 4px 12px; border: 1px solid var(--input-border); border-radius: 6px; text-decoration: none; color: var(--text-primary);">Previous</a>
+          {% endif %}
+          {% if meters_page.has_next %}
+            <a href="?month={{ selected_month|default:'' }}&day={{ selected_day|default:'' }}&year={{ selected_year|default:'' }}&interval={{ interval_filter }}&audit_search={{ audit_search }}&meter_page={{ meters_page.next_page_number }}" style="padding: 4px 12px; border: 1px solid var(--input-border); border-radius: 6px; text-decoration: none; color: var(--text-primary);">Next</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Card 3: Settlement History -->
+  <div class="cp-settings-card">
+    <h3 class="cp-settings-card-title">Settlement History</h3>
+    <p style="font-size: 13px; color: var(--text-muted); margin: -8px 0 16px 0;">Authoritative monthly credit debits and outstanding debt balance records.</p>
+
+    <div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 8px;">
+      <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+        <thead>
+          <tr style="background: var(--surface-secondary); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 11px; text-transform: uppercase;">
+            <th style="padding: 10px 14px;">Settlement Date</th>
+            <th style="padding: 10px 14px;">Usage Period</th>
+            <th style="padding: 10px 14px;">Original Bill</th>
+            <th style="padding: 10px 14px;">Credits Paid</th>
+            <th style="padding: 10px 14px;">Outstanding</th>
+            <th style="padding: 10px 14px;">Status</th>
+            <th style="padding: 10px 14px;">Ledger Tx</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in settlements_page.object_list %}
+            <tr style="border-bottom: 1px solid var(--border);">
+              <td style="padding: 10px 14px; font-weight: 600; color: var(--text-primary);">
+                {{ s.settled_at|date:"d M Y, h:i A"|default:s.debited_at|default:"N/A" }}
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary);">
+                {{ s.cycle_start_at|date:"d M Y" }} &rarr; {{ s.cycle_end_at|date:"d M Y"|default:"Now" }}
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary); font-weight: 500;">
+                {{ s.original_amount }} Credits
+              </td>
+              <td style="padding: 10px 14px; color: #16a34a; font-weight: 600;">
+                {{ s.paid_amount }} Credits
+              </td>
+              <td style="padding: 10px 14px; color: {% if s.outstanding_amount > 0 %}#dc2626{% else %}var(--text-secondary){% endif %}; font-weight: 600;">
+                {{ s.outstanding_amount }} Credits
+              </td>
+              <td style="padding: 10px 14px; font-weight: 600;">
+                <span style="padding: 2px 8px; border-radius: 4px; font-size: 11px; text-transform: uppercase;
+                  {% if s.settlement_status == 'PAID' %}background: #dcfce7; color: #15803d;
+                  {% elif s.settlement_status == 'PARTIALLY_PAID' %}background: #fef9c3; color: #a16207;
+                  {% else %}background: #fee2e2; color: #b91c1c;{% endif %}">
+                  {{ s.settlement_status|default:s.status }}
+                </span>
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-muted); font-size: 11px;">
+                {{ s.credit_transaction.id|default:"—" }}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="7" style="padding: 20px; text-align: center; color: var(--text-muted);">No storage settlement history recorded for this Academy.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Settlement Pagination -->
+    {% if settlements_page.has_other_pages %}
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; font-size: 12px;">
+        <span style="color: var(--text-muted);">Page {{ settlements_page.number }} of {{ settlements_page.paginator.num_pages }}</span>
+        <div style="display: flex; gap: 8px;">
+          {% if settlements_page.has_previous %}
+            <a href="?settle_page={{ settlements_page.previous_page_number }}" style="padding: 4px 12px; border: 1px solid var(--input-border); border-radius: 6px; text-decoration: none; color: var(--text-primary);">Previous</a>
+          {% endif %}
+          {% if settlements_page.has_next %}
+            <a href="?settle_page={{ settlements_page.next_page_number }}" style="padding: 4px 12px; border: 1px solid var(--input-border); border-radius: 6px; text-decoration: none; color: var(--text-primary);">Next</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Card 4: File Lifecycle History -->
+  <div class="cp-settings-card">
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px;">
+      <div>
+        <h3 class="cp-settings-card-title" style="margin: 0;">File Lifecycle History</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin: 4px 0 0 0;">Audit record of active and deleted tenant media assets.</p>
+      </div>
+
+      <form method="GET" action="" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+        <div style="display: flex; gap: 4px;">
+          <a href="?status_filter=ALL&file_search={{ file_search }}" style="padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; text-decoration: none; {% if status_filter == 'ALL' %}background: var(--brand-primary); color: white;{% else %}background: var(--surface-secondary); color: var(--text-secondary); border: 1px solid var(--border);{% endif %}">
+            All
+          </a>
+          <a href="?status_filter=ACTIVE&file_search={{ file_search }}" style="padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; text-decoration: none; {% if status_filter == 'ACTIVE' %}background: var(--brand-primary); color: white;{% else %}background: var(--surface-secondary); color: var(--text-secondary); border: 1px solid var(--border);{% endif %}">
+            Active
+          </a>
+          <a href="?status_filter=DELETED&file_search={{ file_search }}" style="padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; text-decoration: none; {% if status_filter == 'DELETED' %}background: var(--brand-primary); color: white;{% else %}background: var(--surface-secondary); color: var(--text-secondary); border: 1px solid var(--border);{% endif %}">
+            Deleted
+          </a>
+        </div>
+
+        <input type="text" name="file_search" value="{{ file_search }}" placeholder="Search filename / UUID..." class="cp-themed-input" style="min-width: 220px; min-height: 34px; padding: 4px 10px; font-size: 12px;" />
+        <input type="hidden" name="status_filter" value="{{ status_filter }}" />
+        <button type="submit" class="cp-save-btn" style="min-height: 34px; padding: 4px 14px; font-size: 12px;">Filter</button>
+      </form>
+    </div>
+
+    <div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 8px;">
+      <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+        <thead>
+          <tr style="background: var(--surface-secondary); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 11px; text-transform: uppercase;">
+            <th style="padding: 10px 14px;">File Name</th>
+            <th style="padding: 10px 14px;">Media UUID</th>
+            <th style="padding: 10px 14px;">Type</th>
+            <th style="padding: 10px 14px;">Size</th>
+            <th style="padding: 10px 14px;">Uploaded At</th>
+            <th style="padding: 10px 14px;">Deleted At</th>
+            <th style="padding: 10px 14px;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in files_page.object_list %}
+            <tr style="border-bottom: 1px solid var(--border);">
+              <td style="padding: 10px 14px; font-weight: 600; color: var(--text-primary);">
+                {{ f.display_name|default:f.original_filename }}
+              </td>
+              <td style="padding: 10px 14px; font-size: 11px; color: var(--text-muted);">
+                {{ f.id }}
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary);">
+                {{ f.media_type }}
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary);">
+                {{ f.size_bytes|filesizeformat }}
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-secondary);">
+                {{ f.uploaded_at|date:"d M Y, h:i A"|default:f.created_at|date:"d M Y, h:i A" }}
+              </td>
+              <td style="padding: 10px 14px; color: var(--text-muted);">
+                {% if f.status == 'DELETED' %}{{ f.updated_at|date:"d M Y, h:i A" }}{% else %}—{% endif %}
+              </td>
+              <td style="padding: 10px 14px; font-weight: 600;">
+                <span style="padding: 2px 8px; border-radius: 4px; font-size: 11px; text-transform: uppercase;
+                  {% if f.status == 'ACTIVE' %}background: #dcfce7; color: #15803d;{% else %}background: #fee2e2; color: #b91c1c;{% endif %}">
+                  {{ f.status }}
+                </span>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="7" style="padding: 20px; text-align: center; color: var(--text-muted);">No matching files found.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Files Pagination -->
+    {% if files_page.has_other_pages %}
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; font-size: 12px;">
+        <span style="color: var(--text-muted);">Page {{ files_page.number }} of {{ files_page.paginator.num_pages }}</span>
+        <div style="display: flex; gap: 8px;">
+          {% if files_page.has_previous %}
+            <a href="?file_search={{ file_search }}&status_filter={{ status_filter }}&file_page={{ files_page.previous_page_number }}" style="padding: 4px 12px; border: 1px solid var(--input-border); border-radius: 6px; text-decoration: none; color: var(--text-primary);">Previous</a>
+          {% endif %}
+          {% if files_page.has_next %}
+            <a href="?file_search={{ file_search }}&status_filter={{ status_filter }}&file_page={{ files_page.next_page_number }}" style="padding: 4px 12px; border: 1px solid var(--input-border); border-radius: 6px; text-decoration: none; color: var(--text-primary);">Next</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Media Preview Modal -->
+<div id="media-preview-modal" class="modal-overlay" style="display: none;">
+  <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; max-width: 600px; width: 90%; color: var(--text-primary);">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <h3 id="modal-filename" style="margin: 0; font-size: 16px; font-weight: 600;">Media Preview</h3>
+      <button type="button" onclick="closeMediaPreview()" style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-muted);">&times;</button>
+    </div>
+    <div id="modal-body" style="background: black; border-radius: 8px; min-height: 250px; display: flex; align-items: center; justify-content: center; color: white; font-size: 13px;">
+      Preview loading...
+    </div>
+  </div>
+</div>
+
+<script>
+  function openMediaPreview(filename, fileId) {
+    document.getElementById('modal-filename').innerText = filename;
+    document.getElementById('modal-body').innerHTML = '<div style="padding:20px; text-align:center;">Streaming media asset: <strong>' + filename + '</strong><br/><span style="font-size:11px; opacity:0.8;">UUID: ' + fileId + '</span></div>';
+    document.getElementById('media-preview-modal').style.display = 'flex';
+  }
+  function closeMediaPreview() {
+    document.getElementById('media-preview-modal').style.display = 'none';
+  }
+</script>
+
+{% endblock %}

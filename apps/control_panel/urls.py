@@ -54,6 +54,13 @@ urlpatterns = [
     path('pricing/<uuid:pk>/enable/', views.pricing_rule_enable_view, name='pricing_rule_enable'),
     path('pricing/<uuid:pk>/disable/', views.pricing_rule_disable_view, name='pricing_rule_disable'),
 
+
+    path('billing/storage-settings/', views.storage_billing_settings_view, name='storage_billing_settings'),
+    path('billing/storage-settings/academies/<uuid:academy_id>/', views.academy_storage_detail_view, name='academy_storage_detail'),
+    path('billing/monthly-invoices/', views.monthly_invoices_control_view, name='monthly_invoices_control'),
+    path('billing/monthly-invoices/<uuid:pk>/', views.monthly_invoice_detail_control_view, name='monthly_invoice_detail_control'),
+
+
     path('credits/purchase-rates/', views.credit_rates_list_view, name='credit_rates'),
     path('credits/purchase-rates/create/', views.credit_rate_create_view, name='credit_rate_create'),
     path('credits/purchase-rates/<uuid:pk>/', views.credit_rate_detail_view, name='credit_rate_detail'),
@@ -79,7 +86,7 @@ urlpatterns = [
     path('storage/billing/', views.storage_billing_list_view, name='storage_billing_list'),
     path('storage/billing/<uuid:pk>/', views.storage_billing_detail_view, name='storage_billing_detail'),
     path('storage/billing/<uuid:pk>/retry/', views.storage_billing_retry_view, name='storage_billing_retry'),
-    path('storage/<uuid:pk>/', views.academy_storage_detail_view, name='academy_storage_detail'),
+    path('storage/<uuid:academy_id>/', views.academy_storage_detail_view, name='academy_storage_detail_alt'),
 
     path('payments/', views.payments_list_view, name='payments_list'),
     path('payments/<uuid:pk>/', views.payment_detail_view, name='payment_detail'),
@@ -87,10 +94,13 @@ urlpatterns = [
     path('transactions/', views.transactions_list_view, name='transactions_list'),
     path('invoices/', views.invoices_list_view, name='invoices_list'),
 
-    # Financial / Commerce
+    # Financial / Commerce & Settlements
     path('fees/', views.fees_list_view, name='fees_list'),
     path('fees/<uuid:pk>/', views.fee_detail_view, name='fee_detail'),
     path('fees/<uuid:pk>/pay/', views.fee_pay_view, name='fee_pay'),
+    path('settlements/', views.academy_settlements_list_view, name='settlements_list'),
+    path('settlements/<uuid:academy_id>/', views.academy_settlement_detail_view, name='settlement_detail'),
+    path('settlements/<uuid:academy_id>/record/', views.record_academy_settlement_view, name='record_settlement'),
 
     path('credits/', views.wallets_list_view, name='credits_list'),
     path('credits/adjust/', views.wallet_adjust_view, name='wallet_adjust_global'),

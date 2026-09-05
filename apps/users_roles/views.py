@@ -5,7 +5,6 @@ from rest_framework.exceptions import ValidationError
 from django.db.models import Q
 from users_roles.models import User, Role, Permission, RolePermission, SystemRoleCode, RoleScope
 from users_roles.serializers import UserSerializer, UserCreateSerializer, RoleSerializer, PermissionSerializer
-from emails.services import send_transactional_email
 
 #--------------------------------------------------------------
 # User ViewSet for Staff & Tenant Users Management
@@ -109,18 +108,22 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def resend_invitation(self, request, pk=None):
         target_user = self.get_object()
+        from emails.outbox_service import EmailJobService
         academy_name = target_user.academy.name if target_user.academy else "CubixSkill Academy"
-        send_transactional_email(
-            recipient=target_user.email,
-            template_name="staff_invitation",
+        job = EmailJobService.create_transactional_job(
+            recipient_email=target_user.email,
             subject=f"Staff Invitation – {academy_name}",
+            template_name="staff_invitation",
             context={
                 "staff_name": target_user.full_name or target_user.email,
                 "academy_name": academy_name,
                 "login_url": "http://localhost:5173/login",
-            }
+            },
+            academy_uuid=target_user.academy_id if hasattr(target_user, 'academy_id') else None,
+            recipient_user_uuid=target_user.id,
+            recipient_name=target_user.full_name or target_user.email
         )
-        return Response({'message': f'Invitation email queued for {target_user.email}.'}, status=status.HTTP_200_OK)
+        return Response({'message': f'Invitation email queued for {target_user.email}.', 'job_id': str(job.id)}, status=status.HTTP_200_OK)
 
 #--------------------------------------------------------------
 # Role ViewSet

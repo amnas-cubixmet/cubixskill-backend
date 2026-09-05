@@ -1,5 +1,6 @@
 from django.db import transaction
 from rest_framework import viewsets, permissions, status
+from rest_framework.response import Response
 from rest_framework.decorators import action
 from lessons.models import (
     Lesson, LessonMedia, LessonRichText, Quiz, Question, QuestionOption,
@@ -48,6 +49,14 @@ class ModuleLessonViewSet(viewsets.ModelViewSet):
         module = self.get_module()
         return LessonSelector.get_module_lessons(user=self.request.user, module=module)
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        data = serializer.data
+        if data.get('effective_locked'):
+            raise CubixSkillAPIException("This lesson is locked. Complete required previous lessons to access.", code="LESSON_LOCKED", status_code=status.HTTP_403_FORBIDDEN)
+        return Response(data)
+
     @transaction.atomic
     def create(self, request, *args, **kwargs):
         module = self.get_module()
@@ -73,6 +82,7 @@ class ModuleLessonViewSet(viewsets.ModelViewSet):
             description=data.get('description', ''),
             duration_minutes=data.get('duration_minutes', 0),
             is_demo=data.get('is_demo', False),
+            is_locked=data.get('is_locked', False),
             allow_download=data.get('allow_download', False),
             external_url=data.get('external_url', '')
         )
@@ -127,42 +137,86 @@ class LessonViewSet(viewsets.ModelViewSet):
     serializer_class = LessonSerializer
     queryset = Lesson.objects.all()
 
+    def get_queryset(self):
+        qs = Lesson.objects.select_related('module', 'module__course', 'module__course__academy')
+        user = getattr(self.request, 'user', None)
+        if user and user.is_authenticated and getattr(user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+            acad_id = getattr(user, 'academy_id', None) or getattr(getattr(user, 'academy', None), 'id', None)
+            if acad_id:
+                qs = qs.filter(module__course__academy_id=acad_id)
+        return qs
+
+    @transaction.atomic
     def update(self, request, *args, **kwargs):
-        response = super().update(request, *args, **kwargs)
-        lesson = self.get_object()
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        lesson = serializer.save()
+
+        content_source = (request.data.get('content_source') or '').lower()
+        media_file_id = request.data.get('media_file_id') or request.data.get('media_id')
+
+        if content_source in ['upload', 'file']:
+            if media_file_id:
+                from storage.models import MediaFile
+                try:
+                    media_file = MediaFile.objects.get(id=media_file_id)
+                    if lesson.module and lesson.module.course and media_file.academy_uuid != lesson.module.course.academy.id:
+                        raise CubixSkillAPIException("Permission denied: Cannot attach media from another Academy.", code="CROSS_ACADEMY_MEDIA_FORBIDDEN", status_code=403)
+                    LessonMedia.objects.update_or_create(
+                        lesson=lesson,
+                        media_role='PRIMARY',
+                        defaults={'media_file': media_file}
+                    )
+                except MediaFile.DoesNotExist:
+                    raise CubixSkillAPIException("MediaFile not found.", code="NOT_FOUND", status_code=404)
+            if 'external_url' in request.data:
+                lesson.external_url = ''
+                lesson.save(update_fields=['external_url'])
+        elif content_source == 'url':
+            LessonMedia.objects.filter(lesson=lesson, media_role='PRIMARY').delete()
+            ext_url = (request.data.get('external_url') or '').strip()
+            lesson.external_url = ext_url
+            lesson.save(update_fields=['external_url'])
+        elif media_file_id:
+            from storage.models import MediaFile
+            try:
+                media_file = MediaFile.objects.get(id=media_file_id)
+                if lesson.module and lesson.module.course and media_file.academy_uuid != lesson.module.course.academy.id:
+                    raise CubixSkillAPIException("Permission denied: Cannot attach media from another Academy.", code="CROSS_ACADEMY_MEDIA_FORBIDDEN", status_code=403)
+                LessonMedia.objects.update_or_create(
+                    lesson=lesson,
+                    media_role='PRIMARY',
+                    defaults={'media_file': media_file}
+                )
+            except MediaFile.DoesNotExist:
+                raise CubixSkillAPIException("MediaFile not found.", code="NOT_FOUND", status_code=404)
 
         if lesson.lesson_type == 'QUIZ':
             quiz_payload = request.data.get('content') if isinstance(request.data.get('content'), dict) else request.data
-            LessonService.save_quiz_data(lesson, quiz_payload)
+            if quiz_payload:
+                LessonService.save_quiz_data(lesson, quiz_payload)
 
         if lesson.lesson_type in ['ASSIGNMENT', 'PROJECT']:
             assignment_payload = request.data.get('content') if isinstance(request.data.get('content'), dict) else request.data
-            LessonService.save_assignment_data(lesson, assignment_payload)
+            if assignment_payload:
+                LessonService.save_assignment_data(lesson, assignment_payload)
 
         rich_content = request.data.get('content') or request.data.get('text_content') or request.data.get('rich_text_content')
         if rich_content and lesson.lesson_type == 'RICH_TEXT':
             LessonService.set_rich_text(lesson, rich_content)
 
-        media_file_id = request.data.get('media_file_id') or request.data.get('media_id')
-        if media_file_id:
-            from storage.models import MediaFile
-            media_file = MediaFile.objects.get(id=media_file_id)
-            if lesson.module and lesson.module.course and media_file.academy_uuid != lesson.module.course.academy.id:
-                raise CubixSkillAPIException("Permission denied: Cannot attach media from another Academy.", code="CROSS_ACADEMY_MEDIA_FORBIDDEN", status_code=403)
-            LessonMedia.objects.update_or_create(
-                lesson=lesson,
-                media_role='PRIMARY',
-                defaults={'media_file': media_file}
-            )
-
-        resources_data = request.data.get('resources')
+        resources_data = request.data.get('resources') or request.data.get('resources_payload')
         if not resources_data and isinstance(request.data.get('content'), dict):
             resources_data = request.data.get('content', {}).get('resources')
         if resources_data and isinstance(resources_data, list):
             LessonService.save_resources_data(lesson, resources_data)
 
-        response.data = LessonSerializer(lesson, context={'request': request}).data
-        return response
+        return api_response(
+            data=LessonSerializer(lesson, context={'request': request}).data,
+            message="Lesson updated successfully."
+        )
 
     @action(detail=True, methods=['post'], url_path='media')
     def attach_media(self, request, pk=None):

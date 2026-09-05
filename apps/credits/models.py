@@ -20,6 +20,7 @@ class CreditSourceType(models.TextChoices):
     PURCHASE = 'PURCHASE', 'Credit Package Purchase'
     STORAGE_USAGE = 'STORAGE_USAGE', 'Storage Usage Billing'
     EMAIL_USAGE = 'EMAIL_USAGE', 'Email Communication Usage'
+    DAILY_USAGE = 'DAILY_USAGE', 'Daily Recurring Usage'
     PLAN_GRANT = 'PLAN_GRANT', 'Plan Subscription Grant'
     ADD_ON_GRANT = 'ADD_ON_GRANT', 'Add-On Grant'
     PROMOTIONAL = 'PROMOTIONAL', 'Promotional Grant'
@@ -46,6 +47,12 @@ class BillingType(models.TextChoices):
     PER_UNIT = 'PER_UNIT', 'Per Unit'
     PER_BLOCK = 'PER_BLOCK', 'Per Block'
     FIXED = 'FIXED', 'Fixed Rate'
+    PER_DAY = 'PER_DAY', 'Per Day (Daily Recurring)'
+
+class SubscriptionStatus(models.TextChoices):
+    ACTIVE = 'ACTIVE', 'Active'
+    SUSPENDED = 'SUSPENDED', 'Suspended (Past Due)'
+    CANCELLED = 'CANCELLED', 'Cancelled'
 
 class CouponDiscountType(models.TextChoices):
     PERCENTAGE = 'PERCENTAGE', 'Percentage Discount'
@@ -393,3 +400,287 @@ class CreditAdjustment(BaseModel):
 
     def __str__(self):
         return f"CreditAdjustment [{self.adjustment_type}] {self.amount} for Account {self.account_id}"
+
+# --------------------------------------------------------------
+# Credit Usage Subscription (Daily Recurring Usage)
+# --------------------------------------------------------------
+
+class CreditUsageSubscription(BaseModel):
+    academy = models.ForeignKey(
+        'academy.Academy',
+        on_delete=models.CASCADE,
+        related_name='credit_subscriptions'
+    )
+    course = models.ForeignKey(
+        'courses.Course',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='credit_subscriptions'
+    )
+    resource_type = models.CharField(max_length=100, db_index=True) # e.g. 'COURSE_FEATURE', 'STORAGE_MEDIA'
+    resource_id = models.CharField(max_length=255, db_index=True)   # e.g. 'LIVE_CLASS' or media file UUID
+    billing_type = models.CharField(
+        max_length=20,
+        choices=BillingType.choices,
+        default=BillingType.PER_DAY
+    )
+    daily_credit_cost = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0.0000'))
+    status = models.CharField(
+        max_length=20,
+        choices=SubscriptionStatus.choices,
+        default=SubscriptionStatus.ACTIVE,
+        db_index=True
+    )
+    started_at = models.DateTimeField(default=timezone.now)
+    stopped_at = models.DateTimeField(null=True, blank=True)
+    last_charged_date = models.DateField(null=True, blank=True, db_index=True)
+    next_charge_date = models.DateField(null=True, blank=True, db_index=True)
+
+    class Meta:
+        db_table = 'credit_usage_subscriptions'
+        unique_together = ('academy', 'resource_type', 'resource_id')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"CreditUsageSubscription [{self.academy_id} - {self.resource_type}:{self.resource_id}]: {self.daily_credit_cost} Credits/day ({self.status})"
+
+# --------------------------------------------------------------
+# Feature Billing Rule (Section A)
+# Super Admin Configured Feature Rules
+# --------------------------------------------------------------
+
+class FeatureBillingType(models.TextChoices):
+    INCLUDED = 'INCLUDED', 'Included (0 Credits)'
+    PER_STUDENT = 'PER_STUDENT', 'Per Student Enrolled'
+    PER_USAGE = 'PER_USAGE', 'Per Usage Event'
+    PER_DAY = 'PER_DAY', 'Per Day (Daily Recurring)'
+    FIXED_MONTHLY = 'FIXED_MONTHLY', 'Fixed Monthly Charge'
+
+class FeatureBillingRule(BaseModel):
+    feature_code = models.CharField(max_length=100, db_index=True)
+    billing_type = models.CharField(
+        max_length=20,
+        choices=FeatureBillingType.choices,
+        default=FeatureBillingType.INCLUDED
+    )
+    credit_rate = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0.0000'))
+    is_billable = models.BooleanField(default=True, db_index=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    effective_from = models.DateTimeField(default=timezone.now, db_index=True)
+    effective_to = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    class Meta:
+        db_table = 'credit_feature_billing_rules'
+        ordering = ['feature_code', '-effective_from']
+
+    def __str__(self):
+        return f"FeatureBillingRule [{self.feature_code}]: {self.billing_type} @ {self.credit_rate} Credits"
+
+# --------------------------------------------------------------
+# Storage Billing Setting (Section E)
+# Super Admin Configured Metered Storage Rules
+# --------------------------------------------------------------
+
+class StorageBillingMethod(models.TextChoices):
+    AVERAGE_DAILY = 'AVERAGE_DAILY', 'Average Daily Usage'
+
+class StorageBillingSetting(BaseModel):
+    enabled = models.BooleanField(default=True, db_index=True)
+    free_bytes = models.BigIntegerField(default=5368709120)  # Default 5 GB in bytes (5 * 1024^3)
+    credits_per_gb = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('5.0000'))
+    billing_method = models.CharField(
+        max_length=30,
+        choices=StorageBillingMethod.choices,
+        default=StorageBillingMethod.AVERAGE_DAILY
+    )
+    effective_from = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        db_table = 'credit_storage_billing_settings'
+        ordering = ['-effective_from']
+
+    def __str__(self):
+        return f"StorageBillingSetting: {'ON' if self.enabled else 'OFF'} - {self.credits_per_gb} Credits/GB/month"
+
+# --------------------------------------------------------------
+# Academy Storage Usage & Snapshot (Section E)
+# --------------------------------------------------------------
+
+class AcademyStorageUsage(BaseModel):
+    academy = models.OneToOneField(
+        'academy.Academy',
+        on_delete=models.CASCADE,
+        related_name='credit_storage_usage'
+    )
+    used_bytes = models.BigIntegerField(default=0)
+
+    class Meta:
+        db_table = 'credit_academy_storage_usages'
+
+    def __str__(self):
+        return f"AcademyStorageUsage [{self.academy_id}]: {self.used_bytes} bytes"
+
+class AcademyStorageDailySnapshot(BaseModel):
+    academy = models.ForeignKey(
+        'academy.Academy',
+        on_delete=models.CASCADE,
+        related_name='storage_daily_snapshots'
+    )
+    date = models.DateField(db_index=True)
+    used_bytes = models.BigIntegerField(default=0)
+
+    class Meta:
+        db_table = 'credit_academy_storage_snapshots'
+        unique_together = ('academy', 'date')
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"StorageSnapshot [{self.academy_id} - {self.date}]: {self.used_bytes} bytes"
+
+# --------------------------------------------------------------
+# Monthly Billing Engine Models (Section H)
+# --------------------------------------------------------------
+
+class MonthlyBillingPeriodStatus(models.TextChoices):
+    OPEN = 'OPEN', 'Open'
+    CLOSED = 'CLOSED', 'Closed'
+    FINALIZED = 'FINALIZED', 'Finalized'
+
+class MonthlyBillingPeriod(BaseModel):
+    academy = models.ForeignKey(
+        'academy.Academy',
+        on_delete=models.CASCADE,
+        related_name='billing_periods'
+    )
+    period_start = models.DateTimeField(db_index=True)
+    period_end = models.DateTimeField(db_index=True)
+    status = models.CharField(
+        max_length=20,
+        choices=MonthlyBillingPeriodStatus.choices,
+        default=MonthlyBillingPeriodStatus.OPEN,
+        db_index=True
+    )
+    opened_at = models.DateTimeField(default=timezone.now)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'credit_monthly_billing_periods'
+        unique_together = ('academy', 'period_start', 'period_end')
+        ordering = ['-period_start']
+
+    def __str__(self):
+        return f"BillingPeriod [{self.academy_id}]: {self.period_start.strftime('%Y-%m')} ({self.status})"
+
+class InvoiceStatus(models.TextChoices):
+    DRAFT = 'DRAFT', 'Draft'
+    FINALIZED = 'FINALIZED', 'Finalized & Charged'
+    INSUFFICIENT_CREDITS = 'INSUFFICIENT_CREDITS', 'Insufficient Credits'
+
+class MonthlyBillingInvoice(BaseModel):
+    academy = models.ForeignKey(
+        'academy.Academy',
+        on_delete=models.CASCADE,
+        related_name='monthly_invoices'
+    )
+    billing_period = models.ForeignKey(
+        MonthlyBillingPeriod,
+        on_delete=models.CASCADE,
+        related_name='invoices'
+    )
+    total_credits = models.DecimalField(max_digits=20, decimal_places=6, default=Decimal('0.000000'))
+    status = models.CharField(
+        max_length=30,
+        choices=InvoiceStatus.choices,
+        default=InvoiceStatus.FINALIZED,
+        db_index=True
+    )
+    generated_at = models.DateTimeField(default=timezone.now)
+    finalized_at = models.DateTimeField(null=True, blank=True)
+    ledger_entry = models.ForeignKey(
+        CreditLedgerEntry,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='monthly_invoices'
+    )
+
+    class Meta:
+        db_table = 'credit_monthly_billing_invoices'
+        ordering = ['-generated_at']
+
+    def __str__(self):
+        return f"Invoice [{self.academy_id} - {self.id}]: {self.total_credits} Credits ({self.status})"
+
+class LineItemType(models.TextChoices):
+    STUDENT_BASE = 'STUDENT_BASE', 'Student Base Access'
+    LIVE_CLASS = 'LIVE_CLASS', 'Live Class Feature'
+    ONE_TO_ONE = 'ONE_TO_ONE', 'One-to-One Session Feature'
+    CERTIFICATE = 'CERTIFICATE', 'Certificate Issuance'
+    ANNOUNCEMENT = 'ANNOUNCEMENT', 'Announcement Post'
+    EMAIL = 'EMAIL', 'Email Delivery'
+    STORAGE = 'STORAGE', 'Storage Monthly Usage'
+    FIXED_MONTHLY = 'FIXED_MONTHLY', 'Fixed Monthly Charge'
+    OTHER = 'OTHER', 'Other Feature Usage'
+
+class MonthlyBillingLineItem(BaseModel):
+    invoice = models.ForeignKey(
+        MonthlyBillingInvoice,
+        on_delete=models.CASCADE,
+        related_name='line_items'
+    )
+    item_type = models.CharField(
+        max_length=30,
+        choices=LineItemType.choices,
+        default=LineItemType.OTHER,
+        db_index=True
+    )
+    feature_code = models.CharField(max_length=100, blank=True, default='')
+    description = models.CharField(max_length=255)
+    quantity = models.DecimalField(max_digits=16, decimal_places=4, default=Decimal('0.0000'))
+    unit = models.CharField(max_length=30, default='units')  # e.g., 'students', 'events', 'GB'
+    rate = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0.0000'))
+    credits = models.DecimalField(max_digits=20, decimal_places=6, default=Decimal('0.000000'))
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = 'credit_monthly_billing_line_items'
+        ordering = ['id']
+
+    def __str__(self):
+        return f"LineItem [{self.item_type}]: {self.quantity} {self.unit} @ {self.rate} = {self.credits} Credits"
+
+# --------------------------------------------------------------
+# Feature Usage Event (Section K)
+# Trusted backend usage events for PER_USAGE features
+# --------------------------------------------------------------
+
+class FeatureUsageEvent(BaseModel):
+    academy = models.ForeignKey(
+        'academy.Academy',
+        on_delete=models.CASCADE,
+        related_name='feature_usage_events'
+    )
+    feature_code = models.CharField(max_length=100, db_index=True)
+    quantity = models.IntegerField(default=1)
+    idempotency_key = models.CharField(max_length=255, unique=True, db_index=True)
+    description = models.CharField(max_length=255, blank=True, default='')
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
+    billed = models.BooleanField(default=False, db_index=True)
+    billing_period = models.ForeignKey(
+        MonthlyBillingPeriod,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='usage_events'
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = 'credit_feature_usage_events'
+        ordering = ['-occurred_at']
+
+    def __str__(self):
+        return f"UsageEvent [{self.feature_code}] - {self.quantity} for Academy {self.academy_id}"
+
+

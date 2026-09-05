@@ -48,6 +48,7 @@ class FeeAccountService:
         """
         Configures or updates the Course-level default fee plan AND applies it
         to all currently enrolled active students.
+        The course selling price (course.sale_price if set else course.price) is canonical.
         """
         if isinstance(start_date, str) and start_date.strip():
             from datetime import datetime
@@ -58,7 +59,9 @@ class FeeAccountService:
         else:
             start_date = start_date or timezone.now().date()
 
-        total_fee_decimal = Decimal(str(total_fee_amount))
+        # Canonical price determination from Course model
+        course_price = course.sale_price if (course.sale_price is not None and course.sale_price > Decimal('0.00')) else course.price
+        total_fee_decimal = Decimal(str(course_price)) if course_price is not None else Decimal('0.00')
 
         default_plan, _ = CourseDefaultFeePlan.objects.get_or_create(
             course=course,
@@ -145,6 +148,7 @@ class FeeAccountService:
         """
         Creates or updates a student's course fee account, generates installment schedule,
         preserving existing payment/waiver records.
+        Canonical Course price is always used for total_fee_amount.
         """
         academy = course.academy
         if isinstance(start_date, str) and start_date.strip():
@@ -162,7 +166,9 @@ class FeeAccountService:
             status=EnrollmentStatus.ACTIVE
         ).first()
 
-        total_fee_decimal = Decimal(str(total_fee_amount))
+        # Canonical price determination from Course model
+        course_price = course.sale_price if (course.sale_price is not None and course.sale_price > Decimal('0.00')) else course.price
+        total_fee_decimal = Decimal(str(course_price)) if course_price is not None else Decimal('0.00')
 
         account, created = StudentFeeAccount.objects.get_or_create(
             course=course,
@@ -183,7 +189,9 @@ class FeeAccountService:
         if not created:
             account.plan_type = plan_type
             account.currency = currency
-            account.total_fee_amount = total_fee_decimal
+            # Preserve existing total_fee_amount snapshot unless total_fee_amount was zero
+            if account.total_fee_amount == Decimal('0.00'):
+                account.total_fee_amount = total_fee_decimal
             account.start_date = start_date
             account.notes = notes
             if enrollment:
@@ -319,7 +327,7 @@ class FeeAccountService:
             if remaining <= Decimal('0.00'):
                 inst.status = InstallmentStatus.PAID
             elif inst.paid_amount > Decimal('0.00'):
-                inst.status = InstallmentStatus.PARTIAL
+                inst.status = InstallmentStatus.PARTIALLY_PAID
                 if inst.due_date < today:
                     has_overdue = True
             elif inst.due_date < today:
@@ -334,9 +342,9 @@ class FeeAccountService:
         if outstanding <= Decimal('0.00'):
             account.status = StudentFeeAccountStatus.PAID
         elif total_paid > Decimal('0.00'):
-            account.status = StudentFeeAccountStatus.OVERDUE if has_overdue else StudentFeeAccountStatus.PARTIAL
+            account.status = StudentFeeAccountStatus.OVERDUE if has_overdue else StudentFeeAccountStatus.PARTIALLY_PAID
         else:
-            account.status = StudentFeeAccountStatus.OVERDUE if has_overdue else StudentFeeAccountStatus.PENDING
+            account.status = StudentFeeAccountStatus.OVERDUE if has_overdue else StudentFeeAccountStatus.UNPAID
 
         account.save(update_fields=['status'])
 
@@ -354,16 +362,40 @@ class FeeCollectionService:
         fee_account: StudentFeeAccount,
         amount: Decimal,
         payment_date = None,
+        collection_mode: str = 'DIRECT_ACADEMY',
         payment_method: str = PaymentMethod.UPI,
         reference_number: str = '',
+        gateway_order_id: str = '',
+        gateway_payment_id: str = '',
+        gateway_signature: str = '',
         target_installment_id: str = None,
         notes: str = '',
         recorded_by: User = None,
         send_receipt_email: bool = False
     ) -> FeePayment:
+        """
+        Records a fee payment atomically with select_for_update row-locking.
+        Allocates to oldest unpaid installment first.
+        Creates platform settlement liability ONLY if collection_mode == CUBIXSKILL_GATEWAY.
+        """
+        # Lock fee account row for race condition prevention
+        account = StudentFeeAccount.objects.select_for_update().get(id=fee_account.id)
+
         payment_amount = Decimal(str(amount))
         if payment_amount <= Decimal('0.00'):
             raise ValidationError({"amount": ["Payment amount must be greater than 0."]})
+
+        current_paid = FeePayment.objects.filter(fee_account=account, status='COMPLETED').aggregate(s=models.Sum('amount'))['s'] or Decimal('0.00')
+        payable_balance = max(Decimal('0.00'), account.effective_fee_amount - current_paid)
+
+        if payment_amount > payable_balance:
+            raise ValidationError({"amount": [f"Payment amount ({payment_amount}) exceeds current remaining balance ({payable_balance})."]})
+
+        # Idempotency check for gateway payment ID
+        if gateway_payment_id:
+            existing = FeePayment.objects.filter(gateway_payment_id=gateway_payment_id).first()
+            if existing:
+                return existing
 
         payment_date = payment_date or timezone.now().date()
 
@@ -375,22 +407,27 @@ class FeeCollectionService:
             receipt_number = f"RCPT-{year_str}-{rnd_seq}"
 
         payment = FeePayment.objects.create(
-            fee_account=fee_account,
-            student=fee_account.student,
-            course=fee_account.course,
+            fee_account=account,
+            student=account.student,
+            course=account.course,
             receipt_number=receipt_number,
             amount=payment_amount,
-            currency=fee_account.currency,
+            currency=account.currency,
             payment_date=payment_date,
+            collection_mode=collection_mode,
             payment_method=payment_method,
             reference_number=reference_number,
+            gateway_order_id=gateway_order_id,
+            gateway_payment_id=gateway_payment_id,
+            gateway_signature=gateway_signature,
             notes=notes,
             status='COMPLETED',
             recorded_by=recorded_by
         )
 
+        # Allocation: oldest unpaid installment first
         unallocated = payment_amount
-        installments = list(fee_account.installments.all().order_by('sequence'))
+        installments = list(account.installments.select_for_update().order_by('sequence'))
 
         if target_installment_id:
             target_inst = next((i for i in installments if str(i.id) == str(target_installment_id)), None)
@@ -424,16 +461,35 @@ class FeeCollectionService:
                 inst.save(update_fields=['paid_amount'])
                 unallocated -= alloc_amt
 
-        FeeAccountService.recalculate_account_status(fee_account)
+        FeeAccountService.recalculate_account_status(account)
 
-        academy = fee_account.course.academy if fee_account.course else None
+        # Platform settlement ledger creation ONLY for CUBIXSKILL_GATEWAY
+        if collection_mode == 'CUBIXSKILL_GATEWAY' and account.course.academy:
+            from payments.models import AcademySettlement, SettlementStatus
+            platform_fee = (payment_amount * Decimal('0.05')).quantize(Decimal('0.01'))
+            gateway_fee = (payment_amount * Decimal('0.02')).quantize(Decimal('0.01'))
+            net_academy = payment_amount - platform_fee - gateway_fee
+
+            AcademySettlement.objects.create(
+                academy=account.course.academy,
+                period_start=timezone.now(),
+                period_end=timezone.now(),
+                gross_amount=payment_amount,
+                gateway_fee=gateway_fee,
+                platform_fee=platform_fee,
+                net_amount=net_academy,
+                settlement_method='UPI',
+                status=SettlementStatus.PENDING
+            )
+
+        academy = account.course.academy if account.course else None
         Notification.objects.create(
-            recipient=fee_account.student,
+            recipient=account.student,
             notification_type=NotificationType.LIVE_SESSION_CREATED,
             title="Fee Payment Received",
-            message=f"Receipt {receipt_number}: Received {fee_account.currency} {payment_amount} for {fee_account.course.title}.",
+            message=f"Receipt {receipt_number}: Received {account.currency} {payment_amount} for {account.course.title}.",
             action_type="LINK",
-            action_url=f"/courses/{fee_account.course.id}/fees",
+            action_url=f"/courses/{account.course.id}/fees",
             source_type="FEE_PAYMENT",
             source_id=str(payment.id),
             academy=academy
@@ -532,7 +588,7 @@ class FeeReminderService:
 
         if send_email and student.email:
             try:
-                from emails.services import send_transactional_email
+                from emails.outbox_service import EmailJobService
                 context = {
                     "student_name": student.full_name or student.email.split('@')[0],
                     "academy_name": academy.name if academy else "CubixSkill Academy",
@@ -541,13 +597,16 @@ class FeeReminderService:
                     "due_date": due_date_str,
                     "outstanding_balance": f"{fee_account.currency} {balance}",
                 }
-                send_transactional_email(
-                    recipient=student.email,
-                    template_name="live_session_reminder",
-                    subject=f"Fee Payment Reminder - {course.title}",
-                    context=context
+                EmailJobService.create_transactional_job(
+                    recipient_email=student.email,
+                    subject=f"{title}: {course.title}",
+                    template_name="fee_reminder",
+                    context=context,
+                    academy_uuid=academy.id if academy else None,
+                    recipient_user_uuid=student.user.id if hasattr(student, 'user') and student.user else None,
+                    recipient_name=student.full_name or student.email.split('@')[0]
                 )
-            except Exception as e:
-                logger.error(f"Failed to send fee reminder email to {student.email}: {e}")
+            except Exception as exc:
+                logger.error(f"Failed to queue fee reminder email for student {student.id}: {exc}")
 
         return True
