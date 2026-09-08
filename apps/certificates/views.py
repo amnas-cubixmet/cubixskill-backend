@@ -389,7 +389,7 @@ class CertificateTemplateViewSet(viewsets.ModelViewSet):
             raise ValidationError("User is not associated with an Academy.")
         serializer.save(academy=academy)
 
-    @action(detail=False, methods=['get'], url_path='by-slug/(?P<slug>[\w-]+)')
+    @action(detail=False, methods=['get'], url_path=r'by-slug/(?P<slug>[\w-]+)')
     def by_slug(self, request, slug=None):
         template = self.get_queryset().filter(slug=slug).first()
         if not template:
