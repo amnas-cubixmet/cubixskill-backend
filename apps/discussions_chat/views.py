@@ -104,7 +104,9 @@ class CourseDiscussionViewSet(viewsets.ModelViewSet):
             title=serializer.validated_data['title'],
             content=serializer.validated_data['content'],
             thread_type=serializer.validated_data.get('thread_type', 'DISCUSSION'),
-            media_file_ids=serializer.validated_data.get('media_file_ids', [])
+            media_file_ids=serializer.validated_data.get('media_file_ids', []),
+            send_email=serializer.validated_data.get('send_email', False),
+            publish_option=serializer.validated_data.get('publish_option', 'now')
         )
 
         thread_data = DiscussionThreadSerializer(thread).data
@@ -116,6 +118,36 @@ class CourseDiscussionViewSet(viewsets.ModelViewSet):
         )
 
         return Response(thread_data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='announcement-cost-preview')
+    def announcement_cost_preview(self, request):
+        """
+        API endpoint for frontend to preview Announcement and Email Delivery credit cost.
+        Calculates eligible recipients and dynamic pricing rates from central Control Panel settings.
+        """
+        course_id = request.data.get('course_id')
+        send_email = str(request.data.get('send_email', 'false')).lower() in ('true', '1', 'yes')
+
+        course = None
+        if course_id and course_id != 'general':
+            try:
+                course = Course.objects.get(id=course_id)
+            except (Course.DoesNotExist, ValueError):
+                pass
+
+        academy = course.academy if course else getattr(request.user, 'academy', None)
+        cost_info = DiscussionService.calculate_announcement_cost(course=course, academy=academy, send_email=send_email)
+
+        return Response({
+            'announcement_price': cost_info['announcement_price'],
+            'email_enabled': cost_info['email_enabled'],
+            'email_recipient_count': cost_info['email_recipient_count'],
+            'email_unit_price': cost_info['email_unit_price'],
+            'email_cost': cost_info['email_cost'],
+            'total_cost': cost_info['total_cost'],
+            'academy_credit_balance': cost_info['academy_credit_balance'],
+            'has_sufficient_credits': cost_info['has_sufficient_credits']
+        }, status=status.HTTP_200_OK)
 
     def partial_update(self, request, pk=None, *args, **kwargs):
         thread = self.get_object()

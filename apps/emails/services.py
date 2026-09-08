@@ -81,9 +81,11 @@ def send_password_reset_email(user, raw_token: str, expiry_time: str = "1 hour")
     Creates and enqueues a Password Reset EmailJob.
     """
     from emails.outbox_service import EmailJobService
+    from users_roles.models import SystemRoleCode
     target_academy = getattr(user, 'academy', None)
     academy_uuid = str(target_academy.pk) if target_academy else None
-    action_url = build_reset_password_url(raw_token, academy_uuid=academy_uuid)
+    portal = 'student' if getattr(user, 'role_code', None) == SystemRoleCode.STUDENT else 'instructor'
+    action_url = build_reset_password_url(raw_token, academy_uuid=academy_uuid, portal=portal)
     subject = SUBJECTS[EmailTemplateCodes.PASSWORD_RESET]
     context = {
         "user_name": user.full_name or "User",
@@ -91,6 +93,7 @@ def send_password_reset_email(user, raw_token: str, expiry_time: str = "1 hour")
         "expiry_time": expiry_time,
         "recipient_email": user.email,
     }
+    logger.info(f"Creating transactional password reset email job for user_id={user.pk}, portal={portal}")
     return EmailJobService.create_transactional_job(
         recipient_email=user.email,
         subject=subject,
@@ -100,6 +103,7 @@ def send_password_reset_email(user, raw_token: str, expiry_time: str = "1 hour")
         recipient_user_uuid=getattr(user, 'id', None),
         recipient_name=user.full_name or "User"
     )
+
 
 
 def send_password_changed_email(user):

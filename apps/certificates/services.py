@@ -1,9 +1,13 @@
 import uuid
+import logging
+from decimal import Decimal
 from typing import Dict, Any
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
+
+logger = logging.getLogger(__name__)
 from certificates.models import (
     Certificate,
     CertificateTemplate,
@@ -37,22 +41,29 @@ class CertificateDataResolver:
 
         # 1. Student Fields
         if student:
-            user = getattr(student, 'user', None)
-            first_name = getattr(student, 'first_name', '') or getattr(user, 'first_name', '')
-            last_name = getattr(student, 'last_name', '') or getattr(user, 'last_name', '')
-            full_name = f"{first_name} {last_name}".strip()
-            if not full_name:
-                full_name = getattr(student, 'full_name', '') or getattr(student, 'display_name', '') or (user.get_full_name() if user and hasattr(user, 'get_full_name') else '') or str(user or '')
-            
+            if hasattr(student, 'student_profile'):
+                user = student
+                profile = getattr(student, 'student_profile', None)
+            elif hasattr(student, 'user'):
+                profile = student
+                user = student.user
+            else:
+                user = student
+                profile = None
+
+            full_name = getattr(user, 'full_name', '') if user else ''
+            if not full_name and profile:
+                full_name = getattr(profile, 'display_name', '')
+
             data['student.full_name'] = full_name
-            data['student.first_name'] = first_name
-            data['student.last_name'] = last_name
-            data['student.email'] = getattr(user, 'email', '') or getattr(student, 'email', '')
-            data['student.phone'] = getattr(student, 'phone_number', '') or getattr(student, 'phone', '')
-            data['student.code'] = str(getattr(student, 'student_code', '') or getattr(student, 'id', ''))
+            data['student.email'] = getattr(user, 'email', '') if user else ''
+            data['student.phone'] = getattr(user, 'phone', '') if user else ''
+            
+            student_code = getattr(profile, 'student_code', '') if profile else ''
+            data['student.student_code'] = student_code
+            data['student.code'] = student_code
 
             # Resolve Custom Student Fields
-            profile = getattr(student, 'student_profile', None)
             if profile:
                 custom_vals = StudentCustomFieldValue.objects.filter(student=profile).select_related('field_definition')
                 for cv in custom_vals:
@@ -75,8 +86,9 @@ class CertificateDataResolver:
             if not enrollment and student and course:
                 enrollment = Enrollment.objects.filter(student=student, course=course).first()
             if enrollment:
-                data['enrollment.enrolled_at'] = enrollment.enrolled_at.strftime('%d %b %Y') if getattr(enrollment, 'enrolled_at', None) else ''
-                data['enrollment.status'] = enrollment.status
+                enrolled_dt = getattr(enrollment, 'enrolled_at', None)
+                data['enrollment.enrolled_at'] = enrolled_dt.strftime('%d %b %Y') if enrolled_dt else ''
+                data['enrollment.status'] = getattr(enrollment, 'status', '')
 
             progress = CourseProgress.objects.filter(student=student, course=course).first() if (student and course) else None
             if progress:
@@ -147,6 +159,287 @@ class CertificateService:
         return True, "Eligible"
 
     @classmethod
+    def ensure_certificate_name_field(cls, academy):
+        if not academy:
+            return None
+        from students.models import StudentCustomFieldDefinition
+        cd, _ = StudentCustomFieldDefinition.objects.get_or_create(
+            academy=academy,
+            key='certificate_name',
+            defaults={
+                'label': 'Name on Certificate',
+                'field_type': 'TEXT',
+                'available_for_certificate': True,
+                'required': True,
+                'is_active': True,
+                'sort_order': 0,
+            }
+        )
+        if not cd.available_for_certificate or not cd.is_active or not cd.required:
+            cd.available_for_certificate = True
+            cd.is_active = True
+            cd.required = True
+            cd.save(update_fields=['available_for_certificate', 'is_active', 'required'])
+        return cd
+
+    @classmethod
+    def get_required_student_fields(cls, student, template=None, course=None) -> list[dict]:
+        """
+        Authoritative helper to discover all required student personal fields
+        from assigned certificate template elements and academy custom student fields.
+        Returns a list of dicts: [{"key": "...", "label": "...", "required": True, "type": "..."}]
+        """
+        required_fields = []
+        academy = getattr(course, 'academy', None) or getattr(template, 'academy', None)
+        if academy:
+            cls.ensure_certificate_name_field(academy)
+
+        # 1. Inspect elements in template if available
+        if template and template.template_data and isinstance(template.template_data, dict):
+            elements = template.template_data.get('elements', [])
+            if isinstance(elements, list):
+                for el in elements:
+                    if isinstance(el, dict):
+                        binding = el.get('binding') or el.get('field', '')
+                        if binding == 'student.full_name':
+                            binding = 'student.custom.certificate_name'
+                        if binding and (binding.startswith('student.custom.') or binding.startswith('student.')):
+                            if binding != 'student.full_name':
+                                label = el.get('label') or binding.replace('.', ' ').replace('_', ' ').title()
+                                is_req = bool(el.get('required', False) or binding == 'student.custom.certificate_name')
+                                if is_req and not any(f['key'] == binding for f in required_fields):
+                                    required_fields.append({
+                                        'key': binding,
+                                        'label': label if binding != 'student.custom.certificate_name' else 'Name on Certificate',
+                                        'required': True,
+                                        'type': el.get('type', 'text')
+                                    })
+
+        # 2. Inspect Academy custom field definitions that are marked required and available_for_certificate
+        if academy:
+            from students.models import StudentCustomFieldDefinition
+            custom_defs = StudentCustomFieldDefinition.objects.filter(
+                academy=academy,
+                available_for_certificate=True,
+                required=True,
+                is_active=True
+            ).order_by('sort_order', 'created_at')
+            for cd in custom_defs:
+                key_name = f"student.custom.{cd.key}"
+                if key_name != 'student.full_name' and not any(f['key'] == key_name for f in required_fields):
+                    required_fields.append({
+                        'key': key_name,
+                        'label': cd.label,
+                        'required': True,
+                        'type': cd.field_type
+                    })
+
+        # Ensure student.custom.certificate_name is always present as required field
+        if not any(f['key'] == 'student.custom.certificate_name' for f in required_fields):
+            required_fields.insert(0, {
+                'key': 'student.custom.certificate_name',
+                'label': 'Name on Certificate',
+                'required': True,
+                'type': 'text'
+            })
+
+        # Strictly exclude student.full_name from certificate required personal fields
+        required_fields = [f for f in required_fields if f['key'] != 'student.full_name']
+
+        return required_fields
+
+    @classmethod
+    def check_required_student_fields(cls, student, template=None, course=None) -> list[dict]:
+        """
+        Validates required student personal fields based on get_required_student_fields.
+        Returns a list of missing fields: [{"key": "...", "label": "..."}]
+        """
+        required_fields = cls.get_required_student_fields(student, template=template, course=course)
+
+        # Resolve student current data
+        resolved_data = CertificateDataResolver.resolve_data(student=student, course=course)
+
+        missing = []
+        for req in required_fields:
+            key = req['key']
+            val = resolved_data.get(key, None)
+            if val is None or str(val).strip() == '':
+                missing.append({'key': key, 'label': req['label']})
+
+        return missing
+
+    @classmethod
+    @transaction.atomic
+    def issue_or_check_for_enrollment(
+        cls,
+        enrollment,
+        triggered_by: str = "COURSE_COMPLETION",
+        issued_by=None
+    ) -> dict:
+        """
+        Canonical backend service method to check eligibility, validate required profile fields,
+        deduct certificate credit atomically, issue certificate idempotently, and return structured result.
+        """
+        student = enrollment.student
+        course = enrollment.course
+        academy = course.academy
+
+        # 1. Check existing issued certificate
+        existing_cert = Certificate.objects.filter(
+            enrollment=enrollment,
+            status=CertificateStatus.ISSUED
+        ).first() or Certificate.objects.filter(
+            student=student,
+            course=course,
+            status=CertificateStatus.ISSUED
+        ).first()
+
+        if existing_cert:
+            from certificates.serializers import CertificateSerializer
+            return {
+                "success": True,
+                "course_completed": True,
+                "certificate_status": "ISSUED",
+                "code": "CERTIFICATE_ISSUED",
+                "certificate": CertificateSerializer(existing_cert).data,
+                "missing_fields": []
+            }
+
+        # 2. Check feature flag
+        from features.services import CourseFeatureService
+        if not course.certificate_enabled or not CourseFeatureService.has_feature(course, 'COMPLETION_CERTIFICATE'):
+            return {
+                "success": False,
+                "course_completed": True,
+                "certificate_status": "FEATURE_DISABLED",
+                "code": "CERTIFICATE_FEATURE_DISABLED",
+                "detail": "Certificate feature is disabled for this course.",
+                "missing_fields": []
+            }
+
+        # 3. Check course completion status
+        is_eligible, reason = cls.is_eligible_for_certificate(student, course)
+        if not is_eligible:
+            return {
+                "success": False,
+                "course_completed": False,
+                "certificate_status": "NOT_ELIGIBLE",
+                "code": "CERTIFICATE_NOT_ELIGIBLE",
+                "detail": reason,
+                "missing_fields": []
+            }
+
+        # 4. Check assigned template
+        template = None
+        if hasattr(course, 'certificate_config') and course.certificate_config and course.certificate_config.template:
+            template = course.certificate_config.template
+        elif academy:
+            template = CertificateTemplate.objects.filter(
+                academy=academy,
+                is_default=True,
+                is_active=True
+            ).first() or CertificateTemplate.objects.filter(
+                academy=academy,
+                is_active=True
+            ).first()
+
+        if not template:
+            return {
+                "success": False,
+                "course_completed": True,
+                "certificate_status": "NO_TEMPLATE",
+                "code": "CERTIFICATE_NO_TEMPLATE",
+                "detail": "No active certificate template is assigned to this course.",
+                "missing_fields": []
+            }
+
+        # 4b. Precheck template fonts for PDF compatibility BEFORE credit debit
+        if template and template.template_data and isinstance(template.template_data, dict):
+            elements = template.template_data.get('elements', [])
+            if isinstance(elements, list):
+                from certificates.selectors import CertificateFontSelector
+                available_fonts = CertificateFontSelector.get_available_fonts(academy)
+                font_map = {str(f.id): f for f in available_fonts}
+                font_key_map = {f.key: f for f in available_fonts}
+
+                for el in elements:
+                    if isinstance(el, dict):
+                        font_id = str(el.get('fontId') or el.get('font_id') or '')
+                        font_key = el.get('fontKey') or el.get('font_key')
+                        target_font = font_map.get(font_id) or font_key_map.get(font_key)
+                        if target_font and target_font.source == 'ACADEMY' and target_font.pdf_compatible is False:
+                            return {
+                                "success": False,
+                                "course_completed": True,
+                                "certificate_status": "FONT_UNSUPPORTED",
+                                "code": "CERTIFICATE_TEMPLATE_FONT_INVALID",
+                                "detail": f"The assigned certificate template contains custom font '{target_font.name}' which is not PDF-compatible.",
+                                "missing_fields": []
+                            }
+
+        # 5. Check required student personal fields
+        missing_fields = cls.check_required_student_fields(student=student, template=template, course=course)
+        if missing_fields:
+            return {
+                "success": False,
+                "course_completed": True,
+                "certificate_status": "PROFILE_INCOMPLETE",
+                "code": "CERTIFICATE_PROFILE_INCOMPLETE",
+                "detail": "Required student personal details are incomplete.",
+                "missing_fields": missing_fields
+            }
+
+        # 6. Check & Deduct Certificate Credit using central Super Admin pricing
+        from control_panel.models import PricingService
+        cost_int = PricingService.get_credit_cost('COMPLETION_CERTIFICATE', default_cost=5)
+        required_credits = Decimal(str(cost_int))
+
+        if academy:
+            from credits.services import CreditsService
+            from credits.models import CreditAccount, CreditAccountStatus, CreditSourceType
+            account = CreditsService.get_or_create_account(academy)
+            account_locked = CreditAccount.objects.select_for_update().get(id=account.id)
+
+            if account_locked.balance < required_credits:
+                formatted_cost = int(required_credits) if required_credits == int(required_credits) else required_credits
+                return {
+                    "success": False,
+                    "course_completed": True,
+                    "certificate_status": "PENDING_CREDIT",
+                    "code": "CERTIFICATE_CREDIT_INSUFFICIENT",
+                    "detail": f"Insufficient academy credits. {formatted_cost} credits are required to issue this certificate.",
+                    "missing_fields": []
+                }
+
+        # 7. Issue Certificate & Apply Credit Debit Atomically
+        certificate = cls.issue_if_eligible(
+            student=student,
+            course=course,
+            issued_by=issued_by,
+            template=template,
+            enrollment=enrollment
+        )
+
+        student_public_url = getattr(settings, 'STUDENT_PUBLIC_URL', 'http://localhost:5174').rstrip('/')
+        return {
+            "success": True,
+            "course_completed": True,
+            "certificate_status": "ISSUED",
+            "code": "CERTIFICATE_ISSUED",
+            "certificate": {
+                "id": str(certificate.id),
+                "status": certificate.status,
+                "certificate_number": certificate.certificate_number,
+                "verification_code": certificate.verification_code,
+                "issued_at": certificate.issued_at.isoformat(),
+                "download_url": f"/api/v1/certificates/student/certificates/{certificate.id}/download/",
+                "view_url": f"/api/v1/certificates/student/certificates/{certificate.id}/download/",
+                "verification_url": f"{student_public_url}/verify/certificate/{certificate.verification_code}"
+            },
+            "missing_fields": []
+        }
+
+    @classmethod
     @transaction.atomic
     def issue_if_eligible(
         cls,
@@ -156,8 +449,8 @@ class CertificateService:
         template=None,
         pdf_storage_mode=None,
         certificate_photo=None,
-        enrollment=None,
         reissued_from=None,
+        enrollment=None,
         **kwargs
     ) -> Certificate:
         existing_cert = Certificate.objects.filter(
@@ -173,7 +466,8 @@ class CertificateService:
         if not is_eligible:
             raise ValidationError(f"Cannot issue certificate: {reason}")
 
-        enrollment = Enrollment.objects.filter(student=student, course=course).first()
+        if not enrollment:
+            enrollment = Enrollment.objects.filter(student=student, course=course).first()
 
         if not template:
             if hasattr(course, 'certificate_config') and course.certificate_config and course.certificate_config.template:
@@ -193,6 +487,11 @@ class CertificateService:
                     academy__isnull=True,
                     is_active=True
                 ).first()
+
+        # Check required student profile fields before issuing
+        missing_fields = cls.check_required_student_fields(student=student, template=template, course=course)
+        if missing_fields:
+            raise ValidationError(f"Required student personal details are incomplete: {[m['label'] for m in missing_fields]}")
 
         resolved_data = CertificateDataResolver.resolve_data(student=student, course=course, enrollment=enrollment)
 
@@ -235,6 +534,24 @@ class CertificateService:
         progress = CourseProgress.objects.filter(student=student, course=course).first()
         completed_at = progress.completed_at if (progress and progress.completed_at) else timezone.now()
 
+        # Resolve central pricing cost
+        from control_panel.models import PricingService
+        cost_int = PricingService.get_credit_cost('COMPLETION_CERTIFICATE', default_cost=5)
+        required_credits = Decimal(str(cost_int))
+
+        # Check & lock credit balance
+        academy = course.academy
+        ledger_entry = None
+        if academy:
+            from credits.services import CreditsService
+            from credits.models import CreditAccount, CreditSourceType
+            account = CreditsService.get_or_create_account(academy)
+            account_locked = CreditAccount.objects.select_for_update().get(id=account.id)
+
+            if account_locked.balance < required_credits:
+                formatted_cost = int(required_credits) if required_credits == int(required_credits) else required_credits
+                raise ValidationError(f"Insufficient academy credits. {formatted_cost} credits are required to issue this certificate.")
+
         certificate = Certificate.objects.create(
             student=student,
             course=course,
@@ -242,7 +559,7 @@ class CertificateService:
             template=template,
             certificate_number=cert_num,
             verification_code=ver_code,
-            student_name_snapshot=resolved_data.get('student.full_name', ''),
+            student_name_snapshot=resolved_data.get('student.custom.certificate_name', ''),
             course_name_snapshot=resolved_data.get('course.title', ''),
             academy_name_snapshot=resolved_data.get('academy.name', 'CubixSkill'),
             custom_data_snapshot=resolved_data,
@@ -253,8 +570,29 @@ class CertificateService:
             template_snapshot=template_snapshot,
             pdf_storage_mode=pdf_storage_mode,
             issued_by=issued_by,
-            reissued_from=reissued_from or kwargs.get('reissued_from')
+            reissued_from=reissued_from or kwargs.get('reissued_from'),
+            credits_charged=required_credits,
+            credit_charge_applied=True if academy else False,
+            credit_charged_at=timezone.now() if academy else None,
         )
+
+        if academy:
+            from credits.services import CreditsService
+            from credits.models import CreditSourceType
+            idempotency_key = f"CERTIFICATE_ISSUE:{certificate.id}"
+            ledger_entry = CreditsService.debit(
+                academy=academy,
+                amount=required_credits,
+                source_type=CreditSourceType.CERTIFICATE_ISSUE,
+                idempotency_key=idempotency_key,
+                description=f"Completion Certificate Issued for {student.email} in {course.title}",
+                reference_type="CERTIFICATE",
+                reference_id=str(certificate.id),
+                created_by=issued_by or student,
+                metadata={"course_id": str(course.id), "student_id": str(student.id), "certificate_number": cert_num}
+            )
+            certificate.credit_ledger_entry = ledger_entry
+            certificate.save(update_fields=['credit_ledger_entry'])
 
         CertificateIssueLog.objects.create(
             certificate=certificate,
@@ -280,6 +618,8 @@ class CertificateService:
             enrollment=certificate.enrollment,
             certificate=certificate
         )
+        if isinstance(resolved_data, dict) and certificate.course and certificate.course.academy_id:
+            resolved_data['academy_id'] = str(certificate.course.academy_id)
 
         template_snap = certificate.template_snapshot or {}
         template_data = template_snap.get('template_data', {})
@@ -303,7 +643,8 @@ class CertificateService:
         if not student_photo_media and hasattr(certificate.student, 'student_profile'):
             student_photo_media = certificate.student.student_profile.profile_photo
 
-        verification_url = f"/api/v1/certificates/verify/{certificate.verification_code}/"
+        student_public_url = getattr(settings, 'STUDENT_PUBLIC_URL', 'http://localhost:5174').rstrip('/')
+        verification_url = f"{student_public_url}/verify/certificate/{certificate.verification_code}"
 
         return CertificatePDFGenerator.generate_pdf(
             snapshot_data=resolved_data,
@@ -357,6 +698,35 @@ class CertificateService:
         certificate.save(update_fields=['pdf_media'])
 
     @classmethod
+    def regenerate_pdf_from_snapshot(cls, certificate: Certificate) -> bytes:
+        """
+        Regenerates stored PDF file from immutable template_snapshot and custom_data_snapshot
+        without altering certificate number, verification code, or deducting extra credits.
+        """
+        pdf_bytes = cls.generate_pdf_bytes_for_certificate(certificate)
+
+        if certificate.pdf_media:
+            full_dir = settings.MEDIA_ROOT / "certificates"
+            full_dir.mkdir(parents=True, exist_ok=True)
+            filename = f"certificate_{certificate.certificate_number}.pdf"
+            full_path = full_dir / filename
+            with open(full_path, "wb") as f:
+                f.write(pdf_bytes)
+
+            certificate.pdf_media.size_bytes = len(pdf_bytes)
+            certificate.pdf_media.save(update_fields=['size_bytes'])
+
+            CertificateIssueLog.objects.create(
+                certificate=certificate,
+                event_type=IssueLogEventType.REISSUED,
+                performed_by=certificate.issued_by or certificate.student,
+                reason="PDF regenerated from immutable snapshot",
+                metadata={'regenerated_pdf': True}
+            )
+
+        return pdf_bytes
+
+    @classmethod
     @transaction.atomic
     def revoke_certificate(cls, certificate: Certificate, revoked_by, reason: str = "") -> Certificate:
         if certificate.status == CertificateStatus.REVOKED:
@@ -378,12 +748,18 @@ class CertificateService:
 
     @classmethod
     def preview_template(cls, template, sample_data=None) -> bytes:
+        student_public_url = getattr(settings, 'STUDENT_PUBLIC_URL', 'http://localhost:5174').rstrip('/')
+        preview_verification_url = f"{student_public_url}/verify/certificate/PREVIEW-DEMO"
+
         snapshot_data = {
-            'student.full_name': (sample_data or {}).get('student_name') or 'Sample Student',
-            'course.title': (sample_data or {}).get('course_name') or 'Sample Course',
+            'student.custom.certificate_name': (sample_data or {}).get('student_name') or 'Muhammed Ashraf Al Farooqi (Preview)',
+            'student.full_name': (sample_data or {}).get('student_name') or 'Muhammed Ashraf Al Farooqi (Preview)',
+            'course.title': (sample_data or {}).get('course_name') or 'Sample Course Completion Certificate Preview',
             'academy.name': (sample_data or {}).get('academy_name') or 'CubixSkill Academy',
-            'certificate.number': 'CERT-PREVIEW-001',
+            'certificate.number': 'CS-2026-PREVIEW',
             'certificate.issue_date': 'August 28, 2026',
+            'certificate.verification_url': preview_verification_url,
+            'academy_id': str(template.academy.id) if template and template.academy else None,
         }
         template_data = template.template_data if isinstance(template.template_data, dict) else {}
         return CertificatePDFGenerator.generate_pdf(
@@ -397,6 +773,7 @@ class CertificateService:
             background_media=template.background_media,
             show_student_photo=template.show_student_photo,
             student_photo_shape=template.student_photo_shape or 'CIRCLE',
+            verification_url=preview_verification_url,
         )
 
     @classmethod
@@ -457,9 +834,28 @@ class CertificateService:
             configured_min = item.get('minFontSize') or item.get('min_font_size')
             min_font_size = float(configured_min) if configured_min is not None else 12.0
 
-            raw_font = item.get('fontKey') or item.get('font_key') or item.get('fontFamily') or item.get('font_family', 'Inter')
+            raw_font = (
+                item.get('fontId')
+                or item.get('font_id')
+                or item.get('fontKey')
+                or item.get('font_key')
+                or item.get('fontFamily')
+                or item.get('font_family')
+                or 'Inter'
+            )
             font_weight = str(item.get('font_weight', item.get('fontWeight', 'normal'))).lower()
-            font_name = resolve_reportlab_font(raw_font, font_weight)
+            
+            academy_obj = None
+            if resolved_data and isinstance(resolved_data, dict):
+                acad_id = resolved_data.get('academy_id') or resolved_data.get('academy.id')
+                if acad_id:
+                    from academy.models import Academy
+                    try:
+                        academy_obj = Academy.objects.filter(id=acad_id).first()
+                    except Exception:
+                        pass
+
+            font_name = resolve_reportlab_font(raw_font, font_weight, academy=academy_obj)
 
             is_multiline = bool(item.get('multiline', False))
             line_height = float(item.get('lineHeight') or item.get('line_height') or 1.0)

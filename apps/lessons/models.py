@@ -54,6 +54,7 @@ class Lesson(BaseModel, ActiveMixin, OrderMixin):
     is_demo = models.BooleanField(default=False)
     is_locked = models.BooleanField(default=False)
     allow_download = models.BooleanField(default=False)
+    show_media_preview = models.BooleanField(default=True)
     external_url = models.URLField(blank=True, default='')
 
     class Meta:

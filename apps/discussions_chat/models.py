@@ -94,6 +94,26 @@ class DiscussionThread(BaseModel, ActiveMixin):
         related_name='+'
     )
 
+    # Billing & Email Delivery Fields
+    send_email = models.BooleanField(default=False)
+    email_recipient_count = models.PositiveIntegerField(default=0)
+    email_status = models.CharField(
+        max_length=30,
+        default='NOT_SENT',
+        choices=[
+            ('NOT_SENT', 'Not Sent'),
+            ('PENDING', 'Pending'),
+            ('SENT', 'Sent'),
+            ('FAILED', 'Failed'),
+        ]
+    )
+    is_published = models.BooleanField(default=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    announcement_credits_charged = models.DecimalField(max_digits=20, decimal_places=6, default=0)
+    email_credits_charged = models.DecimalField(max_digits=20, decimal_places=6, default=0)
+    credit_charge_applied = models.BooleanField(default=False)
+
     class Meta:
         db_table = 'discussion_threads'
         ordering = ['-is_pinned', '-last_activity_at']

@@ -393,6 +393,7 @@ class LoginView(APIView):
             'portal': portal,
             'user': {
                 'id': str(user.id),
+                'account_number': user.account_number or f"CS-{user.pk:06d}" if isinstance(user.pk, int) else "CS-001001",
                 'email': user.email,
                 'full_name': user.full_name,
                 'role': user.role_code,
@@ -565,12 +566,24 @@ class ForgotPasswordView(APIView):
         data = serializer.validated_data
 
         email = data['email'].strip().lower()
+        logger.info(f"Forgot-password request received for email: {email[:3]}***@***")
         user = User.objects.filter(email__iexact=email, is_active=True).first()
-        if user:
-            raw_token = AuthTokenService.generate_token(user, TokenType.PASSWORD_RESET)
-            send_password_reset_email(user=user, raw_token=raw_token)
+        if not user:
+            logger.info(f"No active account found for forgot-password: email={email}")
+            raise CubixSkillAPIException(
+                {"email": ["No account found with this email address."]},
+                code="EMAIL_NOT_FOUND",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
-        return api_response(message="If an account exists for this email, we've sent a password reset link.")
+        logger.info(f"User lookup completed for forgot-password: user_id={user.pk}")
+        raw_token = AuthTokenService.generate_token(user, TokenType.PASSWORD_RESET)
+        logger.info("Password reset token generated")
+        send_password_reset_email(user=user, raw_token=raw_token)
+        logger.info("Password reset email job created and queued")
+
+        return api_response(message="Password reset instructions have been sent to your email.")
+
 
 
 class ResetPasswordView(APIView):
@@ -775,6 +788,7 @@ class CurrentUserView(APIView):
 
         user_data = {
             "id": str(user.id),
+            "account_number": user.account_number or f"CS-001001",
             "email": user.email,
             "full_name": user.full_name,
             "phone": user.phone,

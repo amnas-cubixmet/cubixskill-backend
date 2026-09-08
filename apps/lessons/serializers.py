@@ -150,7 +150,7 @@ class LessonSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = [
             'id', 'module', 'title', 'lesson_type', 'description', 'duration_minutes',
-            'is_demo', 'is_locked', 'effective_locked', 'allow_download', 'external_url', 'video_url', 'audio_url', 'document_url', 'stream_url', 'original_url', 'processing_mode', 'order_index', 'is_active',
+            'is_demo', 'is_locked', 'effective_locked', 'allow_download', 'show_media_preview', 'external_url', 'video_url', 'audio_url', 'document_url', 'stream_url', 'original_url', 'processing_mode', 'order_index', 'is_active',
             'media_files', 'primary_media', 'rich_text', 'quiz', 'assignment', 'resources', 'question_count', 'created_at',
             'media_file_id', 'media_id', 'content_source', 'content', 'resources_payload'
         ]

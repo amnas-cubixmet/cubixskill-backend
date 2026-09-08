@@ -28,6 +28,82 @@ from discussions_chat.models import (
 class DiscussionService:
 
     @classmethod
+    def get_eligible_email_recipients(cls, course=None, academy=None):
+        """
+        Calculates eligible student email recipients for an announcement based on scope.
+        Rules:
+        - Must belong to the specified Academy
+        - If course-specific, must be enrolled in the selected course and active
+        - Must have a non-empty, valid email address
+        - Unique email addresses only
+        """
+        from enrollments.models import Enrollment
+        from users_roles.models import User
+
+        if course:
+            target_academy = course.academy
+            students_qs = User.objects.filter(
+                enrollments__course=course,
+                enrollments__status__in=['ACTIVE', 'COMPLETED', 'ENROLLED']
+            )
+        elif academy:
+            target_academy = academy
+            students_qs = User.objects.filter(academy=academy)
+        else:
+            return []
+
+        # Filter active students with non-empty email
+        emails = set()
+        eligible_users = []
+        for user in students_qs.select_related('academy').distinct():
+            email = (user.email or '').strip().lower()
+            if email and '@' in email and email not in emails:
+                emails.add(email)
+                eligible_users.append(user)
+
+        return eligible_users
+
+    @classmethod
+    def calculate_announcement_cost(cls, course=None, academy=None, send_email: bool = False):
+        """
+        Calculates the dynamic announcement and email delivery credit cost from central Super Admin pricing settings.
+        Returns Decimal breakdown and recipient list.
+        """
+        from decimal import Decimal
+        from control_panel.models import PricingService
+        from credits.services import CreditsService
+
+        target_academy = course.academy if course else academy
+        balance = CreditsService.get_balance(target_academy) if target_academy else Decimal('0.000000')
+
+        # Read active prices from PricingService (Control Panel)
+        announcement_rate = Decimal(str(PricingService.get_rate('COURSE_ANNOUNCEMENT', default_cost=2)))
+        email_unit_rate = Decimal(str(PricingService.get_rate('EMAIL_DELIVERY', default_cost=0.10)))
+
+        recipients = cls.get_eligible_email_recipients(course=course, academy=target_academy) if send_email else []
+        recipient_count = len(recipients) if send_email else 0
+
+        email_cost = (Decimal(str(recipient_count)) * email_unit_rate).quantize(Decimal('0.000001')) if send_email else Decimal('0.000000')
+        total_cost = (announcement_rate + email_cost).quantize(Decimal('0.000001'))
+
+        has_sufficient = balance >= total_cost
+
+        return {
+            'announcement_price': str(announcement_rate.quantize(Decimal('0.000001'))),
+            'email_enabled': send_email,
+            'email_recipient_count': recipient_count,
+            'email_unit_price': str(email_unit_rate.quantize(Decimal('0.000001'))),
+            'email_cost': str(email_cost.quantize(Decimal('0.000001'))),
+            'total_cost': str(total_cost.quantize(Decimal('0.000001'))),
+            'academy_credit_balance': str(balance.quantize(Decimal('0.000001'))),
+            'has_sufficient_credits': has_sufficient,
+            'recipients': recipients,
+            'announcement_rate_dec': announcement_rate,
+            'email_cost_dec': email_cost,
+            'total_cost_dec': total_cost,
+        }
+
+    @classmethod
     @transaction.atomic
     def create_thread(
         cls,
@@ -36,11 +112,18 @@ class DiscussionService:
         title: str,
         content: str,
         thread_type: str = 'DISCUSSION',
-        media_file_ids: list[str] = None
+        media_file_ids: list[str] = None,
+        send_email: bool = False,
+        publish_option: str = 'now'
     ) -> DiscussionThread:
         """
-        Creates a new discussion thread in a course after validating feature activation and permissions.
+        Creates a new discussion thread or announcement in a course after validating permissions & executing credit billing.
         """
+        from decimal import Decimal
+        from credits.services import CreditsService
+        from credits.models import CreditAccount, CreditAccountStatus, CreditSourceType
+        from core.exceptions import CubixSkillAPIException
+
         academy = course.academy if course else getattr(user, 'academy', None)
         is_staff = getattr(user, 'is_staff', False) or (hasattr(user, 'academy') and academy and user.academy == academy)
 
@@ -54,6 +137,35 @@ class DiscussionService:
         if thread_type == ThreadType.ANNOUNCEMENT and not is_staff:
             raise PermissionDenied("Only Academy staff can create announcement threads.")
 
+        is_announcement = (thread_type == ThreadType.ANNOUNCEMENT)
+        is_draft = (publish_option == 'draft')
+        is_publishing = is_announcement and not is_draft
+
+        announcement_cost = Decimal('0.000000')
+        email_cost = Decimal('0.000000')
+        recipient_count = 0
+        recipients_list = []
+
+        if is_publishing and academy:
+            # Recalculate cost dynamically on backend
+            cost_info = cls.calculate_announcement_cost(course=course, academy=academy, send_email=send_email)
+            total_required = cost_info['total_cost_dec']
+            announcement_cost = cost_info['announcement_rate_dec']
+            email_cost = cost_info['email_cost_dec']
+            recipient_count = cost_info['email_recipient_count']
+            recipients_list = cost_info['recipients']
+
+            # Lock credit account and check balance
+            account = CreditAccount.objects.select_for_update().filter(academy=academy).first()
+            current_balance = account.balance if account else Decimal('0.000000')
+
+            if current_balance < total_required:
+                raise CubixSkillAPIException(
+                    f"Insufficient academy credits. Required: {total_required}, Available: {current_balance}",
+                    code="INSUFFICIENT_CREDITS",
+                    status_code=400
+                )
+
         # 3. Create Thread
         thread = DiscussionThread.objects.create(
             academy=academy,
@@ -62,6 +174,12 @@ class DiscussionService:
             title=title,
             content=content,
             thread_type=thread_type,
+            status=ThreadStatus.ACTIVE if not is_draft else ThreadStatus.REMOVED, # or draft representation
+            send_email=send_email if is_announcement else False,
+            email_recipient_count=recipient_count,
+            email_status='PENDING' if (is_publishing and send_email and recipient_count > 0) else 'NOT_SENT',
+            is_published=not is_draft,
+            published_at=timezone.now() if not is_draft else None,
             last_activity_at=timezone.now()
         )
 
@@ -79,7 +197,75 @@ class DiscussionService:
                 except MediaFile.DoesNotExist:
                     pass
 
+        # 5. Deduct Credits & Create Separate Ledger Entries for Announcement & Email Delivery
+        if is_publishing and academy:
+            # Entry 1: COURSE_ANNOUNCEMENT
+            announcement_key = f"ANNOUNCEMENT_PUB:{thread.id}"
+            CreditsService.debit(
+                academy=academy,
+                amount=announcement_cost,
+                source_type=CreditSourceType.DAILY_USAGE, # or appropriate source type
+                idempotency_key=announcement_key,
+                description=f"Course Announcement Published: {title}",
+                reference_type="ANNOUNCEMENT",
+                reference_id=str(thread.id),
+                created_by=user
+            )
+            thread.announcement_credits_charged = announcement_cost
+
+            # Entry 2: EMAIL_DELIVERY (only if send_email is ON and recipient_count > 0)
+            if send_email and recipient_count > 0:
+                email_key = f"ANNOUNCEMENT_EMAIL:{thread.id}"
+                CreditsService.debit(
+                    academy=academy,
+                    amount=email_cost,
+                    source_type=CreditSourceType.EMAIL_USAGE,
+                    idempotency_key=email_key,
+                    description=f"Announcement Email Delivery ({recipient_count} recipients): {title}",
+                    reference_type="ANNOUNCEMENT_EMAIL",
+                    reference_id=str(thread.id),
+                    created_by=user
+                )
+                thread.email_credits_charged = email_cost
+                
+                # Queue/dispatch emails using existing email service
+                cls._dispatch_announcement_emails(thread, recipients_list)
+
+            thread.credit_charge_applied = True
+            thread.save(update_fields=['announcement_credits_charged', 'email_credits_charged', 'credit_charge_applied', 'email_status'])
+
         return thread
+
+    @classmethod
+    def _dispatch_announcement_emails(cls, thread: DiscussionThread, recipients: list):
+        """
+        Dispatches announcement emails to eligible student recipients using existing EmailService infrastructure.
+        """
+        try:
+            course_title = thread.course.title if thread.course else "Academy Update"
+            subject = f"[{course_title}] {thread.title}"
+            body = f"Announcement from {thread.academy.name if thread.academy else 'your instructor'}:\n\n{thread.content}"
+            
+            for recipient in recipients:
+                EmailService.send_email(
+                    to_email=recipient.email,
+                    subject=subject,
+                    body=body,
+                    template_name="announcement_notification",
+                    context={
+                        "announcement_title": thread.title,
+                        "announcement_content": thread.content,
+                        "course_title": course_title,
+                        "academy_name": thread.academy.name if thread.academy else ""
+                    }
+                )
+            thread.email_status = 'SENT'
+            thread.save(update_fields=['email_status'])
+        except Exception as err:
+            import logging
+            logging.getLogger(__name__).error(f"Error dispatching announcement emails for thread {thread.id}: {err}")
+            thread.email_status = 'FAILED'
+            thread.save(update_fields=['email_status'])
 
     @classmethod
     def broadcast_event(cls, academy_id: str, event_type: str, data: dict):

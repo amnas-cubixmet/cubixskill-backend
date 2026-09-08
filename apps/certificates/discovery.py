@@ -24,7 +24,8 @@ class CertificateFieldDiscoveryService:
 
         # 1. Base Student Fields (Grouped under Personal Details)
         fields.extend([
-            {"key": "student.full_name", "label": "Student Name", "group": "Personal Details (Custom Student Fields)", "type": "text", "available": True},
+            {"key": "student.custom.certificate_name", "label": "Name on Certificate", "group": "Personal Details (Custom Student Fields)", "type": "text", "available": True},
+            {"key": "student.full_name", "label": "Student Profile Name", "group": "Personal Details (Custom Student Fields)", "type": "text", "available": True},
             {"key": "student.student_code", "label": "Student ID", "group": "Personal Details (Custom Student Fields)", "type": "text", "available": True},
             {"key": "student.email", "label": "Student Email", "group": "Personal Details (Custom Student Fields)", "type": "text", "available": True},
             {"key": "student.phone", "label": "Student Phone", "group": "Personal Details (Custom Student Fields)", "type": "text", "available": True},
@@ -94,12 +95,14 @@ class CertificateFieldDiscoveryService:
             ).order_by('sort_order')
 
             for cf in custom_defs:
-                fields.append({
-                    "key": f"student.custom.{cf.key}",
-                    "label": f"Student {cf.label}",
-                    "group": "Personal Details (Custom Student Fields)",
-                    "type": "text",
-                    "available": True
-                })
+                key_name = f"student.custom.{cf.key}"
+                if not any(f["key"] == key_name for f in fields):
+                    fields.append({
+                        "key": key_name,
+                        "label": f"Student {cf.label}",
+                        "group": "Personal Details (Custom Student Fields)",
+                        "type": "text",
+                        "available": True
+                    })
 
         return fields

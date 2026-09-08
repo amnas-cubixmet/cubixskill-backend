@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.db import models
 from django.utils import timezone
 from core.models import BaseModel, ActiveMixin
@@ -74,6 +75,10 @@ class CertificateFont(BaseModel, ActiveMixin):
     key = models.CharField(max_length=100, db_index=True)
     name = models.CharField(max_length=255)
     family = models.CharField(max_length=255)
+    format = models.CharField(max_length=20, blank=True, default='TTF')
+    weight = models.CharField(max_length=50, blank=True, default='400')
+    style = models.CharField(max_length=50, blank=True, default='normal')
+    size_bytes = models.BigIntegerField(default=0)
     source = models.CharField(
         max_length=20,
         choices=FontSourceChoices.choices,
@@ -89,6 +94,8 @@ class CertificateFont(BaseModel, ActiveMixin):
     )
     file_url = models.CharField(max_length=500, blank=True, default='')
     font_weight_variants = models.JSONField(default=list)
+    outline_type = models.CharField(max_length=20, blank=True, default='TRUETYPE')
+    pdf_compatible = models.BooleanField(default=True)
     is_certificate_safe = models.BooleanField(default=True)
     created_by = models.ForeignKey(
         'users_roles.User',
@@ -104,6 +111,12 @@ class CertificateFont(BaseModel, ActiveMixin):
 
     def __str__(self):
         return f"{self.name} ({self.source})"
+
+    @property
+    def runtime_family(self) -> str:
+        if self.source == FontSourceChoices.ACADEMY:
+            return f"cubix-font-{self.id}"
+        return self.family
 
 #--------------------------------------------------------------
 # IssueLogEventType
@@ -140,6 +153,8 @@ class CertificateSettings(BaseModel):
     def __str__(self):
         return f"Certificate Settings ({self.academy.name})"
 
+from django.utils.text import slugify
+
 #--------------------------------------------------------------
 # CertificateTemplate
 #--------------------------------------------------------------
@@ -153,6 +168,7 @@ class CertificateTemplate(BaseModel, ActiveMixin):
         related_name='certificate_templates'
     )
     name = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=180, db_index=True, blank=True, default='')
     description = models.TextField(blank=True, default='')
 
     template_data = models.JSONField(default=dict)
@@ -207,6 +223,7 @@ class CertificateTemplate(BaseModel, ActiveMixin):
     class Meta:
         db_table = 'certificate_templates'
         ordering = ['-created_at']
+        unique_together = ('academy', 'slug')
 
     def __str__(self):
         academy_str = self.academy.name if self.academy else 'Global'
@@ -217,6 +234,21 @@ class CertificateTemplate(BaseModel, ActiveMixin):
             self.custom_width = None
             self.custom_height = None
             self.custom_unit = None
+
+        if not self.slug:
+            base_slug = slugify(self.name) or "certificate-template"
+            slug_candidate = base_slug[:170]
+            count = 1
+            qs = CertificateTemplate.objects.filter(academy=self.academy)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+
+            unique_slug = slug_candidate
+            while qs.filter(slug=unique_slug).exists():
+                count += 1
+                unique_slug = f"{slug_candidate}-{count}"
+
+            self.slug = unique_slug
 
         if self.is_default and self.academy:
             CertificateTemplate.objects.filter(
@@ -388,6 +420,21 @@ class Certificate(BaseModel):
         null=True,
         blank=True,
         related_name='reissues'
+    )
+
+    credits_charged = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        default=Decimal('0.0000')
+    )
+    credit_charge_applied = models.BooleanField(default=False, db_index=True)
+    credit_charged_at = models.DateTimeField(null=True, blank=True)
+    credit_ledger_entry = models.ForeignKey(
+        'credits.CreditLedgerEntry',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='issued_certificates'
     )
 
     class Meta:

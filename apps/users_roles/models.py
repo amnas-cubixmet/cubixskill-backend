@@ -126,6 +126,8 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel, ActiveMixin):
 
     last_login = models.DateTimeField(null=True, blank=True)
 
+    account_number = models.CharField(max_length=30, unique=True, null=True, blank=True, db_index=True)
+
     objects = UserManager()
 
     USERNAME_FIELD = 'email'
@@ -141,6 +143,13 @@ class User(AbstractBaseUser, PermissionsMixin, BaseModel, ActiveMixin):
     @property
     def role(self):
         return self.role_code
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if not self.account_number:
+            count = User.objects.exclude(pk=self.pk).count() + 1001
+            self.account_number = f"CS-{count:06d}"
+            super().save(update_fields=['account_number'])
 
 
 #--------------------------------------------------------------

@@ -8,22 +8,26 @@ from emails.models import EmailJob, EmailJobStatus
 
 logger = logging.getLogger(__name__)
 
-@shared_task(bind=True, queue='email', ignore_result=True, max_retries=3, default_retry_delay=60)
+@shared_task(bind=True, ignore_result=True, max_retries=3, default_retry_delay=60)
 def process_email_job_task(self, job_id: str):
     """
     Celery Worker task to execute durable EmailJob delivery.
     """
+    from django.conf import settings
+    logger.info(f"Executing process_email_job_task for job_id={job_id} using EMAIL_HOST={getattr(settings, 'EMAIL_HOST', 'None')}")
     try:
         from emails.outbox_service import EmailJobService
         result = EmailJobService.process_email_job(job_id)
+        logger.info(f"EmailJob {job_id} processing result: {result}")
         return f"EmailJob {job_id} processed. Result: {result}"
     except Exception as exc:
-        logger.error(f"Error in process_email_job_task for job {job_id}: {exc}")
+        logger.error(f"Error in process_email_job_task for job {job_id}: {exc}", exc_info=True)
         raise self.retry(exc=exc)
 
 
-@shared_task(queue='email', ignore_result=True)
+@shared_task(ignore_result=True)
 def dispatch_pending_email_jobs():
+
     """
     Celery Beat periodic task: Scans PostgreSQL DB outbox for due EmailJobs
     and enqueues process_email_job_task for execution.
@@ -35,7 +39,7 @@ def dispatch_pending_email_jobs():
     with transaction.atomic():
         pending_jobs = list(
             EmailJob.objects.select_for_update(skip_locked=True).filter(
-                status=EmailJobStatus.PENDING,
+                status__in=[EmailJobStatus.PENDING, EmailJobStatus.QUEUED],
                 scheduled_for__lte=now
             ).filter(
                 models_q_filter(now)
@@ -84,3 +88,24 @@ def cleanup_stuck_processing_jobs():
     if reset_count > 0:
         logger.warning(f"Reconciled {reset_count} stuck PROCESSING EmailJobs back to PENDING.")
     return f"Reconciled {reset_count} stuck jobs."
+
+
+@shared_task
+def test_email_delivery(recipient: str):
+    from django.conf import settings
+    from django.core.mail import send_mail
+
+    logger.info(f"EMAIL_BACKEND={settings.EMAIL_BACKEND}")
+    logger.info(f"EMAIL_HOST={settings.EMAIL_HOST}")
+    logger.info(f"EMAIL_PORT={settings.EMAIL_PORT}")
+    logger.info(f"EMAIL_HOST_USER={settings.EMAIL_HOST_USER}")
+    logger.info(f"DEFAULT_FROM_EMAIL={settings.DEFAULT_FROM_EMAIL}")
+
+    return send_mail(
+        "CubixSkill Celery Test",
+        "This email was sent from Celery.",
+        settings.DEFAULT_FROM_EMAIL,
+        [recipient],
+        fail_silently=False,
+    )
+

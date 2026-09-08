@@ -83,9 +83,26 @@ class StudentUpdateSerializer(serializers.Serializer):
     status = serializers.CharField(required=False)
 
 class StudentSelfUpdateSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(required=False, max_length=255)
+    phone = serializers.CharField(required=False, allow_blank=True, max_length=30)
+    profile_photo_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+
+    def validate_full_name(self, value):
+        import re
+        if not value:
+            return value
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("Full name cannot be blank.")
+        # Unicode letters (\p{L}), marks (\p{M}), spaces, apostrophe, and hyphen
+        # In Python re, use regex pattern with unicode flag or regex module
+        if not re.match(r"^[\w\s'-]+$", cleaned, flags=re.UNICODE) or any(c.isdigit() for c in cleaned):
+            raise serializers.ValidationError("Full name can contain letters, spaces, apostrophes and hyphens only.")
+        return cleaned
+
     class Meta:
         model = StudentProfile
-        fields = ['display_name', 'date_of_birth', 'bio']
+        fields = ['full_name', 'phone', 'display_name', 'date_of_birth', 'bio', 'profile_photo_id']
 
 #--------------------------------------------------------------
 # Student Custom Field Serializers

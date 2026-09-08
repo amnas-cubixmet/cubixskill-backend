@@ -219,6 +219,7 @@ AUTH_COOKIE_DOMAIN = os.getenv('AUTH_COOKIE_DOMAIN', None)
 
 # Frontend URL Configuration
 FRONTEND_ACADEMY_URL = os.getenv('FRONTEND_ACADEMY_URL', 'http://localhost:5173')
+STUDENT_PUBLIC_URL = os.getenv('STUDENT_PUBLIC_URL', 'http://localhost:5174').rstrip('/')
 
 # Authentication Settings
 LOGIN_URL = '/login/'
@@ -245,8 +246,8 @@ CELERY_RESULT_BACKEND_MAX_RETRIES = 3
 CELERY_RESULT_EXPIRES = 86400  # 24 hours
 
 CELERY_TASK_ROUTES = {
-    'emails.tasks.*': {'queue': 'email'},
-    'authentication.tasks.*': {'queue': 'email'},
+    'emails.tasks.*': {'queue': 'default'},
+    'authentication.tasks.*': {'queue': 'default'},
     'storage.meter_due_storage_usage': {'queue': 'default'},
     'storage.debit_due_storage_billing_cycles': {'queue': 'default'},
     'storage.tasks.process_video_transcoding_task': {'queue': 'video_processing'},
@@ -256,6 +257,7 @@ CELERY_TASK_ROUTES = {
     'live_classes.tasks.*': {'queue': 'default'},
     'analytics_reports.tasks.*': {'queue': 'default'},
 }
+
 
 CELERY_BEAT_SCHEDULE = {
     'dispatch-pending-email-jobs-every-minute': {

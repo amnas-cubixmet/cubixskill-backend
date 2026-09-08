@@ -79,6 +79,14 @@ class DiscussionThreadSerializer(serializers.ModelSerializer):
             'is_pinned',
             'is_locked',
             'status',
+            'send_email',
+            'email_recipient_count',
+            'email_status',
+            'is_published',
+            'published_at',
+            'announcement_credits_charged',
+            'email_credits_charged',
+            'credit_charge_applied',
             'last_activity_at',
             'reply_count',
             'accepted_answer_id',
@@ -90,19 +98,28 @@ class DiscussionThreadSerializer(serializers.ModelSerializer):
             'is_pinned',
             'is_locked',
             'status',
+            'email_recipient_count',
+            'email_status',
+            'is_published',
+            'published_at',
+            'announcement_credits_charged',
+            'email_credits_charged',
+            'credit_charge_applied',
             'last_activity_at',
             'reply_count',
             'created_at',
         ]
 
 #--------------------------------------------------------------
-# 4. Discussion Thread Model
+# 4. Create Thread Serializer
 #--------------------------------------------------------------
 
 class CreateThreadSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=255)
     content = serializers.CharField()
     thread_type = serializers.CharField(required=False, default='DISCUSSION')
+    send_email = serializers.BooleanField(required=False, default=False)
+    publish_option = serializers.CharField(required=False, default='now')
     media_file_ids = serializers.ListField(
         child=serializers.UUIDField(),
         required=False,

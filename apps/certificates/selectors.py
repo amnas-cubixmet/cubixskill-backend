@@ -18,6 +18,22 @@ class CertificateSelector:
         Retrieves public verification details for a given verification code.
         Never exposes internal IDs or sensitive student fields.
         """
+        if verification_code == 'PREVIEW-DEMO':
+            return {
+                'valid': True,
+                'is_preview': True,
+                'certificate_number': 'CS-2026-PREVIEW',
+                'verification_code': 'PREVIEW-DEMO',
+                'student_name': 'Muhammed Ashraf Al Farooqi (Preview)',
+                'course_name': 'Sample Course Completion Certificate Preview',
+                'academy_name': 'CubixSkill Academy Preview',
+                'issued_at': None,
+                'completed_at': None,
+                'status': 'PREVIEW',
+                'revoked_at': None,
+                'revocation_reason': None,
+            }
+
         cert = Certificate.objects.select_related('course', 'course__academy').filter(
             verification_code=verification_code
         ).first()
@@ -29,6 +45,7 @@ class CertificateSelector:
 
         return {
             'valid': is_valid,
+            'is_preview': False,
             'certificate_number': cert.certificate_number,
             'verification_code': cert.verification_code,
             'student_name': cert.student_name_snapshot,

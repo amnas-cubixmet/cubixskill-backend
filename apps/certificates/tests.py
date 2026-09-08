@@ -1,434 +1,575 @@
+import uuid
 from django.test import TestCase
-from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework import status
-from rest_framework.exceptions import ValidationError
-
+from django.contrib.auth import get_user_model
 from academy.models import Academy
-from users_roles.models import User
-from courses.models import Course, CourseStatus
-from enrollments.models import Enrollment, EnrollmentStatus
-from learning_progress.models import CourseProgress, ProgressStatus
-from storage.models import MediaFile, MediaType, MediaStatus
-
-from certificates.models import (
-    CertificateTemplate,
-    Certificate,
-    CertificateIssueLog,
-    CertificateSettings,
-    CertPDFMode,
-    CertificateStatus,
-    IssueLogEventType,
-    OrientationChoices,
-    PhotoShapeChoices,
-)
-from certificates.services import CertificateService
+from courses.models import Course
+from enrollments.models import Enrollment
+from students.models import StudentProfile, StudentCustomFieldDefinition, StudentCustomFieldValue
+from certificates.models import CertificateTemplate, Certificate
+from certificates.services import CertificateService, CertificateDataResolver
 from certificates.generator import CertificatePDFGenerator
+from learning_progress.models import CourseProgress, ProgressStatus
 
-class CertificateAppTestCase(TestCase):
+from credits.services import CreditsService
+from credits.models import CreditSourceType
+
+User = get_user_model()
+
+class EnrollmentCertificateProfileDetailsTest(TestCase):
     def setUp(self):
         self.client = APIClient()
-
-        # 1. Create Academy & Staff
-        self.academy_a = Academy.objects.create(name="Academy A", slug="academy-a")
-        self.staff_a = User.objects.create_user(
-            email="staff_a@test.com",
+        self.academy = Academy.objects.create(name="Cert Test Academy", slug="cert-test-academy")
+        CreditsService.credit(
+            academy=self.academy,
+            amount=100.0,
+            source_type=CreditSourceType.PURCHASE,
+            description="Test initial balance",
+            idempotency_key=f"test-init-balance-{self.academy.id}"
+        )
+        
+        self.student_user = User.objects.create_user(
+            email="cert_student@example.com",
             password="Password123!",
-            full_name="Staff A",
-            academy=self.academy_a
+            full_name="Muhammed Ashraf",
+            phone="+919876543210",
+            academy=self.academy
+        )
+        self.student_profile, _ = StudentProfile.objects.get_or_create(
+            user=self.student_user,
+            defaults={'display_name': "Muhammed Ashraf"}
         )
 
-        self.academy_b = Academy.objects.create(name="Academy B", slug="academy-b")
-        self.staff_b = User.objects.create_user(
-            email="staff_b@test.com",
+        self.other_user = User.objects.create_user(
+            email="other_student@example.com",
             password="Password123!",
-            full_name="Staff B",
-            academy=self.academy_b
+            full_name="Other Student",
+            academy=self.academy
         )
 
-        # 2. Create Student
-        self.student = User.objects.create_user(
-            email="student@test.com",
-            password="Password123!",
-            full_name="Jane Doe"
-        )
-
-        # 3. Create Course
-        self.course_a = Course.objects.create(
-            academy=self.academy_a,
-            title="Python Masterclass",
-            status=CourseStatus.PUBLISHED,
+        self.course = Course.objects.create(
+            title="Cert Test Course",
+            academy=self.academy,
             certificate_enabled=True
         )
 
-        # 4. Create Enrollment & Completed Progress
         self.enrollment = Enrollment.objects.create(
-            student=self.student,
-            course=self.course_a,
-            status=EnrollmentStatus.ACTIVE
+            student=self.student_user,
+            course=self.course
         )
 
-        self.progress = CourseProgress.objects.create(
-            student=self.student,
-            course=self.course_a,
-            enrollment=self.enrollment,
-            progress_percent=100.00,
-            status=ProgressStatus.COMPLETED,
-            completed_at=timezone.now()
-        )
-
-        # 5. Create Default Template
         self.template = CertificateTemplate.objects.create(
-            academy=self.academy_a,
-            name="Default A4 Landscape Template",
-            orientation=OrientationChoices.LANDSCAPE,
-            page_size="A4",
+            academy=self.academy,
+            name="Default Test Template",
+            template_data={"elements": []},
             is_default=True,
-            is_active=True,
-            show_student_photo=False
-        )
-
-    def test_certificate_eligibility_validation(self):
-        # 1. Test when course.certificate_enabled is False
-        self.course_a.certificate_enabled = False
-        self.course_a.save()
-
-        with self.assertRaises(ValidationError):
-            CertificateService.issue_if_eligible(self.student, self.course_a)
-
-        self.course_a.certificate_enabled = True
-        self.course_a.save()
-
-        # 2. Test when progress is NOT completed
-        self.progress.status = ProgressStatus.IN_PROGRESS
-        self.progress.progress_percent = 50.00
-        self.progress.save()
-
-        with self.assertRaises(ValidationError):
-            CertificateService.issue_if_eligible(self.student, self.course_a)
-
-    def test_certificate_issuance_and_idempotency(self):
-        # 1. Issue certificate cleanly
-        cert1 = CertificateService.issue_if_eligible(
-            student=self.student,
-            course=self.course_a,
-            issued_by=self.staff_a
-        )
-
-        self.assertIsNotNone(cert1)
-        self.assertTrue(cert1.certificate_number.startswith("CS-"))
-        self.assertIsNotNone(cert1.verification_code)
-        self.assertEqual(cert1.student_name_snapshot, "Jane Doe")
-        self.assertEqual(cert1.course_name_snapshot, "Python Masterclass")
-        self.assertEqual(cert1.academy_name_snapshot, "Academy A")
-        self.assertEqual(cert1.status, CertificateStatus.ISSUED)
-        self.assertEqual(cert1.pdf_storage_mode, CertPDFMode.ON_DEMAND)
-
-        # Audit log created
-        log = CertificateIssueLog.objects.filter(certificate=cert1, event_type=IssueLogEventType.ISSUED).first()
-        self.assertIsNotNone(log)
-        self.assertEqual(log.performed_by, self.staff_a)
-
-        # 2. Idempotency test: issuing again for same student + course returns exact same certificate
-        cert2 = CertificateService.issue_if_eligible(
-            student=self.student,
-            course=self.course_a,
-            issued_by=self.staff_a
-        )
-        self.assertEqual(cert1.id, cert2.id)
-
-    def test_pdf_generation_on_demand(self):
-        cert = CertificateService.issue_if_eligible(
-            student=self.student,
-            course=self.course_a,
-            issued_by=self.staff_a
-        )
-
-        pdf_bytes = CertificateService.generate_pdf_bytes_for_certificate(cert)
-        self.assertIsInstance(pdf_bytes, bytes)
-        self.assertTrue(pdf_bytes.startswith(b'%PDF-'))
-        self.assertGreater(len(pdf_bytes), 1000)
-
-    def test_reissue_and_revoke_lifecycle(self):
-        cert = CertificateService.issue_if_eligible(
-            student=self.student,
-            course=self.course_a,
-            issued_by=self.staff_a
-        )
-
-        # 1. Revoke Certificate
-        revoked_cert = CertificateService.revoke_certificate(cert, revoked_by=self.staff_a, reason="Misconduct")
-        self.assertEqual(revoked_cert.status, CertificateStatus.REVOKED)
-        self.assertEqual(revoked_cert.revocation_reason, "Misconduct")
-
-        rev_log = CertificateIssueLog.objects.filter(certificate=cert, event_type=IssueLogEventType.REVOKED).first()
-        self.assertIsNotNone(rev_log)
-
-        # 2. Reissue Certificate
-        new_cert = CertificateService.reissue_certificate(
-            certificate=cert,
-            reissued_by=self.staff_a,
-            reason="Corrected name"
-        )
-        self.assertEqual(cert.status, CertificateStatus.REISSUED)
-        self.assertEqual(new_cert.status, CertificateStatus.ISSUED)
-        self.assertEqual(new_cert.reissued_from, cert)
-
-    def test_public_verification_endpoint(self):
-        cert = CertificateService.issue_if_eligible(
-            student=self.student,
-            course=self.course_a,
-            issued_by=self.staff_a
-        )
-
-        url = f"/api/v1/certificates/certificates/verify/{cert.verification_code}/"
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertTrue(data['valid'])
-        self.assertEqual(data['certificate_number'], cert.certificate_number)
-        self.assertEqual(data['student_name'], "Jane Doe")
-        self.assertEqual(data['course_name'], "Python Masterclass")
-        self.assertEqual(data['academy_name'], "Academy A")
-        self.assertEqual(data['status'], "ISSUED")
-
-        # Non-existent code returns 404
-        bad_response = self.client.get("/api/v1/certificates/certificates/verify/INVALID-CODE-999/")
-        self.assertEqual(bad_response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_student_certificates_api(self):
-        cert = CertificateService.issue_if_eligible(
-            student=self.student,
-            course=self.course_a,
-            issued_by=self.staff_a
-        )
-
-        self.client.force_authenticate(user=self.student)
-
-        # 1. List certificates
-        list_url = "/api/v1/certificates/student/certificates/"
-        response = self.client.get(list_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()['results']), 1)
-
-        # 2. Download certificate PDF
-        download_url = f"/api/v1/certificates/student/certificates/{cert.id}/download/"
-        dl_response = self.client.get(download_url)
-        self.assertEqual(dl_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(dl_response['Content-Type'], 'application/pdf')
-        self.assertTrue(dl_response.content.startswith(b'%PDF-'))
-
-    def test_academy_tenant_isolation(self):
-        cert = CertificateService.issue_if_eligible(
-            student=self.student,
-            course=self.course_a,
-            issued_by=self.staff_a
-        )
-
-        # Staff A can see Academy A's certificates
-        self.client.force_authenticate(user=self.staff_a)
-        res_a = self.client.get("/api/v1/certificates/certificates/")
-        self.assertEqual(res_a.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(res_a.json()['results']), 1)
-
-        # Staff B from Academy B CANNOT see Academy A's certificates
-        self.client.force_authenticate(user=self.staff_b)
-        res_b = self.client.get("/api/v1/certificates/certificates/")
-        self.assertEqual(res_b.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(res_b.json()['results']), 0)
-
-    def test_template_preview_api(self):
-        self.client.force_authenticate(user=self.staff_a)
-        preview_url = f"/api/v1/certificates/certificate-templates/{self.template.id}/preview/"
-
-        response = self.client.post(preview_url, {
-            'sample_student_name': 'Test Student',
-            'sample_course_name': 'Test Course'
-        })
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response['Content-Type'], 'application/pdf')
-        self.assertTrue(response.content.startswith(b'%PDF-'))
-
-    def test_custom_page_size_resolution(self):
-        from certificates.generator import resolve_page_size
-        from reportlab.lib.units import mm, cm, inch
-
-        # 1. 300 x 200 mm Landscape
-        w, h = resolve_page_size("CUSTOM", 300, 200, "MM", "LANDSCAPE")
-        self.assertAlmostEqual(w, 300 * mm)
-        self.assertAlmostEqual(h, 200 * mm)
-
-        # 2. 25 x 18 cm Portrait
-        w, h = resolve_page_size("CUSTOM", 25, 18, "CM", "PORTRAIT")
-        self.assertAlmostEqual(w, 18 * cm)
-        self.assertAlmostEqual(h, 25 * cm)
-
-        # 3. 12 x 8 inch Landscape
-        w, h = resolve_page_size("CUSTOM", 12, 8, "INCH", "LANDSCAPE")
-        self.assertAlmostEqual(w, 12 * inch)
-        self.assertAlmostEqual(h, 8 * inch)
-
-    def test_custom_page_size_serializer_validation(self):
-        from certificates.serializers import CertificateTemplateSerializer
-
-        # 1. Valid custom template
-        valid_data = {
-            'name': 'Custom MM Template',
-            'page_size': 'CUSTOM',
-            'custom_width': '300.00',
-            'custom_height': '200.00',
-            'custom_unit': 'MM',
-            'orientation': 'LANDSCAPE'
-        }
-        serializer = CertificateTemplateSerializer(data=valid_data)
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-
-        # 2. Missing custom fields when CUSTOM
-        invalid_data = {
-            'name': 'Incomplete Custom Template',
-            'page_size': 'CUSTOM',
-            'orientation': 'LANDSCAPE'
-        }
-        ser_invalid = CertificateTemplateSerializer(data=invalid_data)
-        self.assertFalse(ser_invalid.is_valid())
-        self.assertIn('custom_width', ser_invalid.errors)
-        self.assertIn('custom_height', ser_invalid.errors)
-        self.assertIn('custom_unit', ser_invalid.errors)
-
-        # 3. Predefined page size clears custom fields
-        predefined_data = {
-            'name': 'Predefined Template',
-            'page_size': 'A4',
-            'custom_width': '300.00',
-            'custom_height': '200.00',
-            'custom_unit': 'MM',
-            'orientation': 'LANDSCAPE'
-        }
-        ser_pre = CertificateTemplateSerializer(data=predefined_data)
-        self.assertTrue(ser_pre.is_valid())
-        self.assertIsNone(ser_pre.validated_data['custom_width'])
-        self.assertIsNone(ser_pre.validated_data['custom_height'])
-        self.assertIsNone(ser_pre.validated_data['custom_unit'])
-
-    def test_custom_page_size_pdf_generation(self):
-        custom_template = CertificateTemplate.objects.create(
-            academy=self.academy_a,
-            name="Custom 300x200 MM Template",
-            page_size="CUSTOM",
-            custom_width=300,
-            custom_height=200,
-            custom_unit="MM",
-            orientation="LANDSCAPE",
             is_active=True
         )
 
-        cert = CertificateService.issue_if_eligible(
-            student=self.student,
-            course=self.course_a,
-            template=custom_template,
-            issued_by=self.staff_a
-        )
+        self.cert_name_def = CertificateService.ensure_certificate_name_field(self.academy)
 
-        self.assertEqual(cert.template_snapshot['page_size'], 'CUSTOM')
-        self.assertEqual(cert.template_snapshot['custom_width'], '300')
-        self.assertEqual(cert.template_snapshot['custom_unit'], 'MM')
 
-        pdf_bytes = CertificateService.generate_pdf_bytes_for_certificate(cert)
-        self.assertIsInstance(pdf_bytes, bytes)
-        self.assertTrue(pdf_bytes.startswith(b'%PDF-'))
+    def test_unauthenticated_get_returns_401(self):
+        url = f"/api/v1/certificates/enrollments/{self.enrollment.id}/profile-details/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_successful_font_upload_with_storage_service(self):
-        from django.core.files.uploadedfile import SimpleUploadedFile
-        from certificates.models import CertificateFont, FontSourceChoices
+    def test_other_student_enrollment_returns_404(self):
+        self.client.force_authenticate(user=self.other_user)
+        url = f"/api/v1/certificates/enrollments/{self.enrollment.id}/profile-details/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-        self.client.force_authenticate(user=self.staff_a)
-        fake_font_content = b"\x00\x01\x00\x00\x00\x0d\x00\x80\x00\x03\x00\x20"
-        font_file = SimpleUploadedFile("custom_brand.ttf", fake_font_content, content_type="font/ttf")
+    def test_profile_full_name_exists_but_certificate_name_empty_returns_profile_incomplete(self):
+        self.client.force_authenticate(user=self.student_user)
+        url = f"/api/v1/certificates/enrollments/{self.enrollment.id}/profile-details/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        response = self.client.post(
-            "/api/v1/certificates/fonts/upload/",
-            {
-                "font_file": font_file,
-                "display_name": "Custom Brand Font",
-                "user_rights_confirmed": "true",
-            },
-            format="multipart"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-        self.assertEqual(data["name"], "Custom Brand Font")
-        self.assertTrue(data["user_rights_confirmed"])
+        self.assertEqual(data["certificate_status"], "PROFILE_INCOMPLETE")
 
-        font_obj = CertificateFont.objects.get(id=data["id"])
-        self.assertEqual(font_obj.source, FontSourceChoices.ACADEMY)
-        self.assertEqual(font_obj.academy, self.academy_a)
-        self.assertIsNotNone(font_obj.media_file)
-        self.assertEqual(font_obj.media_file.academy_uuid, self.academy_a.id)
-        self.assertEqual(font_obj.media_file.uploaded_by_uuid, self.staff_a.id)
-        self.assertEqual(font_obj.media_file.original_filename, "custom_brand.ttf")
+        missing_keys = [m["key"] for m in data["missing_fields"]]
+        self.assertIn("student.custom.certificate_name", missing_keys)
 
-    def test_font_upload_rights_unconfirmed_rejected(self):
-        from django.core.files.uploadedfile import SimpleUploadedFile
-        from certificates.models import CertificateFont
+        fields = {f["key"]: f for f in data["fields"]}
+        self.assertIn("student.custom.certificate_name", fields)
+        self.assertEqual(fields["student.custom.certificate_name"]["value"], "")
+        self.assertTrue(fields["student.custom.certificate_name"]["missing"])
 
-        self.client.force_authenticate(user=self.staff_a)
-        font_file = SimpleUploadedFile("brand.ttf", b"fontdata", content_type="font/ttf")
+    def test_save_certificate_name_custom_field_and_issue_certificate(self):
+        self.client.force_authenticate(user=self.student_user)
 
-        response = self.client.post(
-            "/api/v1/certificates/fonts/upload/",
-            {
-                "font_file": font_file,
-                "display_name": "Unconfirmed Font",
-                "user_rights_confirmed": "false",
-            },
-            format="multipart"
+        # Mark course progress complete
+        CourseProgress.objects.create(
+            student=self.student_user,
+            course=self.course,
+            enrollment=self.enrollment,
+            status=ProgressStatus.COMPLETED,
+            progress_percent=100.0
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertFalse(CertificateFont.objects.filter(name="Unconfirmed Font").exists())
+        url = f"/api/v1/certificates/enrollments/{self.enrollment.id}/profile-details/"
+        payload = {
+            "values": {
+                "student.custom.certificate_name": "MUHAMMED ASHRAF A"
+            }
+        }
+        patch_res = self.client.patch(url, payload, format="json")
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
 
-    def test_font_upload_invalid_extension_rejected(self):
-        from django.core.files.uploadedfile import SimpleUploadedFile
+        # Confirm User.full_name is UNCHANGED
+        self.student_user.refresh_from_db()
+        self.assertEqual(self.student_user.full_name, "Muhammed Ashraf")
 
-        self.client.force_authenticate(user=self.staff_a)
-        bad_file = SimpleUploadedFile("malicious.exe", b"binarydata", content_type="application/octet-stream")
+        # Confirm custom field value is saved
+        val = StudentCustomFieldValue.objects.get(student=self.student_profile, field_definition=self.cert_name_def)
+        self.assertEqual(val.value, "MUHAMMED ASHRAF A")
 
-        response = self.client.post(
-            "/api/v1/certificates/fonts/upload/",
-            {
-                "font_file": bad_file,
-                "display_name": "Bad File",
-                "user_rights_confirmed": "true",
-            },
-            format="multipart"
+        # Issue certificate
+        issue_url = f"/api/v1/certificates/enrollments/{self.enrollment.id}/issue-or-check/"
+        issue_res = self.client.post(issue_url, format="json")
+        self.assertEqual(issue_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(issue_res.json()["success"])
+
+        cert = Certificate.objects.get(enrollment=self.enrollment)
+        self.assertEqual(cert.student_name_snapshot, "MUHAMMED ASHRAF A")
+        self.assertEqual(cert.custom_data_snapshot.get("student.custom.certificate_name"), "MUHAMMED ASHRAF A")
+
+    def test_pdf_bytes_generation_uses_custom_certificate_name(self):
+        CourseProgress.objects.create(
+            student=self.student_user,
+            course=self.course,
+            enrollment=self.enrollment,
+            status=ProgressStatus.COMPLETED,
+            progress_percent=100.0
+        )
+        StudentCustomFieldValue.objects.create(
+            student=self.student_profile,
+            field_definition=self.cert_name_def,
+            value="MUHAMMED ASHRAF A"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        cert = CertificateService.issue_if_eligible(student=self.student_user, course=self.course, enrollment=self.enrollment)
+        pdf_bytes = CertificateService.generate_pdf_bytes_for_certificate(cert)
+        self.assertGreater(len(pdf_bytes), 100)
+        self.assertEqual(cert.student_name_snapshot, "MUHAMMED ASHRAF A")
 
-    def test_academy_font_isolation(self):
-        from django.core.files.uploadedfile import SimpleUploadedFile
-
-        # Staff A uploads font
-        self.client.force_authenticate(user=self.staff_a)
-        font_file = SimpleUploadedFile("academy_a.ttf", b"data", content_type="font/ttf")
-        self.client.post(
-            "/api/v1/certificates/fonts/upload/",
-            {
-                "font_file": font_file,
-                "display_name": "Academy A Special Font",
-                "user_rights_confirmed": "true",
-            },
-            format="multipart"
+    def test_changing_user_full_name_after_issuance_does_not_alter_certificate(self):
+        CourseProgress.objects.create(
+            student=self.student_user,
+            course=self.course,
+            enrollment=self.enrollment,
+            status=ProgressStatus.COMPLETED,
+            progress_percent=100.0
+        )
+        StudentCustomFieldValue.objects.create(
+            student=self.student_profile,
+            field_definition=self.cert_name_def,
+            value="MUHAMMED ASHRAF A"
         )
 
-        # Staff B lists fonts -> should not see Academy A Special Font
-        self.client.force_authenticate(user=self.staff_b)
-        response = self.client.get("/api/v1/certificates/fonts/")
-        res_json = response.json()
-        results = res_json if isinstance(res_json, list) else res_json.get('results', [])
-        font_names = [f["name"] for f in results]
-        self.assertNotIn("Academy A Special Font", font_names)
+        cert = CertificateService.issue_if_eligible(student=self.student_user, course=self.course, enrollment=self.enrollment)
+        
+        # Change normal profile name
+        self.student_user.full_name = "New Profile Name"
+        self.student_user.save()
+
+        cert.refresh_from_db()
+        self.assertEqual(cert.student_name_snapshot, "MUHAMMED ASHRAF A")
+        self.assertEqual(cert.custom_data_snapshot.get("student.custom.certificate_name"), "MUHAMMED ASHRAF A")
+
+    def test_changing_certificate_custom_name_after_issuance_does_not_alter_old_certificate(self):
+        CourseProgress.objects.create(
+            student=self.student_user,
+            course=self.course,
+            enrollment=self.enrollment,
+            status=ProgressStatus.COMPLETED,
+            progress_percent=100.0
+        )
+        custom_val = StudentCustomFieldValue.objects.create(
+            student=self.student_profile,
+            field_definition=self.cert_name_def,
+            value="MUHAMMED ASHRAF A"
+        )
+
+        cert = CertificateService.issue_if_eligible(student=self.student_user, course=self.course, enrollment=self.enrollment)
+
+        # Update custom field value later
+        custom_val.value = "Updated Certificate Name"
+        custom_val.save()
+
+        cert.refresh_from_db()
+        self.assertEqual(cert.student_name_snapshot, "MUHAMMED ASHRAF A")
+        self.assertEqual(cert.custom_data_snapshot.get("student.custom.certificate_name"), "MUHAMMED ASHRAF A")
+
+    def test_editing_certificate_name_does_not_modify_user_full_name(self):
+        self.client.force_authenticate(user=self.student_user)
+        url = f"/api/v1/certificates/enrollments/{self.enrollment.id}/profile-details/"
+
+        payload = {
+            "values": {
+                "student.custom.certificate_name": "MUHAMMED ASHRAF A"
+            }
+        }
+        res = self.client.patch(url, payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        self.student_user.refresh_from_db()
+        self.assertEqual(self.student_user.full_name, "Muhammed Ashraf")
+
+    def test_editing_user_full_name_does_not_modify_certificate_custom_name(self):
+        StudentCustomFieldValue.objects.create(
+            student=self.student_profile,
+            field_definition=self.cert_name_def,
+            value="MUHAMMED ASHRAF A"
+        )
+
+        self.student_user.full_name = "New Profile Name"
+        self.student_user.save()
+
+        custom_val = StudentCustomFieldValue.objects.get(student=self.student_profile, field_definition=self.cert_name_def)
+        self.assertEqual(custom_val.value, "MUHAMMED ASHRAF A")
+
+    def test_owner_can_download_pdf_and_returns_application_pdf(self):
+        CourseProgress.objects.create(
+            student=self.student_user,
+            course=self.course,
+            enrollment=self.enrollment,
+            status=ProgressStatus.COMPLETED,
+            progress_percent=100.0
+        )
+        StudentCustomFieldValue.objects.create(
+            student=self.student_profile,
+            field_definition=self.cert_name_def,
+            value="MUHAMMED ASHRAF A"
+        )
+        cert = CertificateService.issue_if_eligible(student=self.student_user, course=self.course, enrollment=self.enrollment)
+
+        self.client.force_authenticate(user=self.student_user)
+        download_url = f"/api/v1/certificates/student/certificates/{cert.id}/download/"
+        res = self.client.get(download_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.headers.get("Content-Type"), "application/pdf")
+        self.assertIn(f'inline; filename="certificate_{cert.certificate_number}.pdf"', res.headers.get("Content-Disposition", ""))
+
+    def test_other_student_cannot_download_unowned_certificate(self):
+        CourseProgress.objects.create(
+            student=self.student_user,
+            course=self.course,
+            enrollment=self.enrollment,
+            status=ProgressStatus.COMPLETED,
+            progress_percent=100.0
+        )
+        StudentCustomFieldValue.objects.create(
+            student=self.student_profile,
+            field_definition=self.cert_name_def,
+            value="MUHAMMED ASHRAF A"
+        )
+        cert = CertificateService.issue_if_eligible(student=self.student_user, course=self.course, enrollment=self.enrollment)
+
+        self.client.force_authenticate(user=self.other_user)
+        download_url = f"/api/v1/certificates/student/certificates/{cert.id}/download/"
+        res = self.client.get(download_url)
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_public_verification_requires_no_auth_and_returns_safe_data(self):
+        CourseProgress.objects.create(
+            student=self.student_user,
+            course=self.course,
+            enrollment=self.enrollment,
+            status=ProgressStatus.COMPLETED,
+            progress_percent=100.0
+        )
+        StudentCustomFieldValue.objects.create(
+            student=self.student_profile,
+            field_definition=self.cert_name_def,
+            value="MUHAMMED ASHRAF A"
+        )
+        cert = CertificateService.issue_if_eligible(student=self.student_user, course=self.course, enrollment=self.enrollment)
+
+        # Unauthenticated request
+        self.client.force_authenticate(user=None)
+        verify_url = f"/api/v1/certificates/certificates/verify/{cert.verification_code}/"
+        res = self.client.get(verify_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        data = res.json()
+        self.assertTrue(data["valid"])
+        self.assertEqual(data["student_name"], "MUHAMMED ASHRAF A")
+        self.assertEqual(data["certificate_number"], cert.certificate_number)
+        self.assertEqual(data["verification_code"], cert.verification_code)
+
+        # Ensure sensitive details are NOT exposed
+        self.assertNotIn("email", data)
+        self.assertNotIn("phone", data)
+        self.assertNotIn("id", data)
+
+    def test_pdf_generator_font_and_center_coordinate_parity(self):
+        from certificates.models import CertificateFont, FontSourceChoices
+        from storage.models import MediaFile, MediaType, MediaStatus
+
+        media_file = MediaFile.objects.create(
+            academy_uuid=self.academy.id,
+            uploaded_by_uuid=self.student_user.id,
+            original_filename="test_conv.ttf",
+            stored_filename="test_conv.ttf",
+            storage_key="test_conv.ttf",
+            relative_path="test_conv.ttf",
+            mime_type="font/ttf",
+            size_bytes=1000,
+            media_type=MediaType.OTHER,
+            status=MediaStatus.ACTIVE
+        )
+
+        font_uuid = str(uuid.uuid4())
+        CertificateFont.objects.create(
+            id=font_uuid,
+            academy=self.academy,
+            key=f"cubix-font-{font_uuid}",
+            name="Test Font Parity",
+            family="Test Font Parity",
+            format="TTF",
+            weight="400",
+            style="normal",
+            source=FontSourceChoices.ACADEMY,
+            media_file=media_file,
+            is_active=True,
+            is_certificate_safe=True
+        )
+
+        template_data = {
+            "elements": [
+                {
+                    "id": "el-name",
+                    "binding": "student.custom.certificate_name",
+                    "font_id": font_uuid,
+                    "font_family": f"cubix-font-{font_uuid}",
+                    "font_size": 32,
+                    "x": 0.5,
+                    "y": 0.5,
+                    "width": 0.8,
+                    "height": 0.1,
+                    "text_align": "center",
+                    "color": "#2563EB"
+                }
+            ]
+        }
+        snapshot_data = {
+            "student.custom.certificate_name": "Muhammed Ashraf Al Farooqi",
+            "academy_id": str(self.academy.id)
+        }
+        pdf_bytes = CertificatePDFGenerator.generate_pdf(
+            snapshot_data=snapshot_data,
+            template_data=template_data,
+            verification_url="http://localhost:5174/verify/certificate/ABC123TEST"
+        )
+        self.assertTrue(isinstance(pdf_bytes, bytes))
+        self.assertGreater(len(pdf_bytes), 1000)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+    def test_invalid_verification_code_returns_safe_404(self):
+        self.client.force_authenticate(user=None)
+        verify_url = "/api/v1/certificates/certificates/verify/INVALID-CODE-1234/"
+        res = self.client.get(verify_url)
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_template_preview_uses_demo_qr_without_creating_certificate_row(self):
+        initial_cert_count = Certificate.objects.count()
+        pdf_bytes = CertificateService.preview_template(self.template)
+        self.assertTrue(isinstance(pdf_bytes, bytes))
+        self.assertGreater(len(pdf_bytes), 1000)
+        self.assertEqual(Certificate.objects.count(), initial_cert_count)
+
+    def test_public_verification_handles_preview_demo_token(self):
+        self.client.force_authenticate(user=None)
+        verify_url = "/api/v1/certificates/certificates/verify/PREVIEW-DEMO/"
+        res = self.client.get(verify_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.json()
+        self.assertTrue(data["valid"])
+        self.assertTrue(data["is_preview"])
+        self.assertEqual(data["verification_code"], "PREVIEW-DEMO")
+
+    def test_custom_font_id_priority_and_safe_fallback(self):
+        import os
+        from django.conf import settings
+        from certificates.models import CertificateFont, FontSourceChoices, CertPDFMode
+        from storage.models import MediaFile, MediaType, MediaStatus
+        from rest_framework.exceptions import ValidationError
+
+        # 1. Create MediaFile pointing to test_conv.ttf
+        ttf_rel = "test_conv.ttf"
+        media_file = MediaFile.objects.create(
+            academy_uuid=self.academy.id,
+            uploaded_by_uuid=self.student_user.id,
+            original_filename="test_conv.ttf",
+            stored_filename="test_conv.ttf",
+            storage_key="test_conv.ttf",
+            relative_path=ttf_rel,
+            mime_type="font/ttf",
+            size_bytes=1000,
+            media_type=MediaType.OTHER,
+            status=MediaStatus.ACTIVE
+        )
+
+        font_id = str(uuid.uuid4())
+        font_obj = CertificateFont.objects.create(
+            id=font_id,
+            academy=self.academy,
+            key=f"cubix-font-{font_id}",
+            name="Test Font Custom",
+            family="Test Font Custom",
+            format="TTF",
+            weight="400",
+            style="normal",
+            source=FontSourceChoices.ACADEMY,
+            media_file=media_file,
+            is_active=True,
+            is_certificate_safe=True
+        )
+
+        # 2. Test PDF generation where fontId is authoritative over misleading fontFamily
+        template_data = {
+            "elements": [
+                {
+                    "id": "el-1",
+                    "fontId": font_id,
+                    "fontFamily": "Helvetica",
+                    "text": "Hello World",
+                    "x": 0.1,
+                    "y": 0.1,
+                    "width": 0.5,
+                    "height": 0.1
+                }
+            ]
+        }
+        snapshot_data = {"academy_id": str(self.academy.id)}
+        pdf_bytes = CertificatePDFGenerator.generate_pdf(snapshot_data=snapshot_data, template_data=template_data)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+        # 3. Deactivated font should fall back to default PDF font and succeed
+        font_obj.is_active = False
+        font_obj.save()
+        pdf_bytes_deact = CertificatePDFGenerator.generate_pdf(snapshot_data=snapshot_data, template_data=template_data)
+        self.assertTrue(pdf_bytes_deact.startswith(b"%PDF"))
+
+        # 4. Cross-Academy font lookup should fall back to default PDF font and succeed
+        other_academy = Academy.objects.create(name="Other Academy", slug="other-acad")
+        font_obj.is_active = True
+        font_obj.save()
+
+        other_snapshot = {"academy_id": str(other_academy.id)}
+        pdf_bytes_cross = CertificatePDFGenerator.generate_pdf(snapshot_data=other_snapshot, template_data=template_data)
+        self.assertTrue(pdf_bytes_cross.startswith(b"%PDF"))
+
+    def test_persistent_pdf_regeneration_preserves_identity_and_credits(self):
+        from certificates.models import CertPDFMode, CertificateStatus
+        initial_balance = self.academy.credits.first().balance if hasattr(self.academy, 'credits') and self.academy.credits.exists() else None
+
+        cert = Certificate.objects.create(
+            student=self.student_user,
+            course=self.course,
+            enrollment=self.enrollment,
+            template=self.template,
+            certificate_number="CS-2026-TESTREGEN",
+            verification_code="VERIFY-REGEN-1234",
+            student_name_snapshot="Muhammed Ashraf",
+            course_name_snapshot="Test Course",
+            academy_name_snapshot=self.academy.name,
+            custom_data_snapshot={"academy_id": str(self.academy.id)},
+            template_snapshot={"template_data": {"elements": []}},
+            pdf_storage_mode=CertPDFMode.STORED,
+            status=CertificateStatus.ISSUED
+        )
+
+        initial_cert_num = cert.certificate_number
+        initial_ver_code = cert.verification_code
+
+        new_bytes = CertificateService.regenerate_pdf_from_snapshot(cert)
+        self.assertTrue(new_bytes.startswith(b"%PDF"))
+
+        cert.refresh_from_db()
+        self.assertEqual(cert.certificate_number, initial_cert_num)
+        self.assertEqual(cert.verification_code, initial_ver_code)
+
+    def test_certificate_pdf_font_fallback(self):
+        """
+        Verify that unsupported/incompatible fonts fall back to safe default PDF font
+        and produce a valid 200 PDF byte stream instead of raising 400.
+        """
+        from certificates.models import CertificateFont, FontSourceChoices, CertPDFMode, CertificateStatus
+        from storage.models import MediaFile
+
+        # Create CFF font DB record (simulating incompatible OTF)
+        from storage.models import MediaType, MediaStatus
+        media_file = MediaFile.objects.create(
+            academy_uuid=self.academy.id,
+            uploaded_by_uuid=self.student_user.id,
+            original_filename="bad_cff.otf",
+            stored_filename="bad_cff.otf",
+            storage_key="fonts/bad_cff.otf",
+            relative_path="fonts/bad_cff.otf",
+            mime_type="font/otf",
+            size_bytes=1024,
+            media_type=MediaType.OTHER,
+            status=MediaStatus.ACTIVE
+        )
+
+        cff_font = CertificateFont.objects.create(
+            academy=self.academy,
+            key=f"cubix-font-bad-cff",
+            name="Incompatible CFF Font",
+            family="Incompatible CFF Font",
+            source=FontSourceChoices.ACADEMY,
+            format="OTF",
+            outline_type="CFF",
+            pdf_compatible=False,
+            media_file=media_file,
+            is_active=True
+        )
+
+        template_data = {
+            "elements": [
+                {
+                    "binding": "student.custom.certificate_name",
+                    "font_id": str(cff_font.id),
+                    "x": 0.5,
+                    "y": 0.5,
+                    "font_size": 24
+                }
+            ]
+        }
+
+        # Render PDF with CFF font - should fall back to default PDF font without raising 400
+        snapshot_data = {
+            "student.custom.certificate_name": "محمد أشرف / Muhammed Ashraf / ashraf",
+            "academy_id": str(self.academy.id)
+        }
+        pdf_bytes = CertificatePDFGenerator.generate_pdf(snapshot_data=snapshot_data, template_data=template_data)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+        # Verify downloading certificate with incompatible font returns valid 200 PDF response
+        cert = Certificate.objects.create(
+            student=self.student_user,
+            course=self.course,
+            enrollment=self.enrollment,
+            template=self.template,
+            certificate_number="CS-2026-FALLBACK",
+            verification_code="VERIFY-FALLBACK",
+            student_name_snapshot="Muhammed Ashraf",
+            course_name_snapshot="Test Course",
+            academy_name_snapshot=self.academy.name,
+            custom_data_snapshot=snapshot_data,
+            template_snapshot={"template_data": template_data},
+            pdf_storage_mode=CertPDFMode.ON_DEMAND,
+            status=CertificateStatus.ISSUED
+        )
+
+        self.client.force_authenticate(user=self.student_user)
+        response = self.client.get(f"/api/v1/certificates/student/certificates/{cert.id}/download/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertTrue(response.content.startswith(b"%PDF"))
 

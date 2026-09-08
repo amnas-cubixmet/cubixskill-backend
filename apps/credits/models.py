@@ -31,6 +31,7 @@ class CreditSourceType(models.TextChoices):
     AI_USAGE = 'AI_USAGE', 'AI Metered Service Usage'
     SMS_USAGE = 'SMS_USAGE', 'SMS Communication Usage'
     COUPON_BONUS = 'COUPON_BONUS', 'Coupon Bonus Credits'
+    CERTIFICATE_ISSUE = 'CERTIFICATE_ISSUE', 'Certificate Issuance'
     OTHER = 'OTHER', 'Other Platform Service'
 
 class AdjustmentType(models.TextChoices):

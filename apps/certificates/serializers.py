@@ -11,6 +11,7 @@ class CertificateFontSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()
     runtime_family = serializers.SerializerMethodField()
     display_name = serializers.SerializerMethodField()
+    storage_key = serializers.SerializerMethodField()
 
     class Meta:
         model = CertificateFont
@@ -21,15 +22,23 @@ class CertificateFontSerializer(serializers.ModelSerializer):
             'family',
             'display_name',
             'runtime_family',
+            'storage_key',
+            'format',
+            'weight',
+            'style',
+            'size_bytes',
             'source',
             'user_rights_confirmed',
             'file_url',
             'font_weight_variants',
+            'outline_type',
+            'pdf_compatible',
             'is_active',
             'is_certificate_safe',
             'created_at',
+            'updated_at',
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
     def get_display_name(self, obj) -> str:
         return obj.name or obj.family
@@ -38,6 +47,11 @@ class CertificateFontSerializer(serializers.ModelSerializer):
         if obj.source == 'ACADEMY':
             return f"cubix-font-{obj.id}"
         return obj.family
+
+    def get_storage_key(self, obj) -> str:
+        if obj.media_file:
+            return getattr(obj.media_file, 'storage_key', '') or getattr(obj.media_file, 'relative_path', '')
+        return ''
 
     def get_file_url(self, obj) -> str:
         if obj.media_file:
@@ -59,8 +73,8 @@ class CertificateFontUploadSerializer(serializers.Serializer):
 
     def validate_font_file(self, value):
         ext = value.name.split('.')[-1].lower()
-        if ext not in ['ttf', 'otf', 'woff', 'woff2']:
-            raise serializers.ValidationError("Only .ttf, .otf, .woff, and .woff2 font formats are supported.")
+        if ext not in ['ttf', 'otf']:
+            raise serializers.ValidationError("Only TrueType (.ttf) and OpenType (.otf) font formats are supported for certificate PDF generation.")
         if value.size > 15 * 1024 * 1024:
             raise serializers.ValidationError("Font file size must not exceed 15MB.")
 
@@ -104,6 +118,7 @@ class CertificateTemplateSerializer(serializers.ModelSerializer):
             'id',
             'academy',
             'name',
+            'slug',
             'description',
             'template_data',
             'orientation',
@@ -121,11 +136,15 @@ class CertificateTemplateSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'slug', 'created_at', 'updated_at']
 
     def get_background_media_url(self, obj) -> str | None:
         if obj.background_media:
-            return getattr(obj.background_media, 'relative_path', None)
+            return (
+                getattr(obj.background_media, 'url', None) or
+                getattr(obj.background_media, 'file_url', None) or
+                getattr(obj.background_media, 'relative_path', None)
+            )
         return None
 
     def validate(self, attrs):
@@ -166,21 +185,115 @@ class CertificateTemplateSerializer(serializers.ModelSerializer):
             attrs['custom_height'] = None
             attrs['custom_unit'] = None
 
-        # Validate template_data font references for academy tenant isolation
+        request = self.context.get('request')
+        academy = getattr(request.user, 'academy', None) if request and hasattr(request, 'user') else None
+        if not academy and self.instance:
+            academy = self.instance.academy
+
+        # Validate background_media tenant isolation
+        background_media = attrs.get('background_media', self.instance.background_media if self.instance else None)
+        if background_media and academy:
+            if getattr(background_media, 'academy_uuid', None) != academy.id:
+                raise serializers.ValidationError({"background_media": "Selected background media does not belong to your academy."})
+
+        # Enforce exactly ONE system Verification QR element in template_data
         template_data = attrs.get('template_data', self.instance.template_data if self.instance else None)
+        if template_data is None or not isinstance(template_data, dict):
+            template_data = {'elements': []}
+        
+        elements = template_data.get('elements', [])
+        if not isinstance(elements, list):
+            elements = []
+
+        qr_elements = [
+            el for el in elements
+            if isinstance(el, dict) and (
+                el.get('type') == 'verification_qr' or 
+                el.get('binding') == 'certificate.verification_url' or 
+                el.get('id') == 'system-verification-qr' or
+                el.get('system') is True
+            )
+        ]
+
+        if len(qr_elements) > 1:
+            raise serializers.ValidationError({
+                "template_data": "Certificate template cannot contain multiple Verification QR elements."
+            })
+
+        if len(qr_elements) == 0:
+            # Automatically append canonical system Verification QR element
+            canonical_qr = {
+                "id": "system-verification-qr",
+                "type": "verification_qr",
+                "label": "Verification QR Code",
+                "binding": "certificate.verification_url",
+                "system": True,
+                "locked_system_element": True,
+                "deletable": False,
+                "x": 0.85,
+                "y": 0.82,
+                "width": 0.12,
+                "height": 0.12,
+                "minWidth": 0.05,
+                "minHeight": 0.05,
+                "aspectRatio": 1.0,
+            }
+            elements.append(canonical_qr)
+            template_data['elements'] = elements
+            attrs['template_data'] = template_data
+        else:
+            # Enforce lock parameters on existing system QR element
+            system_qr = qr_elements[0]
+            system_qr['type'] = 'verification_qr'
+            system_qr['binding'] = 'certificate.verification_url'
+            system_qr['system'] = True
+            system_qr['locked_system_element'] = True
+            system_qr['deletable'] = False
+
+            # Prevent resizing below minimum dimensions & enforce 1:1 aspect ratio
+            raw_w = system_qr.get('width', 0.12)
+            raw_h = system_qr.get('height', 0.12)
+            try:
+                w_val = float(raw_w)
+                h_val = float(raw_h)
+                side = max(0.05, min(w_val, h_val))
+                system_qr['width'] = side
+                system_qr['height'] = side
+            except (ValueError, TypeError):
+                system_qr['width'] = 0.12
+                system_qr['height'] = 0.12
+
+            system_qr['aspectRatio'] = 1.0
+            system_qr['minWidth'] = 0.05
+            system_qr['minHeight'] = 0.05
+
         if template_data and isinstance(template_data, dict):
             elements = template_data.get('elements', [])
             if isinstance(elements, list):
-                request = self.context.get('request')
-                academy = getattr(request.user, 'academy', None) if request and hasattr(request, 'user') else None
-                if not academy and self.instance:
-                    academy = self.instance.academy
-
                 from certificates.selectors import CertificateFontSelector
                 available_fonts = CertificateFontSelector.get_available_fonts(academy)
                 valid_keys = set(available_fonts.values_list('key', flat=True))
                 valid_ids = set(str(fid) for fid in available_fonts.values_list('id', flat=True))
                 valid_families = set(f.lower() for f in available_fonts.values_list('family', flat=True))
+
+                asset_ids = [
+                    str(el.get('asset_id') or el.get('assetId'))
+                    for el in elements
+                    if isinstance(el, dict) and (el.get('asset_id') or el.get('assetId'))
+                ]
+                if asset_ids and academy:
+                    from storage.models import MediaFile
+                    valid_asset_ids = set(
+                        str(uid) for uid in MediaFile.objects.filter(academy_uuid=academy.id, id__in=asset_ids).values_list('id', flat=True)
+                    )
+                    for aid in asset_ids:
+                        if aid not in valid_asset_ids:
+                            raise serializers.ValidationError({
+                                "template_data": f"Media asset '{aid}' does not belong to your academy."
+                            })
+
+                font_map = {str(f.id): f for f in available_fonts}
+                font_key_map = {f.key: f for f in available_fonts}
 
                 for el in elements:
                     if isinstance(el, dict):
@@ -188,6 +301,14 @@ class CertificateTemplateSerializer(serializers.ModelSerializer):
                         font_key = el.get('fontKey') or el.get('font_key')
                         font_fam = el.get('font_family') or el.get('fontFamily') or ''
                         
+                        target_font = None
+                        if font_id and font_id in font_map:
+                            target_font = font_map[font_id]
+                        elif font_key and font_key in font_key_map:
+                            target_font = font_key_map[font_key]
+
+                        # Note: If target_font is marked pdf_compatible=False, runtime safe fallback protects PDF generation without blocking template updates.
+
                         # Validate font reference if provided
                         if font_id and font_id in valid_ids:
                             continue
@@ -202,6 +323,7 @@ class CertificateTemplateSerializer(serializers.ModelSerializer):
                             })
 
         return attrs
+
 
 #--------------------------------------------------------------
 # CertificateSettingsSerializer
@@ -257,6 +379,7 @@ class CertificateIssueLogSerializer(serializers.ModelSerializer):
 
 class CertificateSerializer(serializers.ModelSerializer):
     pdf_download_url = serializers.SerializerMethodField()
+    verification_url = serializers.SerializerMethodField()
     issue_logs = CertificateIssueLogSerializer(many=True, read_only=True)
 
     class Meta:
@@ -280,6 +403,7 @@ class CertificateSerializer(serializers.ModelSerializer):
             'pdf_storage_mode',
             'pdf_media',
             'pdf_download_url',
+            'verification_url',
             'issued_by',
             'revoked_at',
             'revoked_by',
@@ -291,7 +415,12 @@ class CertificateSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_pdf_download_url(self, obj) -> str:
-        return f"/api/v1/student/certificates/{obj.id}/download/"
+        return f"/api/v1/certificates/student/certificates/{obj.id}/download/"
+
+    def get_verification_url(self, obj) -> str:
+        from django.conf import settings
+        student_public_url = getattr(settings, 'STUDENT_PUBLIC_URL', 'http://localhost:5174').rstrip('/')
+        return f"{student_public_url}/verify/certificate/{obj.verification_code}"
 
 #--------------------------------------------------------------
 # StudentCertificateListSerializer
@@ -301,6 +430,7 @@ class StudentCertificateListSerializer(serializers.ModelSerializer):
     course_title = serializers.CharField(source='course_name_snapshot', read_only=True)
     academy_name = serializers.CharField(source='academy_name_snapshot', read_only=True)
     pdf_download_url = serializers.SerializerMethodField()
+    verification_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Certificate
@@ -316,10 +446,16 @@ class StudentCertificateListSerializer(serializers.ModelSerializer):
             'status',
             'pdf_storage_mode',
             'pdf_download_url',
+            'verification_url',
         ]
 
     def get_pdf_download_url(self, obj) -> str:
-        return f"/api/v1/student/certificates/{obj.id}/download/"
+        return f"/api/v1/certificates/student/certificates/{obj.id}/download/"
+
+    def get_verification_url(self, obj) -> str:
+        from django.conf import settings
+        student_public_url = getattr(settings, 'STUDENT_PUBLIC_URL', 'http://localhost:5174').rstrip('/')
+        return f"{student_public_url}/verify/certificate/{obj.verification_code}"
 
 #--------------------------------------------------------------
 # PublicVerificationSerializer
@@ -327,13 +463,14 @@ class StudentCertificateListSerializer(serializers.ModelSerializer):
 
 class PublicVerificationSerializer(serializers.Serializer):
     valid = serializers.BooleanField()
+    is_preview = serializers.BooleanField(required=False, default=False)
     certificate_number = serializers.CharField()
     verification_code = serializers.CharField()
     student_name = serializers.CharField()
     course_name = serializers.CharField()
     academy_name = serializers.CharField()
-    issued_at = serializers.DateTimeField()
-    completed_at = serializers.DateTimeField()
+    issued_at = serializers.DateTimeField(allow_null=True)
+    completed_at = serializers.DateTimeField(allow_null=True)
     status = serializers.CharField()
     revoked_at = serializers.DateTimeField(allow_null=True)
     revocation_reason = serializers.CharField(allow_blank=True, allow_null=True)
@@ -372,3 +509,4 @@ class TemplatePreviewSerializer(serializers.Serializer):
     sample_student_name = serializers.CharField(required=False, default='John Doe')
     sample_course_name = serializers.CharField(required=False, default='Sample Masterclass')
     sample_academy_name = serializers.CharField(required=False, default='CubixSkill Academy')
+

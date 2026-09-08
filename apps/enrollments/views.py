@@ -509,7 +509,10 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
         course_progress.completed_lessons = completed_lessons
         course_progress.total_lessons = total_active_lessons
         course_progress.progress_percent = round(pct, 2)
+        course_just_completed = False
         if completed_lessons >= total_active_lessons and total_active_lessons > 0:
+            if course_progress.status != ProgressStatus.COMPLETED:
+                course_just_completed = True
             course_progress.status = ProgressStatus.COMPLETED
         elif completed_lessons > 0:
             course_progress.status = ProgressStatus.IN_PROGRESS
@@ -518,21 +521,42 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
         enrollment.progress_percent = course_progress.progress_percent
         enrollment.save(update_fields=['progress_percent'])
 
+        # Certificate trigger upon completion
+        cert_response = None
+        if course_progress.status == ProgressStatus.COMPLETED:
+            from certificates.services import CertificateService
+            cert_response = CertificateService.issue_or_check_for_enrollment(
+                enrollment=enrollment,
+                triggered_by="COURSE_COMPLETION",
+                issued_by=user
+            )
+
         from learning_progress.services import StudentCourseProgressionService
         progression = StudentCourseProgressionService.get_student_course_progression(user, course)
 
-        return Response({
+        resp_data = {
             'success': True,
             'lesson_id': str(lesson.id),
             'completed': True,
+            'course_completed': course_progress.status == ProgressStatus.COMPLETED,
+            'course_just_completed': course_just_completed,
             'course_progress_percent': float(course_progress.progress_percent),
+            'completion_percentage': float(course_progress.progress_percent),
             'completed_lessons': completed_lessons,
             'total_lessons': total_active_lessons,
             'next_lesson': {
                 'id': progression['resume_lesson_id'],
                 'unlocked': True
             } if progression.get('resume_lesson_id') else None
-        })
+        }
+
+        if cert_response:
+            resp_data['certificate_status'] = cert_response.get('certificate_status')
+            resp_data['certificate'] = cert_response.get('certificate')
+            resp_data['missing_fields'] = cert_response.get('missing_fields', [])
+            resp_data['certificate_details'] = cert_response
+
+        return Response(resp_data)
 
 #--------------------------------------------------------------
 # Enrollment ViewSet

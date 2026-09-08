@@ -196,8 +196,11 @@ class StudentViewSet(viewsets.ModelViewSet):
 # Student Self-Service ViewSet
 #--------------------------------------------------------------
 
+from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
+
 class StudentSelfServiceViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
 
     @action(detail=False, methods=['get'])
     def profile(self, request):
@@ -208,13 +211,66 @@ class StudentSelfServiceViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['patch'])
     def update_profile(self, request):
+        from django.db import transaction
+        from storage.models import MediaFile, MediaType, MediaStatus
+
         profile = getattr(request.user, 'student_profile', None)
         if not profile:
             raise CubixSkillAPIException("Student profile not found.", code="PROFILE_NOT_FOUND")
 
         serializer = StudentSelfUpdateSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        validated_data = serializer.validated_data
+
+        with transaction.atomic():
+            # 1. Update User attributes if provided
+            user = request.user
+            user_updated = False
+
+            if 'full_name' in validated_data:
+                new_full_name = validated_data.pop('full_name').strip()
+                if new_full_name:
+                    user.full_name = new_full_name
+                    profile.display_name = new_full_name
+                    user_updated = True
+
+            if 'phone' in validated_data:
+                new_phone = validated_data.pop('phone').strip()
+                user.phone = new_phone
+                user_updated = True
+
+            if user_updated:
+                user.save()
+
+            # 2. Handle profile_photo_id if provided (can be None for removal)
+            if 'profile_photo_id' in validated_data:
+                photo_id = validated_data.pop('profile_photo_id')
+                if photo_id is None:
+                    profile.profile_photo = None
+                else:
+                    user_academy_id = user.academy_id if hasattr(user, 'academy_id') else (user.academy.id if hasattr(user, 'academy') and user.academy else None)
+                    media = MediaFile.objects.filter(
+                        id=photo_id,
+                        uploaded_by_uuid=user.id,
+                        status=MediaStatus.ACTIVE,
+                        media_type=MediaType.IMAGE
+                    ).first()
+
+                    if not media or (user_academy_id and media.academy_uuid and media.academy_uuid != user_academy_id) or not (media.mime_type or '').startswith('image/'):
+                        raise CubixSkillAPIException(
+                            "The selected profile photo is invalid, not found, or belongs to another user/academy.",
+                            code="INVALID_PROFILE_PHOTO",
+                            status_code=400
+                        )
+
+                    profile.profile_photo = media
+
+            # 3. Update remaining StudentProfile fields
+            for attr, val in validated_data.items():
+                setattr(profile, attr, val)
+
+            profile.save()
+
         return api_response(data=StudentProfileSerializer(profile).data, message="Profile updated.")
 
 #--------------------------------------------------------------

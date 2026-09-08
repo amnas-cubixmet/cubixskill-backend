@@ -1,9 +1,15 @@
+import os
+import logging
+from django.conf import settings
+from django.db import models
 from django.http import HttpResponse
 from rest_framework import viewsets, status, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+
+logger = logging.getLogger(__name__)
 
 from rest_framework.exceptions import ValidationError
 from users_roles.models import User
@@ -12,7 +18,7 @@ from storage.models import MediaFile
 
 from certificates.models import Certificate, CertificateTemplate, CertificateIssueLog, CertPDFMode, CertificateFont, FontSourceChoices
 from certificates.selectors import CertificateSelector, CertificateFontSelector
-from certificates.services import CertificateService
+from certificates.services import CertificateService, CertificateDataResolver
 from certificates.serializers import (
     CertificateTemplateSerializer,
     CertificateSerializer,
@@ -26,6 +32,217 @@ from certificates.serializers import (
     CertificateFontSerializer,
     CertificateFontUploadSerializer,
 )
+
+#--------------------------------------------------------------
+# EnrollmentIssueOrCheckCertificateView
+#--------------------------------------------------------------
+
+from enrollments.models import Enrollment
+
+class EnrollmentIssueOrCheckCertificateView(APIView):
+    """
+    Canonical endpoint for students to trigger or re-check certificate issuance for an enrollment.
+    POST /api/v1/certificates/enrollments/<enrollment_uuid>/issue-or-check/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, enrollment_uuid: str):
+        try:
+            enrollment = Enrollment.objects.select_related('student', 'course', 'course__academy').get(
+                id=enrollment_uuid,
+                student=request.user
+            )
+        except (Enrollment.DoesNotExist, ValueError):
+            return Response(
+                {"detail": "Enrollment not found or does not belong to you."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        res = CertificateService.issue_or_check_for_enrollment(
+            enrollment=enrollment,
+            triggered_by="STUDENT_RECHECK",
+            issued_by=request.user
+        )
+        return Response(res, status=status.HTTP_200_OK)
+
+
+import re
+from django.db import transaction
+from students.models import StudentCustomFieldDefinition, StudentCustomFieldValue
+
+class EnrollmentCertificateProfileDetailsView(APIView):
+    """
+    Canonical API for authenticated student to load & save certificate personal details required for an enrollment.
+    GET /api/v1/certificates/enrollments/<enrollment_uuid>/profile-details/
+    PATCH /api/v1/certificates/enrollments/<enrollment_uuid>/profile-details/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_enrollment(self, request, enrollment_uuid: str):
+        try:
+            return Enrollment.objects.select_related('student', 'course', 'course__academy').get(
+                id=enrollment_uuid,
+                student=request.user
+            )
+        except (Enrollment.DoesNotExist, ValueError):
+            return None
+
+    def _get_assigned_template(self, course):
+        if getattr(course, 'certificate_template', None):
+            return course.certificate_template
+        return CertificateTemplate.objects.filter(academy=course.academy, is_default=True, is_active=True).first()
+
+    def get(self, request, enrollment_uuid: str):
+        enrollment = self._get_enrollment(request, enrollment_uuid)
+        if not enrollment:
+            return Response({"detail": "Enrollment not found or does not belong to you."}, status=status.HTTP_404_NOT_FOUND)
+
+        course = enrollment.course
+        template = self._get_assigned_template(course)
+        student = request.user
+
+        required_defs = CertificateService.get_required_student_fields(student, template=template, course=course)
+        resolved_data = CertificateDataResolver.resolve_data(student=student, course=course, enrollment=enrollment)
+
+        fields = []
+        missing_fields = []
+
+        for req in required_defs:
+            key = req['key']
+            label = req['label']
+            is_required = req.get('required', True)
+            field_type = req.get('type', 'text').lower()
+
+            editable = True
+            if key in ['student.email', 'student.student_code', 'student.code']:
+                editable = False
+
+            val = resolved_data.get(key, '')
+            is_missing = is_required and (val is None or str(val).strip() == '')
+
+            if is_missing:
+                missing_fields.append({"key": key, "label": label})
+
+            fields.append({
+                "key": key,
+                "label": label,
+                "type": field_type if field_type in ['text', 'textarea', 'number', 'date', 'email', 'phone'] else 'text',
+                "required": is_required,
+                "editable": editable,
+                "value": val if val is not None else '',
+                "missing": is_missing
+            })
+
+        cert = Certificate.objects.filter(enrollment=enrollment).first()
+        cert_status = cert.status if cert else ("PROFILE_INCOMPLETE" if missing_fields else "NOT_ISSUED")
+
+        return Response({
+            "enrollment_id": str(enrollment.id),
+            "course_id": str(course.id),
+            "certificate_status": cert_status,
+            "fields": fields,
+            "missing_fields": missing_fields
+        }, status=status.HTTP_200_OK)
+
+    def patch(self, request, enrollment_uuid: str):
+        enrollment = self._get_enrollment(request, enrollment_uuid)
+        if not enrollment:
+            return Response({"detail": "Enrollment not found or does not belong to you."}, status=status.HTTP_404_NOT_FOUND)
+
+        course = enrollment.course
+        template = self._get_assigned_template(course)
+        student = request.user
+        profile = getattr(student, 'student_profile', None)
+
+        payload_values = request.data.get('values', {})
+        if not isinstance(payload_values, dict):
+            return Response({
+                "code": "INVALID_PAYLOAD",
+                "detail": "Expected 'values' dictionary object in payload."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        CertificateService.ensure_certificate_name_field(course.academy)
+        required_defs = CertificateService.get_required_student_fields(student, template=template, course=course)
+        valid_keys = {req['key']: req for req in required_defs}
+
+        # Include all active certificate custom fields for this academy in valid_keys
+        from students.models import StudentCustomFieldDefinition
+        custom_defs = StudentCustomFieldDefinition.objects.filter(
+            academy=course.academy,
+            available_for_certificate=True,
+            is_active=True
+        )
+        for cd in custom_defs:
+            key_name = f"student.custom.{cd.key}"
+            if key_name not in valid_keys:
+                valid_keys[key_name] = {'key': key_name, 'label': cd.label, 'required': cd.required}
+
+        errors = {}
+
+        # Validate submitted keys
+        for key, value in payload_values.items():
+            if key not in valid_keys:
+                return Response({
+                    "code": "UNAUTHORIZED_FIELD_KEY",
+                    "detail": f"Field '{key}' is not an allowed certificate detail field for this enrollment."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if key in ['student.email', 'student.student_code', 'student.code']:
+                return Response({
+                    "code": "READ_ONLY_FIELD",
+                    "detail": f"Field '{key}' is read-only and cannot be updated."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check required fields
+        for req in required_defs:
+            key = req['key']
+            if req.get('required', False) and key not in ['student.email', 'student.student_code', 'student.code']:
+                val = payload_values.get(key, None)
+                if val is None:
+                    current_val = CertificateDataResolver.resolve_data(student=student, course=course).get(key, '')
+                    if not current_val or str(current_val).strip() == '':
+                        errors[key] = [f"{req['label']} is required."]
+                elif str(val).strip() == '':
+                    errors[key] = [f"{req['label']} is required."]
+
+        # Validate Certificate Name if provided
+        if 'student.custom.certificate_name' in payload_values:
+            cn_val = str(payload_values['student.custom.certificate_name']).strip()
+            if not cn_val:
+                errors['student.custom.certificate_name'] = ["Name on Certificate cannot be blank."]
+
+        if errors:
+            return Response({
+                "code": "CERTIFICATE_PROFILE_VALIDATION_ERROR",
+                "detail": "Please complete the required certificate details.",
+                "errors": errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            # Update ONLY Custom Fields for student profile (Zero effect on User.full_name / StudentProfile.display_name)
+            if profile:
+                for key, value in payload_values.items():
+                    if key.startswith('student.custom.'):
+                        custom_key = key.replace('student.custom.', '')
+                        cd = StudentCustomFieldDefinition.objects.filter(
+                            academy=course.academy,
+                            key=custom_key,
+                            available_for_certificate=True,
+                            is_active=True
+                        ).first()
+                        if not cd and custom_key == 'certificate_name':
+                            cd = CertificateService.ensure_certificate_name_field(course.academy)
+
+                        if cd:
+                            StudentCustomFieldValue.objects.update_or_create(
+                                student=profile,
+                                field_definition=cd,
+                                defaults={"value": str(value or '').strip()}
+                            )
+
+        # Return updated state
+        return self.get(request, enrollment_uuid)
+
 
 #--------------------------------------------------------------
 # PublicCertificateVerifyView
@@ -74,7 +291,8 @@ class CertificateTemplateBindingsView(APIView):
             return Response(bindings, status=status.HTTP_200_OK)
 
         bindings = [
-            {"key": "student.full_name", "label": "Student Name", "group": "Student", "type": "text"},
+            {"key": "student.custom.certificate_name", "label": "Name on Certificate", "group": "Personal Details", "type": "text"},
+            {"key": "student.full_name", "label": "Student Profile Name", "group": "Student", "type": "text"},
             {"key": "student.student_code", "label": "Student ID", "group": "Student", "type": "text"},
             {"key": "student.email", "label": "Student Email", "group": "Student", "type": "text"},
             {"key": "course.title", "label": "Course Name", "group": "Course", "type": "text"},
@@ -170,6 +388,17 @@ class CertificateTemplateViewSet(viewsets.ModelViewSet):
         if not academy:
             raise ValidationError("User is not associated with an Academy.")
         serializer.save(academy=academy)
+
+    @action(detail=False, methods=['get'], url_path='by-slug/(?P<slug>[\w-]+)')
+    def by_slug(self, request, slug=None):
+        template = self.get_queryset().filter(slug=slug).first()
+        if not template:
+            return Response(
+                {"detail": "Certificate template not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        serializer = self.get_serializer(template)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def destroy(self, request, *args, **kwargs):
         template = self.get_object()
@@ -475,28 +704,65 @@ class CertificateFontViewSet(viewsets.ModelViewSet):
         import uuid
         from storage.services import StorageService
 
-        mime_type = getattr(font_file, 'content_type', None) or 'application/octet-stream'
+        # 1. Save temporary file to perform CertificateFontValidator inspection
+        import tempfile
+        from certificates.font_validator import CertificateFontValidator
 
+        font_file.seek(0)
+        raw_ext = (font_file.name.split('.')[-1] if '.' in font_file.name else 'bin').lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{raw_ext}") as tmp:
+            for chunk in font_file.chunks() if hasattr(font_file, 'chunks') else [font_file.read()]:
+                tmp.write(chunk)
+            tmp_path = tmp.name
+        font_file.seek(0)
+
+        font_id = uuid.uuid4()
+        val_res = CertificateFontValidator.inspect_and_validate_font(tmp_path, str(font_id))
+
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+        if not val_res.is_pdf_compatible or not val_res.is_valid:
+            raise ValidationError({
+                "code": "CERTIFICATE_FONT_UNSUPPORTED",
+                "detail": val_res.error_message or "This font cannot be embedded in generated certificate PDFs. Please upload a TrueType-outline TTF or compatible OpenType font."
+            })
+
+        font_ext = val_res.format_ext
+        outline_type = val_res.outline_type
+        mime_type = getattr(font_file, 'content_type', None) or 'font/ttf'
+
+        # Upload using dedicated fonts storage directory
         media = StorageService.upload_media_direct(
             academy_uuid=academy.id,
             user_uuid=request.user.id,
             file_obj=font_file,
-            original_filename=font_file.name,
+            original_filename=f"{font_id}.{font_ext.lower()}",
             mime_type=mime_type,
             file_size_bytes=font_file.size,
             course_uuid=None,
             lesson_uuid=None
         )
 
-        font_key = f"custom_{academy.id}_{uuid.uuid4().hex[:8]}"
-        resolved_file_url = getattr(media, 'file_url', '') or getattr(media, 'relative_path', '') or f"/media/{media.stored_filename}"
+        font_key = f"cubix-font-{font_id}"
+        resolved_file_url = getattr(media, 'file_url', '') or (f"/media/{media.storage_key}" if getattr(media, 'storage_key', None) else f"/media/{media.stored_filename}")
 
         try:
             font = CertificateFont.objects.create(
+                id=font_id,
                 academy=academy,
                 key=font_key,
                 name=display_name,
                 family=display_name,
+                format=font_ext,
+                outline_type=outline_type,
+                pdf_compatible=True,
+                weight='400',
+                style='normal',
+                size_bytes=font_file.size,
                 source=FontSourceChoices.ACADEMY,
                 user_rights_confirmed=user_rights_confirmed,
                 media_file=media,
