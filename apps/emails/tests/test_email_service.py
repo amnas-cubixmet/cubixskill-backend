@@ -1,17 +1,15 @@
-from django.test import TestCase
-from django.core import mail
-from django.utils import timezone
-from users_roles.models import User, SystemRoleCode
 from academy.models import Academy, AcademyStatus
 from authentication.models import AuthTokenService, TokenType
+from django.core import mail
+from django.test import TestCase
 from emails.services import (
     send_academy_activation_email,
-    send_password_reset_email,
     send_password_changed_email,
+    send_password_reset_email,
     send_verification_email,
-    send_transactional_email
 )
-from emails.utils import build_setup_password_url, build_reset_password_url
+from users_roles.models import SystemRoleCode, User
+
 
 class EmailServiceTestCase(TestCase):
     def setUp(self):
@@ -30,6 +28,7 @@ class EmailServiceTestCase(TestCase):
             password_setup_completed=False
         )
         from decimal import Decimal
+
         from credits.services import CreditsService
         account = CreditsService.get_or_create_account(self.academy)
         account.balance = Decimal('100.0000')

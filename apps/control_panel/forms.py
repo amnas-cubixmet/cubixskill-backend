@@ -1,6 +1,8 @@
-from django import forms
 from decimal import Decimal
-from storage.models import StorageBillingSettings, StorageBillingInterval
+
+from django import forms
+from storage.models import StorageBillingInterval, StorageBillingSettings
+
 
 class StorageBillingSettingsForm(forms.ModelForm):
     class Meta:

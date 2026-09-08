@@ -1,9 +1,9 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import include, path
 from live_classes.views import (
     LiveSessionViewSet,
     StudentLiveClassesView,
 )
+from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
 router.register(r'live-sessions', LiveSessionViewSet, basename='live-session')

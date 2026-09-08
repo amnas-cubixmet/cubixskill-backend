@@ -15,17 +15,19 @@ if str(APPS_DIR) not in sys.path:
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 
 from django.core.asgi import get_asgi_application
+
 django_asgi_app = get_asgi_application()
 
 from channels.routing import ProtocolTypeRouter, URLRouter
+
 try:
-    from discussions_chat.middleware import TokenAuthMiddleware
-    import discussions_chat.routing as chat_routing
     import academy.routing as academy_routing
+    import discussions_chat.routing as chat_routing
+    from discussions_chat.middleware import TokenAuthMiddleware
 except ImportError:
-    from apps.discussions_chat.middleware import TokenAuthMiddleware
-    import apps.discussions_chat.routing as chat_routing
     import apps.academy.routing as academy_routing
+    import apps.discussions_chat.routing as chat_routing
+    from apps.discussions_chat.middleware import TokenAuthMiddleware
 
 # --------------------------------------------------------------
 # ASGI Application Router

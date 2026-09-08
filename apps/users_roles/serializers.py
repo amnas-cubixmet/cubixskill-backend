@@ -1,6 +1,6 @@
-from rest_framework import serializers
-from users_roles.models import User, Role, Permission, RolePermission, SystemRoleCode
 from core.utils import CubixSkillAPIException
+from rest_framework import serializers
+from users_roles.models import Permission, Role, RolePermission, SystemRoleCode, User
 
 #--------------------------------------------------------------
 # Permission Serializer

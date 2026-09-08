@@ -1,5 +1,5 @@
+from features.models import CourseFeature, Feature
 from rest_framework import serializers
-from features.models import Feature, CourseFeature, FeatureScope
 
 #--------------------------------------------------------------
 # FeatureSerializer

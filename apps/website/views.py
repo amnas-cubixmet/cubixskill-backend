@@ -1,16 +1,15 @@
-from django.shortcuts import get_object_or_404
-from django.core.cache import cache
-from rest_framework import status, permissions
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
+import uuid
 
 from academy.models import Academy
-from courses.serializers import CourseListSerializer, CourseDetailSerializer
+from courses.serializers import CourseDetailSerializer, CourseListSerializer
+from django.shortcuts import get_object_or_404
+from rest_framework import permissions, status
+from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from website.selectors import WebsiteSelector
 from website.services import WebsiteService
 
-import uuid
 
 def get_academy_by_identifier(identifier):
     try:
@@ -178,10 +177,13 @@ class PublicLessonPreviewView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, academy_slug, course_slug, lesson_id):
-        from website.selectors import WebsiteSelector
-        from lessons.models import Lesson
-        from lessons.services import get_lesson_actual_duration_seconds, get_public_preview_duration_seconds
         from django.shortcuts import get_object_or_404
+        from lessons.models import Lesson
+        from lessons.services import (
+            get_lesson_actual_duration_seconds,
+            get_public_preview_duration_seconds,
+        )
+        from website.selectors import WebsiteSelector
 
         academy = get_academy_by_identifier(academy_slug)
         course = WebsiteSelector.get_public_academy_course_by_slug(academy, course_slug)

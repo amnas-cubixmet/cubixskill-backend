@@ -1,13 +1,15 @@
 from decimal import Decimal
+
 from django.utils import timezone
 from enrollments.models import Enrollment, EnrollmentStatus
 from fees.models import (
+    FeeInstallment,
+    FeePayment,
+    InstallmentStatus,
     StudentFeeAccount,
     StudentFeeAccountStatus,
-    FeeInstallment,
-    InstallmentStatus,
-    FeePayment,
 )
+
 
 class FeeCollectionAnalyticsSelector:
 

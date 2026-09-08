@@ -1,9 +1,9 @@
 import re
-from django.utils import timezone
-from django.core.cache import cache
-from rest_framework.exceptions import ValidationError
 
 from academy.models import Academy
+from django.core.cache import cache
+from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 from website.models import WebsiteSettings, default_theme_config
 
 # --------------------------------------------------------------
@@ -71,7 +71,7 @@ class WebsiteService:
         # Validate color fields if present
         color_fields = ["primary_color", "secondary_color", "accent_color", "background_color", "surface_color", "text_color", "muted_text_color", "border_color"]
         for field in color_fields:
-            if field in data and data[field]:
+            if data.get(field):
                 cls.validate_hex_color(data[field], field)
                 current_draft[field] = data[field].upper()
 

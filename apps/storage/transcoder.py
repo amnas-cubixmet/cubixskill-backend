@@ -1,17 +1,21 @@
-import os
 import glob
 import json
-import subprocess
 import logging
+import os
 import shutil
+import subprocess
 from decimal import Decimal
+
 from django.conf import settings
 from django.utils import timezone
-from storage.models import (
-    MediaFile, StorageStreamingProfile, VideoRendition,
-    ProcessingStatus, UsageEventType
-)
 from storage.metering import StorageMeteringService
+from storage.models import (
+    MediaFile,
+    ProcessingStatus,
+    StorageStreamingProfile,
+    UsageEventType,
+    VideoRendition,
+)
 
 logger = logging.getLogger(__name__)
 

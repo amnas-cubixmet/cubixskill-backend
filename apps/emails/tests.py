@@ -1,16 +1,16 @@
-from decimal import Decimal
 from datetime import timedelta
-from django.test import TestCase
-from django.utils import timezone
+from decimal import Decimal
 
-from emails.models import EmailJob, EmailRecipientDelivery, EmailJobStatus, EmailJobType
-from emails.outbox_service import EmailJobService
-from live_classes.models import LiveSession, LiveStatus
-from live_classes.services import LiveSessionService
 from academy.models import Academy
 from courses.models import Course, CourseLevel, CourseStatus
-from users_roles.models import User
 from credits.services import CreditsService
+from django.test import TestCase
+from django.utils import timezone
+from emails.models import EmailJob, EmailJobStatus, EmailJobType
+from emails.outbox_service import EmailJobService
+from live_classes.services import LiveSessionService
+from users_roles.models import User
+
 
 class EmailOutboxSystemTests(TestCase):
     def setUp(self):

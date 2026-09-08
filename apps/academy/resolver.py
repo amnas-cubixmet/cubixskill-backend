@@ -1,6 +1,7 @@
 import logging
-from django.core.exceptions import ValidationError
+
 from academy.models import Academy
+from django.core.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 

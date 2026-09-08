@@ -1,22 +1,19 @@
-from django.shortcuts import get_object_or_404
-from rest_framework import viewsets, status, permissions
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
-
 from notifications.models import (
-    Notification,
-    NotificationPreference,
     EmailSuppression,
+    NotificationPreference,
     SuppressionReason,
 )
 from notifications.selectors import NotificationSelector
-from notifications.services import NotificationService
 from notifications.serializers import (
-    NotificationSerializer,
     NotificationPreferenceSerializer,
+    NotificationSerializer,
 )
+from notifications.services import NotificationService
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 # --------------------------------------------------------------
 # 1. User In-App Notifications ViewSet

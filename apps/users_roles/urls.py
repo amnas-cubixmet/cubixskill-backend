@@ -1,6 +1,6 @@
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
-from django.urls import path, include
-from users_roles.views import UserViewSet, RoleViewSet, PermissionViewSet
+from users_roles.views import PermissionViewSet, RoleViewSet, UserViewSet
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet, basename='user')

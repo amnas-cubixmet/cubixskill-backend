@@ -1,43 +1,48 @@
-import os
 import logging
-from django.conf import settings
+import os
+
 from django.db import models
 from django.http import HttpResponse
-from rest_framework import viewsets, status, permissions
-from rest_framework.views import APIView
-from rest_framework.response import Response
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 logger = logging.getLogger(__name__)
 
-from rest_framework.exceptions import ValidationError
-from users_roles.models import User
-from courses.models import Course
-from storage.models import MediaFile
-
-from certificates.models import Certificate, CertificateTemplate, CertificateIssueLog, CertPDFMode, CertificateFont, FontSourceChoices
-from certificates.selectors import CertificateSelector, CertificateFontSelector
-from certificates.services import CertificateService, CertificateDataResolver
+from certificates.models import (
+    Certificate,
+    CertificateFont,
+    CertificateIssueLog,
+    CertificateTemplate,
+    FontSourceChoices,
+)
+from certificates.selectors import CertificateFontSelector, CertificateSelector
 from certificates.serializers import (
-    CertificateTemplateSerializer,
-    CertificateSerializer,
-    StudentCertificateListSerializer,
-    PublicVerificationSerializer,
-    ManualIssueCertificateSerializer,
-    RevokeCertificateSerializer,
-    ReissueCertificateSerializer,
-    TemplatePreviewSerializer,
-    CertificateSettingsSerializer,
     CertificateFontSerializer,
     CertificateFontUploadSerializer,
+    CertificateSerializer,
+    CertificateSettingsSerializer,
+    CertificateTemplateSerializer,
+    ManualIssueCertificateSerializer,
+    PublicVerificationSerializer,
+    ReissueCertificateSerializer,
+    RevokeCertificateSerializer,
+    StudentCertificateListSerializer,
+    TemplatePreviewSerializer,
 )
+from certificates.services import CertificateDataResolver, CertificateService
+from courses.models import Course
 
 #--------------------------------------------------------------
 # EnrollmentIssueOrCheckCertificateView
 #--------------------------------------------------------------
-
 from enrollments.models import Enrollment
+from rest_framework.exceptions import ValidationError
+from storage.models import MediaFile
+from users_roles.models import User
+
 
 class EnrollmentIssueOrCheckCertificateView(APIView):
     """
@@ -66,9 +71,9 @@ class EnrollmentIssueOrCheckCertificateView(APIView):
         return Response(res, status=status.HTTP_200_OK)
 
 
-import re
 from django.db import transaction
 from students.models import StudentCustomFieldDefinition, StudentCustomFieldValue
+
 
 class EnrollmentCertificateProfileDetailsView(APIView):
     """
@@ -270,9 +275,9 @@ class PublicCertificateVerifyView(APIView):
 # CertificateTemplateBindingsView
 #--------------------------------------------------------------
 
-from students.models import StudentCustomFieldDefinition
 
 from certificates.discovery import CertificateFieldDiscoveryService
+
 
 class CertificateTemplateBindingsView(APIView):
     """
@@ -476,8 +481,8 @@ class CertificateTemplateViewSet(viewsets.ModelViewSet):
         if not course_id:
             raise ValidationError({"course_id": "Course ID is required."})
 
-        from courses.models import Course
         from certificates.models import CourseCertificateConfig
+        from courses.models import Course
 
         course = Course.objects.filter(id=course_id, academy=template.academy).first()
         if not course:
@@ -495,6 +500,7 @@ class CertificateTemplateViewSet(viewsets.ModelViewSet):
 #--------------------------------------------------------------
 
 from core.utils import StandardPagination
+
 
 class CertificateViewSet(viewsets.ModelViewSet):
     """
@@ -701,12 +707,12 @@ class CertificateFontViewSet(viewsets.ModelViewSet):
         display_name = serializer.validated_data['display_name']
         user_rights_confirmed = serializer.validated_data['user_rights_confirmed']
 
-        import uuid
-        from storage.services import StorageService
-
         # 1. Save temporary file to perform CertificateFontValidator inspection
         import tempfile
+        import uuid
+
         from certificates.font_validator import CertificateFontValidator
+        from storage.services import StorageService
 
         font_file.seek(0)
         raw_ext = (font_file.name.split('.')[-1] if '.' in font_file.name else 'bin').lower()

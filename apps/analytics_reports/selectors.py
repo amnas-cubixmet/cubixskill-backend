@@ -1,19 +1,18 @@
 from decimal import Decimal
-from django.db.models import Count, Sum, Avg, Q, F
-from django.utils import timezone
 
 from academy.models import Academy
-from students.models import StudentProfile, StudentStatus
-from courses.models import Course, CourseStatus
-from enrollments.models import Enrollment, EnrollmentStatus
-from learning_progress.models import CourseProgress, ProgressStatus
-from live_classes.models import LiveSession, LiveStatus, LiveSessionAttendance
-
-from leads.models import Lead, LeadStatus
-from payments.models import PaymentOrder, OrderStatus, PaymentRefund, PaymentContext
-from credits.models import CreditAccount, CreditLedgerEntry, LedgerEntryType
-from storage.models import MediaFile
 from certificates.models import Certificate
+from courses.models import Course, CourseStatus
+from credits.models import CreditAccount
+from django.db.models import Avg, Count, Sum
+from django.utils import timezone
+from enrollments.models import Enrollment, EnrollmentStatus
+from leads.models import Lead, LeadStatus
+from learning_progress.models import CourseProgress, ProgressStatus
+from live_classes.models import LiveSession, LiveSessionAttendance, LiveStatus
+from payments.models import OrderStatus, PaymentContext, PaymentOrder, PaymentRefund
+from storage.models import MediaFile
+from students.models import StudentProfile, StudentStatus
 
 # --------------------------------------------------------------
 # Analytics Selectors
@@ -97,8 +96,8 @@ class AnalyticsSelector:
         certificates_issued = Certificate.objects.filter(student__academy=academy, status='ISSUED').count() if academy else 0
 
         # 9. Storage Billing Outstanding
-        from storage.services import StorageOutstandingService
         from storage.models import StorageBillingCycle, StorageBillingCycleStatus
+        from storage.services import StorageOutstandingService
         outstanding_credits = StorageOutstandingService.get_total_outstanding_credits(academy) if academy else Decimal("0.0000")
         has_outstanding = (outstanding_credits > Decimal("0.0000"))
         open_cycle = StorageBillingCycle.objects.filter(

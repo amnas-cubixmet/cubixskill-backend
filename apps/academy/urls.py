@@ -1,6 +1,6 @@
-from django.urls import path, include
+from academy.views import AcademyProfileView, AcademySettingsView, AcademyViewSet
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
-from academy.views import AcademyViewSet, AcademyProfileView, AcademySettingsView
 
 router = DefaultRouter()
 router.register(r'academies', AcademyViewSet, basename='academy')

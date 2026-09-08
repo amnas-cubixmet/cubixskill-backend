@@ -1,19 +1,16 @@
 from decimal import Decimal
-from django.test import TestCase
-from rest_framework.exceptions import ValidationError
 
 from academy.models import Academy
-from users_roles.models import User, SystemRoleCode
 from credits.models import (
-    CreditAccount,
-    CreditLedgerEntry,
-    CreditAdjustment,
-    LedgerEntryType,
-    CreditSourceType,
     AdjustmentType,
+    CreditLedgerEntry,
+    CreditSourceType,
+    LedgerEntryType,
 )
 from credits.services import CreditsService
-from credits.selectors import CreditSelector
+from django.test import TestCase
+from users_roles.models import SystemRoleCode, User
+
 
 class CreditsAppTestCase(TestCase):
     def setUp(self):
@@ -192,7 +189,7 @@ class CreditsAppTestCase(TestCase):
         """
         Tests full end-to-end Razorpay payment verification, wallet credit, and double-verify idempotency.
         """
-        from credits.models import CreditRate, CreditPurchase
+        from credits.models import CreditRate
         from rest_framework.test import APIClient
         rate = CreditRate.objects.create(
             name="Test Pack 100",
@@ -297,11 +294,14 @@ class CreditsAppTestCase(TestCase):
         """
         Tests Section A & B: Feature Credit Billing calculations, INCLUDED zero charges, PER_STUDENT rates, and get_billable_student_count.
         """
-        from credits.services import get_billable_student_count, FeatureBillingService, MonthlyBillingService
-        from credits.models import FeatureBillingRule, FeatureBillingType
-        from students.models import StudentProfile, StudentStatus
-        from enrollments.models import Enrollment, EnrollmentStatus
         from courses.models import Course
+        from credits.models import FeatureBillingRule, FeatureBillingType
+        from credits.services import (
+            MonthlyBillingService,
+            get_billable_student_count,
+        )
+        from enrollments.models import Enrollment, EnrollmentStatus
+        from students.models import StudentProfile, StudentStatus
 
         # Create students and enrollments
         u1 = User.objects.create_user(email="s1@test.com", full_name="Student 1", academy=self.academy, role_code=SystemRoleCode.STUDENT)
@@ -328,8 +328,12 @@ class CreditsAppTestCase(TestCase):
         """
         Tests Section D, E, F, G, U: Daily snapshots, AVERAGE_DAILY monthly average, free 5GB allowance, and storage credit deduction.
         """
-        from credits.services import StorageBillingService, MonthlyBillingService
-        from credits.models import StorageBillingSetting, StorageBillingMethod, AcademyStorageDailySnapshot
+        from credits.models import (
+            AcademyStorageDailySnapshot,
+            StorageBillingMethod,
+            StorageBillingSetting,
+        )
+        from credits.services import StorageBillingService
         from django.utils import timezone
 
         now = timezone.now()
@@ -357,8 +361,8 @@ class CreditsAppTestCase(TestCase):
         """
         Tests Section H, I, Q: Monthly billing invoice generation, line items, and duplicate task idempotency protection.
         """
-        from credits.services import MonthlyBillingService, CreditsService
-        from credits.models import MonthlyBillingInvoice, InvoiceStatus
+        from credits.models import InvoiceStatus
+        from credits.services import CreditsService, MonthlyBillingService
         from django.utils import timezone
 
         now = timezone.now()

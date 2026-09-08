@@ -1,9 +1,10 @@
 import os
 import sys
-from pathlib import Path
 from datetime import timedelta
-from dotenv import load_dotenv
+from pathlib import Path
+
 from corsheaders.defaults import default_headers, default_methods
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -196,6 +197,7 @@ MINIO_REGION_NAME = os.getenv('MINIO_REGION_NAME', 'us-east-1')
 MINIO_USE_SSL = os.getenv('MINIO_USE_SSL', 'False').lower() in ('true', '1', 't')
 
 import mimetypes
+
 mimetypes.add_type('application/vnd.apple.mpegurl', '.m3u8')
 mimetypes.add_type('video/mp2t', '.ts')
 

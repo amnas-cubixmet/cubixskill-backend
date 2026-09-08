@@ -1,7 +1,13 @@
+from courses.models import (
+    CategoryAlias,
+    CategoryMergeAudit,
+    Course,
+    CourseCategory,
+    CourseLanguage,
+    CourseModule,
+)
 from rest_framework import serializers
-from courses.models import Course, CourseCategory, CourseLanguage, CourseModule, CategoryAlias, CategoryMergeAudit
 from storage.serializers import MediaFileSerializer
-
 
 #--------------------------------------------------------------
 # Language Serializer
@@ -86,17 +92,17 @@ class CourseListSerializer(serializers.ModelSerializer):
         ]
 
     def get_module_count(self, obj):
-        from modules.models import Module
         from courses.models import CourseModule
+        from modules.models import Module
         m1 = Module.objects.filter(course=obj, is_active=True).count()
         m2 = CourseModule.objects.filter(course=obj, is_active=True).count()
         return m1 + m2
 
     def get_lesson_count(self, obj):
-        from modules.models import Module
-        from lessons.models import Lesson
         from courses.models import CourseModule
         from django.db import models
+        from lessons.models import Lesson
+        from modules.models import Module
         m1_ids = list(Module.objects.filter(course=obj, is_active=True).values_list('id', flat=True))
         m2_ids = list(CourseModule.objects.filter(course=obj, is_active=True).values_list('id', flat=True))
         return Lesson.objects.filter(models.Q(module_id__in=m1_ids) | models.Q(module_id__in=m2_ids), is_active=True).count()
@@ -161,7 +167,10 @@ class PublicLessonSerializer(serializers.ModelSerializer):
     def get_preview_duration_seconds(self, obj):
         if not getattr(obj, 'is_demo', False):
             return 0
-        from lessons.services import get_lesson_actual_duration_seconds, get_public_preview_duration_seconds
+        from lessons.services import (
+            get_lesson_actual_duration_seconds,
+            get_public_preview_duration_seconds,
+        )
         actual_secs = get_lesson_actual_duration_seconds(obj)
         return get_public_preview_duration_seconds(actual_secs)
 
@@ -222,17 +231,17 @@ class CourseDetailSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'slug', 'academy', 'is_published', 'published_at', 'created_at', 'updated_at']
 
     def get_module_count(self, obj):
-        from modules.models import Module
         from courses.models import CourseModule
+        from modules.models import Module
         m1 = Module.objects.filter(course=obj, is_active=True).count()
         m2 = CourseModule.objects.filter(course=obj, is_active=True).count()
         return m1 + m2
 
     def get_lesson_count(self, obj):
-        from modules.models import Module
-        from lessons.models import Lesson
         from courses.models import CourseModule
         from django.db import models
+        from lessons.models import Lesson
+        from modules.models import Module
         m1_ids = list(Module.objects.filter(course=obj, is_active=True).values_list('id', flat=True))
         m2_ids = list(CourseModule.objects.filter(course=obj, is_active=True).values_list('id', flat=True))
         return Lesson.objects.filter(models.Q(module_id__in=m1_ids) | models.Q(module_id__in=m2_ids), is_active=True).count()

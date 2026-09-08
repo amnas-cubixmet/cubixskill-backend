@@ -1,11 +1,11 @@
-from rest_framework import serializers
 from analytics_reports.models import (
     AnalyticsSnapshot,
-    ReportJob,
-    SavedReport,
-    ReportType,
     ReportFormat,
+    ReportJob,
+    ReportType,
+    SavedReport,
 )
+from rest_framework import serializers
 
 # --------------------------------------------------------------
 # Analytics & Reports Serializers

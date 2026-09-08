@@ -1,5 +1,5 @@
-from rest_framework.routers import DefaultRouter
 from enrollments.views import EnrollmentViewSet, StudentEnrollmentViewSet
+from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
 router.register(r'enrollments', EnrollmentViewSet, basename='enrollment')

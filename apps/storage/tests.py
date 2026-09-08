@@ -1,25 +1,32 @@
 import os
 import subprocess
 import uuid
-from decimal import Decimal
 from datetime import timedelta
-from django.test import TestCase
-from django.conf import settings
-from django.utils import timezone
-from rest_framework.test import APIClient
-from rest_framework import status
-from django.core.files.uploadedfile import SimpleUploadedFile
+from decimal import Decimal
+
 from academy.models import Academy
-from users_roles.models import User, SystemRoleCode
+from courses.models import Course
+from credits.models import CreditSourceType
+from credits.services import CreditService
+from django.conf import settings
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APIClient
+from storage.metering import StorageBillingService, StorageMeteringService
 from storage.models import (
-    MediaFile, MediaStatus, MediaType, AcademyStorageAccount,
-    StorageUsageEvent, StorageMonthlyBilling, BillingStatus, UsageEventType
+    AcademyStorageAccount,
+    BillingStatus,
+    MediaFile,
+    MediaStatus,
+    MediaType,
+    StorageUsageEvent,
+    UsageEventType,
 )
 from storage.services import StorageService
-from storage.metering import StorageMeteringService, StorageBillingService
-from credits.services import CreditService
-from credits.models import CreditAccount, LedgerEntryType, CreditSourceType
-from courses.models import Course
+from users_roles.models import SystemRoleCode, User
+
 
 class StorageServiceTests(TestCase):
     def setUp(self):
@@ -342,8 +349,12 @@ class StorageServiceTests(TestCase):
 
     def test_video_transcoder_hls_generation(self):
         """Verify VideoTranscoder process_media_video creates master.m3u8 and records STREAMING_GENERATED storage event."""
-        import tempfile
-        from storage.models import MediaFile, ProcessingStatus, UsageEventType, StorageUsageEvent
+        from storage.models import (
+            MediaFile,
+            ProcessingStatus,
+            StorageUsageEvent,
+            UsageEventType,
+        )
         from storage.transcoder import VideoTranscoder, get_ffmpeg_binary
 
         # Create real sample source video file on disk
@@ -401,7 +412,6 @@ class StorageServiceTests(TestCase):
 
     def test_ffmpeg_failure_handling(self):
         """Verify FFmpeg failure marks MediaFile status as FAILED."""
-        from unittest.mock import patch
         from storage.models import MediaFile, ProcessingStatus
         from storage.transcoder import VideoTranscoder
 
@@ -431,8 +441,9 @@ class StorageServiceTests(TestCase):
 
     def test_storage_rental_tracking_upload_delete(self):
         """Verify upload increases used_bytes by file size and delete decreases it safely."""
-        from storage.models import AcademyStorageUsage
-        from credits.services import StorageBillingService as CreditStorageBillingService
+        from credits.services import (
+            StorageBillingService as CreditStorageBillingService,
+        )
 
         ten_mb = 10 * 1024 * 1024
         usage_obj = CreditStorageBillingService.increment_storage(self.academy, ten_mb)
@@ -447,9 +458,15 @@ class StorageServiceTests(TestCase):
 
     def test_interval_billing_calculation_and_idempotency(self):
         """Verify interval billing calculation: 10 GB, Rate 2 credits/GB -> 20 Credits charged idempotently."""
-        from storage.models import StorageBillingSettings, StorageUsageCharge, AcademyStorageUsage
+        from credits.services import CreditService
+        from credits.services import (
+            StorageBillingService as CreditStorageBillingService,
+        )
+        from storage.models import (
+            StorageBillingSettings,
+            StorageUsageCharge,
+        )
         from storage.tasks import capture_and_bill_due_storage_usage
-        from credits.services import StorageBillingService as CreditStorageBillingService, CreditService
 
         settings_obj = StorageBillingSettings.get_settings()
         settings_obj.storage_billing_enabled = True
@@ -484,9 +501,11 @@ class StorageServiceTests(TestCase):
 
     def test_rate_snapshot_immutability(self):
         """Verify rate changes in settings do not alter historical StorageUsageCharge rates."""
+        from credits.services import (
+            StorageBillingService as CreditStorageBillingService,
+        )
         from storage.models import StorageBillingSettings, StorageUsageCharge
         from storage.tasks import capture_and_bill_due_storage_usage
-        from credits.services import StorageBillingService as CreditStorageBillingService
 
         settings_obj = StorageBillingSettings.get_settings()
         settings_obj.storage_billing_enabled = True
@@ -513,9 +532,16 @@ class StorageServiceTests(TestCase):
 
     def test_storage_metering_accumulation_and_single_debit_at_debit_time(self):
         from decimal import Decimal
-        from storage.models import StorageBillingSettings, StorageBillingCycle
-        from storage.tasks import meter_due_storage_usage, debit_due_storage_billing_cycles
-        from credits.services import StorageBillingService as CreditStorageBillingService, CreditService
+
+        from credits.services import CreditService
+        from credits.services import (
+            StorageBillingService as CreditStorageBillingService,
+        )
+        from storage.models import StorageBillingCycle, StorageBillingSettings
+        from storage.tasks import (
+            debit_due_storage_billing_cycles,
+            meter_due_storage_usage,
+        )
 
         settings_obj = StorageBillingSettings.get_settings()
         settings_obj.storage_billing_enabled = True
@@ -550,12 +576,20 @@ class StorageServiceTests(TestCase):
 
     def test_file_lifetime_billing_two_days_only(self):
         """PATH 26: A file present for 2 days appears in applicable meter records, disappears after delete, but past records remain."""
-        from decimal import Decimal
         from datetime import timedelta
+        from decimal import Decimal
+
+        from credits.services import (
+            StorageBillingService as CreditStorageBillingService,
+        )
         from django.utils import timezone
-        from storage.models import StorageBillingSettings, StorageBillingCycle, StorageMeterRecord, AcademyStorageUsage
+        from storage.models import (
+            AcademyStorageUsage,
+            StorageBillingCycle,
+            StorageBillingSettings,
+            StorageMeterRecord,
+        )
         from storage.tasks import meter_due_storage_usage
-        from credits.services import StorageBillingService as CreditStorageBillingService
 
         settings_obj = StorageBillingSettings.get_settings()
         settings_obj.storage_billing_enabled = True
@@ -602,10 +636,10 @@ class StorageServiceTests(TestCase):
 
     def test_upload_safety_and_billing_non_blocking(self):
         """Verify upload creates storage usage row automatically, increments once, works with billing ON/OFF, and doesn't debit credits."""
-        from django.core.files.uploadedfile import SimpleUploadedFile
-        from storage.services import StorageService
-        from storage.models import AcademyStorageUsage, StorageBillingSettings
         from credits.services import CreditService
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from storage.models import AcademyStorageUsage, StorageBillingSettings
+        from storage.services import StorageService
 
         # Ensure no prior AcademyStorageUsage row exists for self.academy
         AcademyStorageUsage.objects.filter(academy=self.academy).delete()
@@ -651,9 +685,19 @@ class StorageServiceTests(TestCase):
     def test_ten_seconds_metering_accumulates_without_settling(self):
         """Verify 10_SECONDS metering interval creates meter records and accumulates credits into OPEN cycle without debiting balance."""
         from decimal import Decimal
-        from storage.models import StorageBillingSettings, StorageBillingCycle, StorageMeterRecord, AcademyStorageUsage
-        from storage.tasks import meter_due_storage_usage, debit_due_storage_billing_cycles
-        from credits.services import CreditService, StorageBillingService as CreditStorageBillingService
+
+        from credits.services import CreditService
+        from credits.services import (
+            StorageBillingService as CreditStorageBillingService,
+        )
+        from storage.models import (
+            StorageBillingCycle,
+            StorageBillingSettings,
+        )
+        from storage.tasks import (
+            debit_due_storage_billing_cycles,
+            meter_due_storage_usage,
+        )
 
         # Setup billing settings
         settings_obj = StorageBillingSettings.get_settings()
@@ -685,10 +729,10 @@ class StorageServiceTests(TestCase):
 
 class HLSVideoUploadArchitectureTests(TestCase):
     def setUp(self):
-        from rest_framework.test import APIClient
         from academy.models import Academy
-        from users_roles.models import User, SystemRoleCode
         from control_panel.models import SystemSetting
+        from rest_framework.test import APIClient
+        from users_roles.models import SystemRoleCode, User
 
         self.client = APIClient()
         self.academy = Academy.objects.create(name="HLS Test Academy", slug="hls-test-academy", email="hls@test.com", hls_video_enabled=True)
@@ -706,8 +750,9 @@ class HLSVideoUploadArchitectureTests(TestCase):
 
     def test_image_upload_hls_disabled(self):
         """Verify image upload results in direct processing mode and READY status without enqueuing Celery task."""
-        from django.core.files.uploadedfile import SimpleUploadedFile
         from unittest.mock import patch
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
 
         img_file = SimpleUploadedFile("avatar.png", b"PNG dummy data 123", content_type="image/png")
         with patch("storage.tasks.process_video_transcoding_task.delay") as mock_delay:
@@ -721,8 +766,9 @@ class HLSVideoUploadArchitectureTests(TestCase):
 
     def test_video_upload_hls_off(self):
         """Verify video upload with hls_enabled=false results in direct processing mode and READY status."""
-        from django.core.files.uploadedfile import SimpleUploadedFile
         from unittest.mock import patch
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
 
         vid_file = SimpleUploadedFile("sample.mp4", b"MP4 dummy video content", content_type="video/mp4")
         with patch("storage.tasks.process_video_transcoding_task.delay") as mock_delay:
@@ -741,8 +787,9 @@ class HLSVideoUploadArchitectureTests(TestCase):
 
     def test_video_upload_hls_on(self):
         """Verify video upload with hls_enabled=true results in HLS mode and QUEUED status, enqueuing Celery task once."""
-        from django.core.files.uploadedfile import SimpleUploadedFile
         from unittest.mock import patch
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
 
         vid_file = SimpleUploadedFile("sample_hls.mp4", b"MP4 dummy video content for HLS", content_type="video/mp4")
         with patch("storage.tasks.process_video_transcoding_task.delay") as mock_delay:
@@ -762,9 +809,10 @@ class HLSVideoUploadArchitectureTests(TestCase):
 
     def test_global_hls_off_takes_precedence(self):
         """Verify global SystemSetting hls_streaming_enabled=false overrides request hls_enabled=true."""
-        from django.core.files.uploadedfile import SimpleUploadedFile
-        from control_panel.models import SystemSetting
         from unittest.mock import patch
+
+        from control_panel.models import SystemSetting
+        from django.core.files.uploadedfile import SimpleUploadedFile
 
         SystemSetting.objects.update_or_create(key='hls_streaming_enabled', defaults={'value': 'false'})
 
@@ -783,8 +831,9 @@ class HLSVideoUploadArchitectureTests(TestCase):
 
     def test_academy_hls_off_takes_precedence(self):
         """Verify Academy hls_video_enabled=false forces direct mode when request does not override."""
-        from django.core.files.uploadedfile import SimpleUploadedFile
         from unittest.mock import patch
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
 
         self.academy.hls_video_enabled = False
         self.academy.save()
@@ -831,6 +880,7 @@ class HLSVideoUploadArchitectureTests(TestCase):
     def test_nonexistent_course_uuid_404(self):
         """Verify uploading with random course_uuid returns HTTP 404 COURSE_NOT_FOUND."""
         import uuid
+
         from django.core.files.uploadedfile import SimpleUploadedFile
         doc_file = SimpleUploadedFile("doc.pdf", b"pdf bytes", content_type="application/pdf")
         resp = self.client.post("/api/v1/storage/upload/", {"file": doc_file, "course_uuid": str(uuid.uuid4())}, format="multipart")
@@ -848,6 +898,7 @@ class HLSVideoUploadArchitectureTests(TestCase):
     def test_nonexistent_lesson_uuid_404(self):
         """Verify uploading with non-existent lesson_uuid returns HTTP 404 LESSON_NOT_FOUND."""
         import uuid
+
         from django.core.files.uploadedfile import SimpleUploadedFile
         doc_file = SimpleUploadedFile("doc.pdf", b"pdf bytes", content_type="application/pdf")
         resp = self.client.post("/api/v1/storage/upload/", {"file": doc_file, "lesson_uuid": str(uuid.uuid4())}, format="multipart")
@@ -856,9 +907,10 @@ class HLSVideoUploadArchitectureTests(TestCase):
 
     def test_celery_broker_failure_graceful_handling(self):
         """Verify system returns HTTP 201 and sets processing_status=FAILED if Celery broker enqueue fails."""
+        from unittest.mock import patch
+
         from django.core.files.uploadedfile import SimpleUploadedFile
         from storage.models import MediaFile, ProcessingStatus
-        from unittest.mock import patch
 
         vid_file = SimpleUploadedFile("broker_fail.mp4", b"MP4 dummy content for broker test", content_type="video/mp4")
         with patch("storage.tasks.process_video_transcoding_task.delay", side_effect=Exception("Redis connection refused")):
@@ -880,7 +932,7 @@ class HLSVideoUploadArchitectureTests(TestCase):
     def test_storage_metering_recorded_exactly_once(self):
         """Verify single upload creates exactly one StorageUsageEvent with UPLOAD type."""
         from django.core.files.uploadedfile import SimpleUploadedFile
-        from storage.models import StorageUsageEvent, UsageEventType, MediaFile
+        from storage.models import StorageUsageEvent, UsageEventType
 
         doc_file = SimpleUploadedFile("single_meter.pdf", b"test content for single metering", content_type="application/pdf")
         initial_event_count = StorageUsageEvent.objects.filter(academy_uuid=self.academy.id, event_type=UsageEventType.UPLOAD).count()

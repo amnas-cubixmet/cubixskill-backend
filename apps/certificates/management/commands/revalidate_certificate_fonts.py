@@ -1,9 +1,10 @@
-import os
 import logging
-from django.core.management.base import BaseCommand
-from django.conf import settings
-from certificates.models import CertificateFont
+import os
+
 from certificates.font_validator import CertificateFontValidator
+from certificates.models import CertificateFont
+from django.conf import settings
+from django.core.management.base import BaseCommand
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +36,7 @@ class Command(BaseCommand):
                 continue
 
             clean_rel = candidate_path.lstrip('/')
-            if clean_rel.startswith('media/'):
-                clean_rel = clean_rel[6:]
+            clean_rel = clean_rel.removeprefix('media/')
             abs_path = os.path.join(settings.MEDIA_ROOT, clean_rel)
 
             if not os.path.exists(abs_path):

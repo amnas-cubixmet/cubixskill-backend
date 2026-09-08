@@ -1,8 +1,15 @@
-from rest_framework import serializers
 from lessons.models import (
-    Lesson, LessonMedia, LessonRichText, Quiz, Question, QuestionOption,
-    Assignment, AssignmentAsset, LessonResource
+    Assignment,
+    AssignmentAsset,
+    Lesson,
+    LessonMedia,
+    LessonResource,
+    LessonRichText,
+    Question,
+    QuestionOption,
+    Quiz,
 )
+from rest_framework import serializers
 from storage.models import MediaFile
 from storage.serializers import MediaFileSerializer
 

@@ -1,24 +1,28 @@
 import logging
-from django.utils import timezone
-from rest_framework import viewsets, status, permissions
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 
 from courses.models import Course
-from live_classes.models import LiveSession, LiveSessionAttendance, LiveSessionParticipant, ParticipantRole
+from django.utils import timezone
+from live_classes.models import (
+    LiveSession,
+    LiveSessionAttendance,
+    ParticipantRole,
+)
 from live_classes.selectors import LiveSessionSelector
-from live_classes.services import LiveSessionService
 from live_classes.serializers import (
-    LiveSessionSerializer,
-    LiveSessionCreateSerializer,
-    LiveSessionUpdateSerializer,
-    LiveSessionAttendanceSerializer,
-    EndSessionRequestSerializer,
     CancelSessionRequestSerializer,
+    EndSessionRequestSerializer,
+    LiveSessionAttendanceSerializer,
+    LiveSessionCreateSerializer,
+    LiveSessionSerializer,
+    LiveSessionUpdateSerializer,
     StudentLiveClassesResponseSerializer,
 )
+from live_classes.services import LiveSessionService
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 logger = logging.getLogger(__name__)
 

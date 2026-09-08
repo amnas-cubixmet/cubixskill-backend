@@ -1,10 +1,11 @@
-from django.contrib import admin
 from certificates.models import (
-    CertificateTemplate,
     Certificate,
     CertificateIssueLog,
     CertificateSettings,
+    CertificateTemplate,
 )
+from django.contrib import admin
+
 
 @admin.register(CertificateSettings)
 class CertificateSettingsAdmin(admin.ModelAdmin):

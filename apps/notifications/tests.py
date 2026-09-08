@@ -1,21 +1,20 @@
+from academy.models import Academy
 from django.test import TestCase
 from django.urls import reverse
-from rest_framework.test import APIClient
-from rest_framework import status
-
-from academy.models import Academy
-from users_roles.models import User, SystemRoleCode
 from notifications.models import (
-    Notification,
-    NotificationDelivery,
-    NotificationPreference,
-    EmailSuppression,
     DeliveryChannel,
     DeliveryStatus,
+    EmailSuppression,
+    Notification,
+    NotificationDelivery,
     NotificationType,
     SuppressionReason,
 )
-from notifications.services import NotificationService, EmailService
+from notifications.services import EmailService, NotificationService
+from rest_framework import status
+from rest_framework.test import APIClient
+from users_roles.models import SystemRoleCode, User
+
 
 class NotificationsAppTestCase(TestCase):
     def setUp(self):

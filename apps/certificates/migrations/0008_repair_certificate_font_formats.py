@@ -1,6 +1,8 @@
 import os
-from django.db import migrations
+
 from django.conf import settings
+from django.db import migrations
+
 
 def repair_font_formats(apps, schema_editor):
     CertificateFont = apps.get_model('certificates', 'CertificateFont')
@@ -13,8 +15,7 @@ def repair_font_formats(apps, schema_editor):
 
         if candidate_path:
             clean_rel = candidate_path.lstrip('/')
-            if clean_rel.startswith('media/'):
-                clean_rel = clean_rel[6:]
+            clean_rel = clean_rel.removeprefix('media/')
             abs_path = os.path.join(settings.MEDIA_ROOT, clean_rel)
             if os.path.exists(abs_path):
                 ext = abs_path.split('.')[-1].upper()

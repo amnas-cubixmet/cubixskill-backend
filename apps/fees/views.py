@@ -1,31 +1,28 @@
 from decimal import Decimal
-from django.utils import timezone
-from rest_framework import status, permissions
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
 
 from core.permissions import CanAccessAcademyPermission
 from core.utils import api_response
 from courses.models import Course
-from users_roles.models import User
+from django.utils import timezone
 from enrollments.models import Enrollment, EnrollmentStatus
 from fees.models import (
-    StudentFeeAccount,
-    FeeInstallment,
     FeePayment,
-    FeeAdjustment,
-    StudentFeeAccountStatus,
     InstallmentStatus,
+    StudentFeeAccount,
+    StudentFeeAccountStatus,
     StudentFeePlanType,
 )
+from fees.selectors import FeeCollectionAnalyticsSelector
 from fees.services import (
     FeeAccountService,
     FeeCollectionService,
     FeeReminderService,
 )
-from fees.selectors import FeeCollectionAnalyticsSelector
 from payments.models import PaymentMethod
+from rest_framework import permissions, status
+from rest_framework.exceptions import ValidationError
+from rest_framework.views import APIView
+from users_roles.models import User
 
 # --------------------------------------------------------------
 # 1. Course Fee Collection Summary API
@@ -695,7 +692,7 @@ class StudentFeeCheckoutOrderView(APIView):
         if payment_amount <= Decimal('0.00') or payment_amount > balance:
             raise ValidationError({"amount": [f"Invalid payment amount. Remaining payable balance is {balance}."]})
 
-        amount_in_paise = int(payment_amount * Decimal('100'))
+        amount_in_paise = int(payment_amount * Decimal(100))
 
         from payments.views import resolve_payment_credentials
         cred = resolve_payment_credentials(account.academy)
@@ -758,7 +755,8 @@ class StudentFeeVerifyPaymentView(APIView):
         if rzp_signature == 'mock_sig_valid' or not key_secret:
             is_valid = True
         else:
-            import hmac, hashlib
+            import hashlib
+            import hmac
             msg = f"{rzp_order_id}|{rzp_payment_id}"
             generated_sig = hmac.new(key_secret.encode('utf-8'), msg.encode('utf-8'), hashlib.sha256).hexdigest()
             is_valid = hmac.compare_digest(generated_sig, rzp_signature)

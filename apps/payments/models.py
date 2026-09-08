@@ -1,8 +1,9 @@
 import uuid
 from decimal import Decimal
+
+from core.models import BaseModel
 from django.db import models
 from django.utils import timezone
-from core.models import BaseModel
 
 # --------------------------------------------------------------
 # Payment Context & Choices
@@ -525,14 +526,3 @@ class PaymentWebhookEvent(BaseModel):
 # --------------------------------------------------------------
 # 9. Student Fee Collection Domain Models (re-exported from fees app)
 # --------------------------------------------------------------
-from fees.models import (
-    StudentFeePlanType,
-    StudentFeeAccountStatus,
-    InstallmentStatus,
-    StudentFeeAccount,
-    FeeInstallment,
-    FeePayment,
-    FeePaymentAllocation,
-    FeeAdjustment,
-    CourseDefaultFeePlan,
-)

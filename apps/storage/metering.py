@@ -1,17 +1,25 @@
 import logging
+from datetime import datetime
+from datetime import timezone as dt_timezone
 from decimal import Decimal
-from datetime import datetime, time, timezone as dt_timezone
+
+from academy.models import Academy
+from core.exceptions import CubixSkillAPIException
+from credits.models import CreditRate, CreditSourceType
+from credits.services import CreditPricingService, CreditService
 from django.db import transaction
-from django.db.models import Sum, Q, Max
+from django.db.models import Sum
 from django.utils import timezone
 from storage.models import (
-    MediaFile, AcademyStorageAccount, StorageUsageEvent, StorageUsageRollup,
-    StorageMonthlyBilling, UsageEventType, BillingStatus, MediaStatus
+    AcademyStorageAccount,
+    BillingStatus,
+    MediaFile,
+    MediaStatus,
+    StorageMonthlyBilling,
+    StorageUsageEvent,
+    StorageUsageRollup,
+    UsageEventType,
 )
-from academy.models import Academy
-from credits.services import CreditService, CreditPricingService
-from credits.models import CreditSourceType, CreditRate
-from core.exceptions import CubixSkillAPIException
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +77,9 @@ class StorageMeteringService:
         # Sync with AcademyStorageUsage model (Section F)
         if media_file.academy_uuid:
             from academy.models import Academy
-            from credits.services import StorageBillingService as CreditStorageBillingService
+            from credits.services import (
+                StorageBillingService as CreditStorageBillingService,
+            )
             acad = Academy.objects.filter(id=media_file.academy_uuid).first()
             if acad:
                 CreditStorageBillingService.increment_storage(acad, charge_bytes)
@@ -114,7 +124,9 @@ class StorageMeteringService:
         # Sync with AcademyStorageUsage model (Section F)
         if media_file.academy_uuid:
             from academy.models import Academy
-            from credits.services import StorageBillingService as CreditStorageBillingService
+            from credits.services import (
+                StorageBillingService as CreditStorageBillingService,
+            )
             acad = Academy.objects.filter(id=media_file.academy_uuid).first()
             if acad:
                 CreditStorageBillingService.decrement_storage(acad, media_file.size_bytes)
@@ -196,8 +208,7 @@ class StorageMeteringService:
                 total_byte_seconds += current_level * int(duration)
 
             current_level = ev.storage_after_bytes
-            if current_level > peak_bytes:
-                peak_bytes = current_level
+            peak_bytes = max(peak_bytes, current_level)
             last_t = ev.occurred_at
 
         # Final segment up to end_dt

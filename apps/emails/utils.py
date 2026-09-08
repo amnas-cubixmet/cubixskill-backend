@@ -1,5 +1,7 @@
 import os
+
 from django.conf import settings
+
 
 def get_instructor_frontend_url() -> str:
     return getattr(settings, 'FRONTEND_ACADEMY_URL', os.getenv('FRONTEND_ACADEMY_URL', 'http://localhost:5173')).rstrip('/')

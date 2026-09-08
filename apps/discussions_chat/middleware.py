@@ -1,9 +1,10 @@
 import urllib.parse
 from http.cookies import SimpleCookie
+
 from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
 from rest_framework_simplejwt.tokens import AccessToken
-from users_roles.models import User, SystemRoleCode
+from users_roles.models import SystemRoleCode, User
 
 
 @database_sync_to_async

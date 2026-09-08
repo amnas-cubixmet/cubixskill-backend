@@ -1,23 +1,23 @@
 import logging
 from datetime import timedelta
+
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from django.conf import settings
-from rest_framework.exceptions import ValidationError
-
-from users_roles.models import User
 from enrollments.models import Enrollment, EnrollmentStatus
-from notifications.models import Notification, NotificationType
-from notifications.services import NotificationService
 from live_classes.models import (
     LiveSession,
-    LiveSessionReminder,
-    LiveSessionParticipant,
     LiveSessionAttendance,
     LiveSessionEvent,
+    LiveSessionParticipant,
+    LiveSessionReminder,
     LiveStatus,
-    ReminderStatus
+    ReminderStatus,
 )
+from notifications.models import Notification, NotificationType
+from notifications.services import NotificationService
+from rest_framework.exceptions import ValidationError
+from users_roles.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -400,7 +400,9 @@ class LiveSessionService:
 
             def queue_notifications():
                 try:
-                    from live_classes.tasks import dispatch_live_session_created_notifications
+                    from live_classes.tasks import (
+                        dispatch_live_session_created_notifications,
+                    )
                     dispatch_live_session_created_notifications.delay(session_id, send_email=False)
                 except Exception as e:
                     logger.warning(f"Celery notification nudge failed for session {session_id}; durable outbox will process emails: {e}")
@@ -498,7 +500,9 @@ class LiveSessionService:
         session_id = str(session.id)
         def queue_start_notifications():
             try:
-                from live_classes.tasks import dispatch_live_session_started_notifications
+                from live_classes.tasks import (
+                    dispatch_live_session_started_notifications,
+                )
                 dispatch_live_session_started_notifications.delay(session_id)
                 logger.info(f"Queued started notifications for {session_id}")
             except Exception as e:

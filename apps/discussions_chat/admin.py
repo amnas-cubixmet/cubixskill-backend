@@ -1,13 +1,13 @@
-from django.contrib import admin
 from discussions_chat.models import (
-    DiscussionThread,
-    DiscussionReply,
-    DiscussionAttachment,
-    ChatRoom,
-    ChatParticipant,
     ChatMessage,
+    ChatParticipant,
+    ChatRoom,
     CommunicationReport,
+    DiscussionAttachment,
+    DiscussionReply,
+    DiscussionThread,
 )
+from django.contrib import admin
 
 #--------------------------------------------------------------
 # 1. Discussion Attachment Inline

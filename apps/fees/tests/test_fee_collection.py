@@ -1,19 +1,17 @@
 from decimal import Decimal
-from django.test import TestCase
-from rest_framework.exceptions import ValidationError
-from users_roles.models import User
+
 from academy.models import Academy
 from courses.models import Course
+from django.test import TestCase
 from enrollments.models import Enrollment, EnrollmentStatus
 from fees.models import (
-    StudentFeeAccount,
-    StudentFeeAccountStatus,
-    FeeInstallment,
-    InstallmentStatus,
     FeePayment,
+    StudentFeeAccountStatus,
 )
 from fees.services import FeeAccountService, FeeCollectionService
 from payments.models import AcademySettlement, SettlementStatus
+from rest_framework.exceptions import ValidationError
+from users_roles.models import User
 
 
 class FeeCollectionTestCase(TestCase):

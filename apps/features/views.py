@@ -1,22 +1,20 @@
-from rest_framework import viewsets, permissions, status
-from rest_framework.decorators import action, api_view, permission_classes
-from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
+from academy.models import Academy
 from core.utils import CubixSkillAPIException
 from courses.models import Course
-from academy.models import Academy
-from features.models import Feature, CourseFeature
+from django.shortcuts import get_object_or_404
+from features.models import Feature
 from features.serializers import (
     FeatureSerializer,
-    CourseFeatureSerializer,
-    CourseFeatureToggleSerializer,
-    AcademyFeatureSummarySerializer,
 )
 from features.services import (
+    AcademyFeatureService,
     CourseFeatureService,
     StudentFeatureService,
-    AcademyFeatureService,
 )
+from rest_framework import permissions, viewsets
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.response import Response
+
 
 class IsSuperAdminOrStaff(permissions.BasePermission):
     def has_permission(self, request, view):

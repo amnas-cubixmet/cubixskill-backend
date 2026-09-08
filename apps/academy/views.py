@@ -1,9 +1,9 @@
-from rest_framework import viewsets, permissions
-from rest_framework.decorators import action
 from academy.models import Academy
 from academy.serializers import AcademySerializer
 from core.permissions import CanAccessAcademyPermission
 from core.utils import api_response
+from rest_framework import permissions, viewsets
+from rest_framework.decorators import action
 
 #--------------------------------------------------------------
 # Academy ViewSet
@@ -32,14 +32,15 @@ class AcademyViewSet(viewsets.ModelViewSet):
 # Academy Provisioning View (Super Admin Only)
 #--------------------------------------------------------------
 
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-from rest_framework import status
-from django.db import transaction
 from academy.models import AcademyStatus
 from academy.serializers import AcademyProvisionSerializer
-from users_roles.models import User, SystemRoleCode
 from core.utils import CubixSkillAPIException
+from django.db import transaction
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from users_roles.models import SystemRoleCode, User
+
 
 class AcademyProvisionView(APIView):
     permission_classes = [IsAuthenticated]

@@ -1,6 +1,6 @@
+from core.models import BaseModel
 from django.db import models
 from django.utils import timezone
-from core.models import BaseModel
 
 #--------------------------------------------------------------
 # SessionMode
@@ -141,9 +141,6 @@ class LiveSession(BaseModel):
     def meeting_link(self):
         return self.meeting_url
 
-    @property
-    def end_at(self):
-        return self.scheduled_end
 
     def calculate_effective_status(self, now=None) -> str:
         """

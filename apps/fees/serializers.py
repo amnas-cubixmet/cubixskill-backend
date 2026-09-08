@@ -1,11 +1,12 @@
-from rest_framework import serializers
 from fees.models import (
-    StudentFeeAccount,
+    CourseDefaultFeePlan,
+    FeeAdjustment,
     FeeInstallment,
     FeePayment,
-    FeeAdjustment,
-    CourseDefaultFeePlan,
+    StudentFeeAccount,
 )
+from rest_framework import serializers
+
 
 class FeeInstallmentSerializer(serializers.ModelSerializer):
     remaining_amount = serializers.SerializerMethodField()

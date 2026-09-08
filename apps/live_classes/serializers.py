@@ -1,12 +1,12 @@
-from rest_framework import serializers
 from live_classes.models import (
     LiveSession,
-    LiveSessionReminder,
-    LiveSessionParticipant,
     LiveSessionAttendance,
-    LiveSessionRecording,
     LiveSessionEvent,
+    LiveSessionParticipant,
+    LiveSessionReminder,
 )
+from rest_framework import serializers
+
 #--------------------------------------------------------------
 # 1. Live Session Reminder Serializer
 #--------------------------------------------------------------

@@ -1,39 +1,31 @@
-from decimal import Decimal
 from datetime import timedelta
-from django.test import TestCase
-from django.utils import timezone
-from rest_framework.test import APIClient
-from rest_framework import status
-from rest_framework.exceptions import ValidationError, PermissionDenied
+from decimal import Decimal
 
 from academy.models import Academy
-from users_roles.models import User, SystemRoleCode
 from courses.models import Course, CourseStatus
-from enrollments.models import Enrollment
-from students.models import StudentProfile
+from django.test import TestCase
+from django.utils import timezone
 from leads.models import (
-    Lead,
-    LeadCourseInterest,
-    LeadAssignment,
-    LeadFollowUp,
-    LeadNote,
-    LeadActivity,
-    LeadStatus,
-    LeadPriority,
     FollowUpStatus,
     FollowUpType,
-)
-from leads.services import (
-    LeadService,
-    LeadDuplicateService,
-    LeadAssignmentService,
-    LeadFollowUpService,
-    LeadStatusService,
-    LeadConversionService,
-    LeadNoteService,
+    Lead,
+    LeadStatus,
 )
 from leads.selectors import LeadSelector
+from leads.services import (
+    LeadAssignmentService,
+    LeadConversionService,
+    LeadFollowUpService,
+    LeadNoteService,
+    LeadService,
+    LeadStatusService,
+)
 from leads.tasks import check_lead_follow_up_reminders
+from rest_framework import status
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.test import APIClient
+from users_roles.models import SystemRoleCode, User
+
 
 class LeadsTestCase(TestCase):
 

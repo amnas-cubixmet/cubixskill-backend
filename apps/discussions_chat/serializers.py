@@ -1,14 +1,13 @@
-from rest_framework import serializers
 from discussions_chat.models import (
-    DiscussionThread,
-    DiscussionReply,
-    DiscussionAttachment,
-    ChatRoom,
-    ChatParticipant,
     ChatMessage,
     ChatMessageAttachment,
+    ChatRoom,
     CommunicationReport,
+    DiscussionAttachment,
+    DiscussionReply,
+    DiscussionThread,
 )
+from rest_framework import serializers
 
 #--------------------------------------------------------------
 # 1. Discussion Attachment Model

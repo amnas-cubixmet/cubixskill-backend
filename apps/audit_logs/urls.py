@@ -1,6 +1,6 @@
-from django.urls import path, include
+from audit_logs.views import AdminAuditLogViewSet, AuditLogViewSet
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
-from audit_logs.views import AuditLogViewSet, AdminAuditLogViewSet
 
 # --------------------------------------------------------------
 # Audit Logs URL Router Registration

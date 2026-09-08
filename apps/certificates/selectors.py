@@ -1,10 +1,10 @@
-from django.db.models import QuerySet
 from certificates.models import (
     Certificate,
-    CertificateTemplate,
     CertificateIssueLog,
     CertificateSettings,
+    CertificateTemplate,
 )
+from django.db.models import QuerySet
 
 #--------------------------------------------------------------
 # CertificateSelector

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from features.models import Feature, CourseFeature
+from features.models import CourseFeature, Feature
 
 #--------------------------------------------------------------
 # Admin

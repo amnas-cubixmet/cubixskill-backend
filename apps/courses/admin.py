@@ -1,5 +1,5 @@
-from django.contrib import admin
 from courses.models import Course, CourseCategory, CourseModule
+from django.contrib import admin
 
 #--------------------------------------------------------------
 # Admin Configurations

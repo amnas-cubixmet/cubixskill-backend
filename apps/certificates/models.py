@@ -1,7 +1,8 @@
 from decimal import Decimal
+
+from core.models import ActiveMixin, BaseModel
 from django.db import models
 from django.utils import timezone
-from core.models import BaseModel, ActiveMixin
 
 #--------------------------------------------------------------
 # OrientationChoices

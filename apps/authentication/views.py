@@ -1,34 +1,45 @@
 import logging
-from rest_framework import status
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.exceptions import TokenError
-from django.utils import timezone
-from django.db import transaction
 
-from users_roles.models import User, SystemRoleCode, get_user_permissions
 from academy.models import Academy, AcademyStatus
 from academy.resolver import resolve_academy
-from students.models import StudentProfile
-from .models import AuthTokenService, TokenType
-from .serializers import (
-    RegisterStudentSerializer, RegisterAcademySerializer, LoginSerializer, TokenVerifySerializer,
-    PasswordSetupSerializer, ForgotPasswordSerializer, PasswordResetSerializer,
-    AuthenticatedPasswordChangeSerializer, ResendSetupEmailSerializer, ResendVerificationSerializer
-)
+from core.utils import CubixSkillAPIException, api_response
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
 from emails.services import (
     send_academy_activation_email,
-    send_password_reset_email,
     send_password_changed_email,
-    send_verification_email,
+    send_password_reset_email,
     send_student_activation_email,
+    send_verification_email,
 )
-from core.utils import CubixSkillAPIException, api_response
-from .cookies import set_auth_cookies, delete_auth_cookies
-from .authentication import StudentCookieJWTAuthentication, InstructorCookieJWTAuthentication
-from django.conf import settings
+from rest_framework import status
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
+from students.models import StudentProfile
+from users_roles.models import SystemRoleCode, User, get_user_permissions
+
+from .authentication import (
+    InstructorCookieJWTAuthentication,
+    StudentCookieJWTAuthentication,
+)
+from .cookies import delete_auth_cookies, set_auth_cookies
+from .models import AuthTokenService, TokenType
+from .serializers import (
+    AuthenticatedPasswordChangeSerializer,
+    ForgotPasswordSerializer,
+    LoginSerializer,
+    PasswordResetSerializer,
+    PasswordSetupSerializer,
+    RegisterAcademySerializer,
+    RegisterStudentSerializer,
+    ResendSetupEmailSerializer,
+    ResendVerificationSerializer,
+    TokenVerifySerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -253,9 +264,7 @@ class ResendVerificationEmailView(APIView):
             # Tenant isolation check
             is_valid_tenant = False
             if target_academy:
-                if user.academy and user.academy.pk == target_academy.pk:
-                    is_valid_tenant = True
-                elif StudentProfile.objects.filter(user=user).exists():
+                if user.academy and user.academy.pk == target_academy.pk or StudentProfile.objects.filter(user=user).exists():
                     is_valid_tenant = True
             else:
                 is_valid_tenant = True
@@ -265,7 +274,7 @@ class ResendVerificationEmailView(APIView):
                     AuthTokenService.revoke_existing_tokens(user, TokenType.EMAIL_VERIFICATION)
                     raw_token = AuthTokenService.generate_token(user, TokenType.EMAIL_VERIFICATION)
                     send_verification_email(user=user, academy=target_academy, raw_token=raw_token)
-                except Exception as e:
+                except Exception:
                     logger.exception(
                         "Student verification email resend failed",
                         extra={
@@ -470,7 +479,7 @@ class ResendVerificationView(APIView):
                 AuthTokenService.revoke_existing_tokens(user, TokenType.EMAIL_VERIFICATION)
                 raw_token = AuthTokenService.generate_token(user, TokenType.EMAIL_VERIFICATION)
                 send_verification_email(user=user, academy=user.academy, raw_token=raw_token)
-            except Exception as e:
+            except Exception:
                 logger.exception(
                     "Verification email resend failed",
                     extra={
@@ -707,7 +716,7 @@ class CookieTokenRefreshView(APIView):
 
             resp = api_response({"detail": "Access token refreshed.", "portal": portal})
             return set_auth_cookies(resp, str(new_access), str(new_refresh), portal=portal)
-        except TokenError as e:
+        except TokenError:
             raise CubixSkillAPIException("Invalid or expired refresh token.", code="TOKEN_INVALID", status_code=status.HTTP_401_UNAUTHORIZED)
 
 
@@ -788,7 +797,7 @@ class CurrentUserView(APIView):
 
         user_data = {
             "id": str(user.id),
-            "account_number": user.account_number or f"CS-001001",
+            "account_number": user.account_number or "CS-001001",
             "email": user.email,
             "full_name": user.full_name,
             "phone": user.phone,

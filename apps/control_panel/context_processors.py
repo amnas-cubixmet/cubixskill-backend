@@ -1,4 +1,5 @@
-from users_roles.models import get_user_permissions, SystemRoleCode
+from users_roles.models import SystemRoleCode, get_user_permissions
+
 
 def control_panel_permissions(request):
     if not hasattr(request, 'user') or not request.user.is_authenticated:

@@ -1,21 +1,30 @@
-from django.db import transaction
-from rest_framework import viewsets, permissions, status
-from rest_framework.response import Response
-from rest_framework.decorators import action
-from lessons.models import (
-    Lesson, LessonMedia, LessonRichText, Quiz, Question, QuestionOption,
-    Assignment, AssignmentAsset, LessonResource
-)
-from modules.models import Module
-from lessons.selectors import LessonSelector
-from lessons.services import LessonService
-from lessons.serializers import (
-    LessonSerializer, LessonCreateSerializer, QuizSerializer,
-    QuestionSerializer, QuestionOptionSerializer, AssignmentSerializer,
-    AssignmentAssetSerializer, LessonResourceSerializer
-)
 from core.permissions import CanAccessAcademyPermission
-from core.utils import api_response, CubixSkillAPIException
+from core.utils import CubixSkillAPIException, api_response
+from django.db import transaction
+from lessons.models import (
+    Assignment,
+    Lesson,
+    LessonMedia,
+    LessonResource,
+    Question,
+    QuestionOption,
+    Quiz,
+)
+from lessons.selectors import LessonSelector
+from lessons.serializers import (
+    AssignmentSerializer,
+    LessonCreateSerializer,
+    LessonResourceSerializer,
+    LessonSerializer,
+    QuestionOptionSerializer,
+    QuestionSerializer,
+    QuizSerializer,
+)
+from lessons.services import LessonService
+from modules.models import Module
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 #--------------------------------------------------------------
 # Module Nested Lesson ViewSet

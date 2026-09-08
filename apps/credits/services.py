@@ -1,34 +1,34 @@
-import uuid
 import math
+import uuid
 from decimal import Decimal
-from django.db import models, transaction
+
+from academy.models import Academy
+from core.exceptions import CubixSkillAPIException
+from credits.models import (
+    AdjustmentStatus,
+    AdjustmentType,
+    BillingType,
+    CouponDiscountType,
+    CreditAccount,
+    CreditAccountStatus,
+    CreditAdjustment,
+    CreditLedgerEntry,
+    CreditPackage,
+    CreditPurchase,
+    CreditPurchaseCoupon,
+    CreditRate,
+    CreditSourceType,
+    CreditUsageSubscription,
+    LedgerEntryType,
+    PurchaseStatus,
+    StorageCreditCharge,
+    SubscriptionStatus,
+)
+from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
-
-from academy.models import Academy
 from users_roles.models import User
-from credits.models import (
-    CreditAccount,
-    CreditLedgerEntry,
-    CreditAdjustment,
-    CreditRate,
-    CreditPackage,
-    CreditPurchaseCoupon,
-    CreditPurchase,
-    StorageCreditCharge,
-    CreditUsageSubscription,
-    CreditAccountStatus,
-    LedgerEntryType,
-    CreditSourceType,
-    AdjustmentType,
-    AdjustmentStatus,
-    BillingType,
-    SubscriptionStatus,
-    CouponDiscountType,
-    PurchaseStatus,
-)
-from core.exceptions import CubixSkillAPIException
 
 LOW_BALANCE_THRESHOLD = Decimal('100.000000')
 
@@ -147,7 +147,7 @@ class CreditPricingService:
         if usage_bytes <= 0:
             return Decimal('0.0000'), Decimal('0.000000')
         rate = cls.get_rate('STORAGE_MONTHLY')
-        bytes_in_gb = Decimal('1073741824') # 1 GB
+        bytes_in_gb = Decimal(1073741824) # 1 GB
         gb_units = (Decimal(str(usage_bytes)) / bytes_in_gb).quantize(Decimal('0.0001'))
         if gb_units <= Decimal('0.0000'):
             gb_units = Decimal('0.0001')
@@ -423,7 +423,7 @@ class CreditPurchaseService:
             status=PurchaseStatus.PENDING,
             created_by=user
         )
-        from payments.models import PaymentOrder, OrderStatus
+        from payments.models import OrderStatus, PaymentOrder
         from payments.services import PaymentGatewayService, PaymentOrderService
         
         # Build underlying PaymentOrder for gateway handling
@@ -471,7 +471,12 @@ class CreditPurchaseService:
         Idempotent: adds credits to academy wallet ONLY once.
         Returns (CreditPurchase, already_processed_boolean).
         """
-        from payments.models import PaymentOrder, OrderStatus, PaymentTransaction, TransactionStatus
+        from payments.models import (
+            OrderStatus,
+            PaymentOrder,
+            PaymentTransaction,
+            TransactionStatus,
+        )
 
         lookup_id = razorpay_order_id or payment_order_id
         try:
@@ -1064,8 +1069,8 @@ def get_billable_student_count(academy: Academy, billing_period: str = None) -> 
     """
     if not academy:
         return 0
-    from students.models import StudentProfile, StudentStatus
     from enrollments.models import Enrollment, EnrollmentStatus
+    from students.models import StudentProfile, StudentStatus
 
     # Active students in the academy who have active course enrollments (Enrollment.student points to User)
     active_user_ids = Enrollment.objects.filter(
@@ -1179,13 +1184,13 @@ class FeatureBillingService:
 # --------------------------------------------------------------
 
 class StorageBillingService:
-    BYTES_PER_GB = Decimal('1073741824')  # 1 GB = 1024^3 bytes
+    BYTES_PER_GB = Decimal(1073741824)  # 1 GB = 1024^3 bytes
 
     @classmethod
     def get_setting(cls, target_time=None):
         if not target_time:
             target_time = timezone.now()
-        from credits.models import StorageBillingSetting, StorageBillingMethod
+        from credits.models import StorageBillingMethod, StorageBillingSetting
         setting = StorageBillingSetting.objects.filter(
             effective_from__lte=target_time
         ).order_by('-effective_from').first()
@@ -1337,9 +1342,14 @@ class MonthlyBillingService:
                 period_end = now
 
         from credits.models import (
-            MonthlyBillingPeriod, MonthlyBillingPeriodStatus,
-            MonthlyBillingInvoice, MonthlyBillingLineItem, InvoiceStatus,
-            FeatureBillingType, LineItemType, FeatureUsageEvent
+            FeatureBillingType,
+            FeatureUsageEvent,
+            InvoiceStatus,
+            LineItemType,
+            MonthlyBillingInvoice,
+            MonthlyBillingLineItem,
+            MonthlyBillingPeriod,
+            MonthlyBillingPeriodStatus,
         )
 
         period, _ = MonthlyBillingPeriod.objects.get_or_create(
@@ -1479,7 +1489,7 @@ class MonthlyBillingService:
                 )
                 invoice.ledger_entry = ledger_entry
                 invoice.save(update_fields=['ledger_entry'])
-            except Exception as e:
+            except Exception:
                 invoice.status = InvoiceStatus.INSUFFICIENT_CREDITS
                 invoice.save(update_fields=['status'])
 

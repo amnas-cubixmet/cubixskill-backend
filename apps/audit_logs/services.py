@@ -1,9 +1,10 @@
 import logging
+
+from academy.models import Academy
+from audit_logs.models import AuditLog
 from django.db import transaction
 from django.utils import timezone
 from users_roles.models import User
-from academy.models import Academy
-from audit_logs.models import AuditLog, AuditAction, AuditCategory
 
 logger = logging.getLogger(__name__)
 

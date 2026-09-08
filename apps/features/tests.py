@@ -1,15 +1,16 @@
-from django.test import TestCase
-from rest_framework.test import APIClient
 from academy.models import Academy
 from courses.models import Course
-from users_roles.models import User
+from django.test import TestCase
 from enrollments.services import EnrollmentService
-from features.models import Feature, CourseFeature, FeatureScope
+from features.models import CourseFeature, Feature, FeatureScope
 from features.services import (
+    AcademyFeatureService,
     CourseFeatureService,
     StudentFeatureService,
-    AcademyFeatureService,
 )
+from rest_framework.test import APIClient
+from users_roles.models import User
+
 
 class FeaturesSystemTestCase(TestCase):
     def setUp(self):
@@ -68,8 +69,9 @@ class FeaturesSystemTestCase(TestCase):
             scope=FeatureScope.COURSE
         )
 
-        from credits.services import CreditsService
         from decimal import Decimal
+
+        from credits.services import CreditsService
         CreditsService.credit(
             academy=self.academy,
             amount=Decimal("1000.00"),

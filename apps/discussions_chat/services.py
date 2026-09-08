@@ -1,27 +1,27 @@
+from discussions_chat.models import (
+    ChatMessage,
+    ChatMessageAttachment,
+    ChatParticipant,
+    ChatRoom,
+    CommunicationReport,
+    DiscussionAttachment,
+    DiscussionReply,
+    DiscussionThread,
+    MessageStatus,
+    ReportStatus,
+    RoomType,
+    ThreadStatus,
+    ThreadType,
+)
 from django.db import transaction
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError, PermissionDenied
-
-from storage.models import MediaFile
 from enrollments.services import EnrollmentAccessService
 from features.services import CourseFeatureService, StudentFeatureService
 from notifications.services import EmailService
-from discussions_chat.models import (
-    DiscussionThread,
-    DiscussionReply,
-    DiscussionAttachment,
-    ChatRoom,
-    ChatParticipant,
-    ChatMessage,
-    ChatMessageAttachment,
-    CommunicationReport,
-    ThreadType,
-    ThreadStatus,
-    RoomType,
-    MessageType,
-    MessageStatus,
-    ReportStatus,
-)
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from storage.models import MediaFile
+
+
 #--------------------------------------------------------------
 # 1. Discussion Service
 #--------------------------------------------------------------
@@ -37,7 +37,6 @@ class DiscussionService:
         - Must have a non-empty, valid email address
         - Unique email addresses only
         """
-        from enrollments.models import Enrollment
         from users_roles.models import User
 
         if course:
@@ -70,6 +69,7 @@ class DiscussionService:
         Returns Decimal breakdown and recipient list.
         """
         from decimal import Decimal
+
         from control_panel.models import PricingService
         from credits.services import CreditsService
 
@@ -120,9 +120,10 @@ class DiscussionService:
         Creates a new discussion thread or announcement in a course after validating permissions & executing credit billing.
         """
         from decimal import Decimal
-        from credits.services import CreditsService
-        from credits.models import CreditAccount, CreditAccountStatus, CreditSourceType
+
         from core.exceptions import CubixSkillAPIException
+        from credits.models import CreditAccount, CreditSourceType
+        from credits.services import CreditsService
 
         academy = course.academy if course else getattr(user, 'academy', None)
         is_staff = getattr(user, 'is_staff', False) or (hasattr(user, 'academy') and academy and user.academy == academy)
@@ -273,6 +274,7 @@ class DiscussionService:
         Helper method to send real-time WebSocket events to an Academy channel group safely after DB commit.
         """
         import uuid
+
         from asgiref.sync import async_to_sync
         from channels.layers import get_channel_layer
 

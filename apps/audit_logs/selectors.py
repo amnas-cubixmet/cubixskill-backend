@@ -1,6 +1,6 @@
-from django.db.models import QuerySet
 from academy.models import Academy
 from audit_logs.models import AuditLog
+from django.db.models import QuerySet
 
 # --------------------------------------------------------------
 # Audit Log Selectors

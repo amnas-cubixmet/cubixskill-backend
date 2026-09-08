@@ -1,8 +1,14 @@
 from datetime import timedelta
+
+from core.utils import CubixSkillAPIException
 from django.db.models import Q
 from django.utils import timezone
-from core.utils import CubixSkillAPIException
-from enrollments.models import Enrollment, EnrollmentAccessPeriod, EnrollmentEvent, EnrollmentStatus
+from enrollments.models import (
+    Enrollment,
+    EnrollmentAccessPeriod,
+    EnrollmentEvent,
+    EnrollmentStatus,
+)
 
 #--------------------------------------------------------------
 # Enrollment Selector

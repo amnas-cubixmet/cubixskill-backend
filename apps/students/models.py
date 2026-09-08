@@ -1,7 +1,7 @@
+from core.models import ActiveMixin, BaseModel
 from django.db import models
-from core.models import BaseModel, ActiveMixin
-from users_roles.models import User
 from storage.models import MediaFile
+from users_roles.models import User
 
 #--------------------------------------------------------------
 # Student Status Enum

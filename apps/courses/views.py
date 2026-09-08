@@ -1,14 +1,18 @@
-from rest_framework import viewsets, permissions, status
-from rest_framework.decorators import action
-from courses.models import CourseModule, CourseCategory
-from courses.selectors import CourseSelector
-from courses.services import CourseService
-from courses.serializers import (
-    CourseListSerializer, CourseDetailSerializer, CourseWriteSerializer,
-    CourseCategorySerializer, CourseModuleSerializer, CourseLanguageSerializer
-)
 from core.permissions import CanAccessAcademyPermission
 from core.utils import api_response
+from courses.models import CourseCategory, CourseModule
+from courses.selectors import CourseSelector
+from courses.serializers import (
+    CourseCategorySerializer,
+    CourseDetailSerializer,
+    CourseLanguageSerializer,
+    CourseListSerializer,
+    CourseModuleSerializer,
+    CourseWriteSerializer,
+)
+from courses.services import CourseService
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
 
 #--------------------------------------------------------------
 # Course ViewSet
@@ -82,9 +86,10 @@ class CourseViewSet(viewsets.ModelViewSet):
             serializer.save()
             course.refresh_from_db()
 
-        from payments.models import PaymentOrder, OrderStatus
-        from enrollments.models import Enrollment, EnrollmentStatus, AccessType
         from decimal import Decimal
+
+        from enrollments.models import AccessType, Enrollment, EnrollmentStatus
+        from payments.models import OrderStatus, PaymentOrder
 
         completed_orders = PaymentOrder.objects.filter(course=course, status=OrderStatus.COMPLETED)
         pending_orders = PaymentOrder.objects.filter(course=course, status__in=[OrderStatus.PENDING, OrderStatus.PROCESSING, OrderStatus.CREATED])
@@ -123,19 +128,16 @@ class CourseViewSet(viewsets.ModelViewSet):
 
 #--------------------------------------------------------------
 # Category ViewSet
-import re
 import difflib
-from django.db import transaction, models
+import re
+
+from courses.models import CategoryAlias, CategoryMergeAudit, Course, CourseLanguage
+from courses.serializers import CategoryMergeAuditSerializer, CategoryMergeSerializer
+from django.db import models, transaction
 from django.utils.text import slugify
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework import status
-from courses.models import CourseCategory, CourseLanguage, CategoryAlias, CategoryMergeAudit, Course
-from courses.serializers import (
-    CourseCategorySerializer,
-    CategoryMergeSerializer,
-    CategoryMergeAuditSerializer
-)
+
 
 def normalize_category_name(name: str) -> str:
     if not name:

@@ -3,6 +3,7 @@ from django.utils import timezone
 from enrollments.models import Enrollment, EnrollmentStatus
 from enrollments.services import EnrollmentService
 
+
 @shared_task
 def expire_enrollments_task():
     """
@@ -20,7 +21,7 @@ def expire_enrollments_task():
         try:
             EnrollmentService.expire_enrollment(enrollment, reason="Auto-expired by background Celery task")
             count += 1
-        except Exception as e:
+        except Exception:
             pass
 
     return f"Successfully expired {count} enrollments."

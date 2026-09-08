@@ -1,10 +1,10 @@
-from django.shortcuts import get_object_or_404
-from rest_framework import permissions
-from rest_framework.exceptions import ValidationError
 from courses.models import Course
-from lessons.models import Lesson
-from students.models import StudentCustomFieldDefinition
+from django.shortcuts import get_object_or_404
 from features.services import CourseFeatureService
+from lessons.models import Lesson
+from rest_framework.exceptions import ValidationError
+from students.models import StudentCustomFieldDefinition
+
 
 class CertificateFieldDiscoveryService:
     """

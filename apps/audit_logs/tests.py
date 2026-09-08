@@ -1,14 +1,13 @@
+from academy.models import Academy
+from audit_logs.models import AuditAction, AuditCategory
+from audit_logs.selectors import AuditLogSelector
+from audit_logs.services import AuditService
+from courses.models import Course, CourseStatus
 from django.test import TestCase
 from django.urls import reverse
-from rest_framework.test import APIClient
 from rest_framework import status
-
-from academy.models import Academy
-from users_roles.models import User, SystemRoleCode
-from courses.models import Course, CourseStatus
-from audit_logs.models import AuditLog, AuditAction, AuditCategory
-from audit_logs.services import AuditService
-from audit_logs.selectors import AuditLogSelector
+from rest_framework.test import APIClient
+from users_roles.models import SystemRoleCode, User
 
 # --------------------------------------------------------------
 # Audit Log Unit & Integration Tests

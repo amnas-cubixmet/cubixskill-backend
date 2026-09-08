@@ -1,14 +1,15 @@
-from django.test import TestCase
-from rest_framework.test import APIClient
 from academy.models import Academy
-from users_roles.models import User, SystemRoleCode
 from courses.models import Course
-from credits.services import CreditsService
 from credits.models import CreditAccount
-from enrollments.models import Enrollment, AccessType, EnrollmentStatus
+from credits.services import CreditsService
+from django.test import TestCase
+from enrollments.models import AccessType, Enrollment, EnrollmentStatus
 from enrollments.services import EnrollmentService
-from payments.models import PaymentOrder, OrderStatus
+from payments.models import OrderStatus, PaymentOrder
 from payments.services import PaymentFulfillmentService
+from rest_framework.test import APIClient
+from users_roles.models import SystemRoleCode, User
+
 
 class CubixSkillSystemTests(TestCase):
     def setUp(self):
@@ -43,6 +44,10 @@ class CubixSkillSystemTests(TestCase):
         self.course_a = Course.objects.create(academy=self.academy_a, title="Course A", price=99.00)
         self.course_b = Course.objects.create(academy=self.academy_b, title="Course B", price=199.00)
 
+        # Allocate credits for testing enrollment operations
+        from credits.services import CreditsService
+        CreditsService.credit(academy=self.academy_a, amount=500.0, source_type='PURCHASE', idempotency_key='TEST_INIT_CREDITS')
+
     def test_tenant_isolation(self):
         """Verify Staff A cannot see or query Academy B courses."""
         self.client.force_authenticate(user=self.staff_a)
@@ -74,7 +79,7 @@ class CubixSkillSystemTests(TestCase):
             description='Initial deposit'
         )
         account = CreditAccount.objects.get(academy=self.academy_a)
-        self.assertEqual(account.balance, 50.0000)
+        self.assertEqual(account.balance, 550.0000)
 
         # Idempotency check: duplicate call does not change balance
         CreditsService.credit(
@@ -85,7 +90,7 @@ class CubixSkillSystemTests(TestCase):
             description='Initial deposit'
         )
         account.refresh_from_db()
-        self.assertEqual(account.balance, 50.0000)
+        self.assertEqual(account.balance, 550.0000)
 
     def test_payment_fulfillment_idempotency(self):
         """Verify payment webhook fulfillment triggers enrollment exactly once."""

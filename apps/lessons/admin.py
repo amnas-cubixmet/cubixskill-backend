@@ -1,5 +1,14 @@
 from django.contrib import admin
-from lessons.models import Lesson, LessonMedia, LessonRichText, Quiz, Question, QuestionOption, Assignment, AssignmentAsset
+from lessons.models import (
+    Assignment,
+    AssignmentAsset,
+    Lesson,
+    LessonMedia,
+    LessonRichText,
+    Question,
+    QuestionOption,
+    Quiz,
+)
 
 #--------------------------------------------------------------
 # Admin Configuration

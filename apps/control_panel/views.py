@@ -1,34 +1,74 @@
-import os
 from decimal import Decimal
-from urllib.parse import urlparse, parse_qs
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import authenticate, login, logout
-from django.contrib import messages
-from django.db.models import Sum, Q, Count
-from django.db.models.deletion import ProtectedError
-from django.utils import timezone
-from django.core.paginator import Paginator
-from django.utils.text import slugify
-from django.utils.http import url_has_allowed_host_and_scheme
-from django.http import HttpResponseForbidden, JsonResponse
-from django.conf import settings
-from users_roles.models import User, SystemRoleCode, Role, Permission, RolePermission, UserPermissionOverride, RoleScope, ensure_default_permissions_seeded, get_user_permissions, has_permission
-from academy.models import Academy, AcademyStatus
-from courses.models import Course, CourseCategory, CourseModule, CourseStatus, CourseLevel
-from students.models import StudentProfile
-from enrollments.models import Enrollment, EnrollmentStatus, EnrollmentSource
-from storage.models import MediaFile, AcademyStorageAccount
-from credits.models import CreditAccount, CreditLedgerEntry, CreditRate, CreditPackage, CreditPurchaseCoupon, CreditSourceType, LedgerEntryType, CreditAccountStatus
-from credits.services import CreditsService
-from payments.models import PaymentOrder, PaymentTransaction, PaymentRefund, PaymentInvoice, OrderStatus
-from plans_entitlements.models import Plan, AcademySubscription, PlanFeature
-from audit_logs.models import AuditLog, AuditAction, AuditCategory
-from fees.models import StudentFeeAccount, FeeInstallment, FeePayment, FeeAdjustment
-from fees.services import FeeCollectionService
-from enrollments.services import EnrollmentService
+from urllib.parse import parse_qs, urlparse
 
-from .models import SystemSetting, FeatureDefinition, PricingRule, StorageBillingConfig, UsageSnapshot, SupportTicket, TicketMessage, AcademyWebsiteConfig, TicketStatus, TicketPriority
+from academy.models import Academy, AcademyStatus
+from audit_logs.models import AuditAction, AuditCategory, AuditLog
+from courses.models import (
+    Course,
+    CourseCategory,
+    CourseLevel,
+    CourseModule,
+    CourseStatus,
+)
+from credits.models import (
+    CreditAccount,
+    CreditAccountStatus,
+    CreditLedgerEntry,
+    CreditPackage,
+    CreditPurchaseCoupon,
+    CreditRate,
+    CreditSourceType,
+    LedgerEntryType,
+)
+from credits.services import CreditsService
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import authenticate, login, logout
+from django.core.paginator import Paginator
+from django.db.models import Count, Q, Sum
+from django.db.models.deletion import ProtectedError
+from django.http import HttpResponseForbidden, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.text import slugify
+from enrollments.models import Enrollment, EnrollmentSource, EnrollmentStatus
+from enrollments.services import EnrollmentService
+from fees.models import FeeInstallment, FeePayment, StudentFeeAccount
+from fees.services import FeeCollectionService
+from payments.models import (
+    OrderStatus,
+    PaymentInvoice,
+    PaymentOrder,
+    PaymentRefund,
+    PaymentTransaction,
+)
+from plans_entitlements.models import AcademySubscription, Plan, PlanFeature
+from storage.models import AcademyStorageAccount, MediaFile
+from students.models import StudentProfile
+from users_roles.models import (
+    Permission,
+    Role,
+    RolePermission,
+    RoleScope,
+    SystemRoleCode,
+    User,
+    UserPermissionOverride,
+    ensure_default_permissions_seeded,
+    get_user_permissions,
+    has_permission,
+)
+
 from .decorators import super_admin_required
+from .models import (
+    AcademyWebsiteConfig,
+    FeatureDefinition,
+    PricingRule,
+    StorageBillingConfig,
+    SupportTicket,
+    SystemSetting,
+    TicketMessage,
+)
 
 # --------------------------------------------------------------
 # Authentication Views
@@ -44,7 +84,7 @@ def legacy_control_login_redirect(request):
         if '/control/login/' in next_param or '/login/' in next_param:
             parsed = urlparse(next_param)
             qs = parse_qs(parsed.query)
-            if 'next' in qs and qs['next']:
+            if qs.get('next'):
                 next_param = qs['next'][0]
             else:
                 next_param = '/'
@@ -1167,7 +1207,7 @@ def course_create_view(request):
     errors = {}
     form_data = {}
     academies = Academy.objects.all().order_by('name')
-    from courses.models import CourseCategory, CourseLevel, CourseStatus
+    from courses.models import CourseCategory, CourseStatus
     categories = CourseCategory.objects.all().order_by('name')
 
     if request.user.role_code in [SystemRoleCode.ACADEMY_ADMIN, SystemRoleCode.ACADEMY_STAFF] and request.user.academy:
@@ -1261,7 +1301,6 @@ def course_detail_view(request, pk):
         if request.user.academy and course.academy != request.user.academy:
             return HttpResponseForbidden("Access Denied.")
 
-    from courses.models import CourseModule
     modules = CourseModule.objects.filter(course=course).order_by('order_index')
     enrollments = Enrollment.objects.filter(course=course).select_related('student')
     recent_logs = AuditLog.objects.filter(target_id=str(pk)).order_by('-occurred_at')[:10]
@@ -1287,7 +1326,7 @@ def course_edit_view(request, pk):
 
     errors = {}
     academies = Academy.objects.all().order_by('name')
-    from courses.models import CourseCategory, CourseLevel, CourseStatus
+    from courses.models import CourseCategory, CourseStatus
     categories = CourseCategory.objects.all().order_by('name')
 
     if request.method == 'POST':
@@ -1615,8 +1654,7 @@ def pricing_rules_list_view(request):
 
                     try:
                         new_cost = int(new_cost_str)
-                        if new_cost < 0:
-                            new_cost = 0
+                        new_cost = max(new_cost, 0)
                     except ValueError:
                         new_cost = rule.credit_cost
 
@@ -2604,9 +2642,9 @@ def wallets_list_view(request):
     elif status_filter == 'low':
         qs = qs.filter(balance__gt=0, balance__lte=100)
 
-    total_academy_credits = CreditAccount.objects.aggregate(total=Sum('balance'))['total'] or Decimal('0')
-    credits_added = CreditAccount.objects.aggregate(total=Sum('total_credited'))['total'] or Decimal('0')
-    credits_used = CreditAccount.objects.aggregate(total=Sum('total_debited'))['total'] or Decimal('0')
+    total_academy_credits = CreditAccount.objects.aggregate(total=Sum('balance'))['total'] or Decimal(0)
+    credits_added = CreditAccount.objects.aggregate(total=Sum('total_credited'))['total'] or Decimal(0)
+    credits_used = CreditAccount.objects.aggregate(total=Sum('total_debited'))['total'] or Decimal(0)
     active_wallets_count = CreditAccount.objects.filter(status=CreditAccountStatus.ACTIVE).count()
 
     paginator = Paginator(qs, 20)
@@ -2956,7 +2994,7 @@ def payments_list_view(request):
     pending_payments = PaymentOrder.objects.filter(status__in=['PENDING', 'CREATED', 'PROCESSING']).count()
     failed_payments = PaymentOrder.objects.filter(status__in=['FAILED', 'CANCELLED', 'EXPIRED']).count()
 
-    total_revenue_val = PaymentOrder.objects.filter(status__in=['COMPLETED', 'SUCCESSFUL', 'PAID']).aggregate(total=Sum('final_amount'))['total'] or Decimal('0')
+    total_revenue_val = PaymentOrder.objects.filter(status__in=['COMPLETED', 'SUCCESSFUL', 'PAID']).aggregate(total=Sum('final_amount'))['total'] or Decimal(0)
 
     paginator = Paginator(qs, 20)
     orders_page = paginator.get_page(request.GET.get('page'))
@@ -3129,7 +3167,6 @@ def enrollment_cancel_view(request, pk):
 # Roles & Permissions Management Views
 # --------------------------------------------------------------
 
-from users_roles.models import Role, Permission, RolePermission, RoleScope
 
 @super_admin_required
 def roles_list_view(request):
@@ -3443,7 +3480,6 @@ def website_builder_edit_view(request, pk):
 # Super Admin Staff (Platform Level) Management Views
 # --------------------------------------------------------------
 
-from users_roles.models import UserPermissionOverride
 
 @super_admin_required
 def super_admin_staff_list_view(request):
@@ -3528,7 +3564,7 @@ def super_admin_staff_create_view(request):
                 errors['assigned_role_id'] = "You cannot assign a role with permissions greater than your own."
 
         if not errors:
-            from django.db import transaction, IntegrityError
+            from django.db import IntegrityError, transaction
             try:
                 with transaction.atomic():
                     user = User.objects.create_user(
@@ -3793,9 +3829,7 @@ def website_builder_list_view(request):
     websites_list = []
     for ac in academies:
         cfg, _ = AcademyWebsiteConfig.objects.get_or_create(academy=ac)
-        if status_filter == 'published' and not cfg.is_published:
-            continue
-        elif status_filter == 'unpublished' and cfg.is_published:
+        if status_filter == 'published' and not cfg.is_published or status_filter == 'unpublished' and cfg.is_published:
             continue
 
         websites_list.append({
@@ -4087,8 +4121,7 @@ def storage_control_view(request):
     Platform-wide Storage Overview page (/storage/).
     """
     academies = Academy.objects.all().order_by('name')
-    from storage.metering import StorageMeteringService, StorageBillingService
-    from storage.models import StorageMonthlyBilling, StorageUsageEvent, AcademyStorageAccount
+    from storage.metering import StorageBillingService, StorageMeteringService
     from storage.utils import format_bytes
 
     now = timezone.now()
@@ -4140,8 +4173,14 @@ def academy_storage_detail_view(request, pk):
     Academy Storage Detail page (/storage/<uuid:pk>/).
     """
     academy = get_object_or_404(Academy, pk=pk)
-    from storage.metering import StorageMeteringService, StorageBillingService
-    from storage.models import StorageUsageEvent, StorageUsageRollup, StorageMonthlyBilling, MediaFile, MediaStatus
+    from storage.metering import StorageBillingService, StorageMeteringService
+    from storage.models import (
+        MediaFile,
+        MediaStatus,
+        StorageMonthlyBilling,
+        StorageUsageEvent,
+        StorageUsageRollup,
+    )
     from storage.utils import format_bytes
 
     account = StorageMeteringService.get_or_create_account(academy.id)
@@ -4172,7 +4211,6 @@ def storage_rates_view(request):
     """
     Super Admin Storage Credit Rate Management (/storage/rates/).
     """
-    from credits.models import CreditRate
     from credits.services import CreditPricingService
 
     rate = CreditPricingService.get_rate('STORAGE_MONTHLY')
@@ -4207,9 +4245,8 @@ def storage_events_view(request):
     """
     Super Admin Immutable Storage Usage Event Audit Ledger (/storage/events/).
     """
-    from storage.models import StorageUsageEvent
-    from storage.utils import format_bytes
     from django.core.paginator import Paginator
+    from storage.models import StorageUsageEvent
 
     qs = StorageUsageEvent.objects.all().order_by('-occurred_at')
 
@@ -4242,8 +4279,8 @@ def storage_billing_list_view(request):
     """
     Super Admin Monthly Storage Billing Records (/storage/billing/).
     """
-    from storage.models import StorageMonthlyBilling, BillingStatus
     from django.core.paginator import Paginator
+    from storage.models import BillingStatus, StorageMonthlyBilling
 
     qs = StorageMonthlyBilling.objects.all().order_by('-billing_period_start')
 
@@ -4307,8 +4344,8 @@ def storage_billing_retry_view(request, pk):
     """
     Action view to retry charging a pending/failed storage billing record.
     """
-    from storage.models import StorageMonthlyBilling
     from storage.metering import StorageBillingService
+    from storage.models import StorageMonthlyBilling
 
     billing = get_object_or_404(StorageMonthlyBilling, pk=pk)
     updated = StorageBillingService.retry_pending_billing(billing)
@@ -4328,8 +4365,8 @@ def storage_streaming_view(request):
     """
     Super Admin configuration for HLS Adaptive Bitrate Profiles & Transcoding Settings.
     """
-    from storage.models import StorageStreamingProfile
     from control_panel.models import SystemSetting
+    from storage.models import StorageStreamingProfile
 
     if request.method == 'POST':
         if 'toggle_hls' in request.POST:
@@ -4403,8 +4440,8 @@ def email_jobs_view(request):
     """
     Super Admin root-level monitor for DB Outbox Email Jobs.
     """
-    from emails.models import EmailJob, EmailJobStatus, EmailJobType
     from django.db.models import Q
+    from emails.models import EmailJob, EmailJobStatus, EmailJobType
 
     jobs = EmailJob.objects.all().order_by('-created_at')
 
@@ -4497,9 +4534,9 @@ def academy_settlements_list_view(request):
     Shows Gross Gateway Collected, Gateway Charges, Platform Charges, Net Payable, Already Settled, Pending Settlement.
     """
     from academy.models import Academy
-    from payments.models import AcademySettlement, SettlementStatus, PaymentTransaction
-    from fees.models import FeePayment
     from django.db.models import Sum
+    from fees.models import FeePayment
+    from payments.models import AcademySettlement, PaymentTransaction, SettlementStatus
 
     academies = Academy.objects.all().order_by('name')
     records = []
@@ -4556,9 +4593,9 @@ def academy_settlement_detail_view(request, academy_id):
     Super Admin view for individual Academy settlement breakdown and payment recording.
     """
     from academy.models import Academy
-    from payments.models import AcademySettlement, SettlementStatus, PaymentTransaction
-    from fees.models import FeePayment
     from django.db.models import Sum
+    from fees.models import FeePayment
+    from payments.models import AcademySettlement, PaymentTransaction, SettlementStatus
 
     academy = get_object_or_404(Academy, pk=academy_id)
 
@@ -4693,9 +4730,10 @@ def feature_billing_rules_view(request):
 def storage_billing_settings_view(request):
     import logging
     from decimal import Decimal
+
+    from control_panel.forms import StorageBillingSettingsForm
     from django.db import transaction
     from storage.models import StorageBillingSettings
-    from control_panel.forms import StorageBillingSettingsForm
 
     logger = logging.getLogger(__name__)
     setting = StorageBillingSettings.get_settings()
@@ -4706,7 +4744,9 @@ def storage_billing_settings_view(request):
             with transaction.atomic():
                 updated_setting = form.save()
                 try:
-                    from credits.models import StorageBillingSetting as CreditStorageBillingSetting
+                    from credits.models import (
+                        StorageBillingSetting as CreditStorageBillingSetting,
+                    )
                     legacy_set = CreditStorageBillingSetting.objects.first()
                     if legacy_set:
                         legacy_set.enabled = updated_setting.storage_billing_enabled
@@ -4726,8 +4766,9 @@ def storage_billing_settings_view(request):
         form = StorageBillingSettingsForm(instance=setting)
 
     import datetime
-    from django.utils import timezone
+
     from django.core.paginator import Paginator
+    from django.utils import timezone
     from storage.models import StorageUsageCharge
 
     now = timezone.localtime()
@@ -4779,8 +4820,17 @@ def storage_billing_settings_view(request):
     paginator = Paginator(filtered_qs, 25)
     history_page = paginator.get_page(page_number)
 
-    from storage.models import StorageBillingCycle, StorageBillingCycleStatus, AcademyStorageUsage
-    from storage.utils import get_next_credit_debit_datetime, storage_interval_delta, bytes_to_gb, get_interval_label
+    from storage.models import (
+        AcademyStorageUsage,
+        StorageBillingCycle,
+        StorageBillingCycleStatus,
+    )
+    from storage.utils import (
+        bytes_to_gb,
+        get_interval_label,
+        get_next_credit_debit_datetime,
+        storage_interval_delta,
+    )
 
     total_used_bytes = sum(u.used_bytes for u in AcademyStorageUsage.objects.all())
     current_storage_gb = bytes_to_gb(total_used_bytes)
@@ -4812,9 +4862,9 @@ def storage_billing_settings_view(request):
     ]
 
     from academy.models import Academy
-    from storage.services import StorageOutstandingService
-    from django.db.models import Q
     from django.core.paginator import Paginator
+    from django.db.models import Q
+    from storage.services import StorageOutstandingService
 
     q = request.GET.get('q', '').strip()
     academies_qs = Academy.objects.all()
@@ -4906,17 +4956,27 @@ def storage_billing_settings_view(request):
 
 @super_admin_required
 def academy_storage_detail_view(request, academy_id=None, pk=None):
+    import datetime
+
     from academy.models import Academy
+    from django.core.paginator import Paginator
+    from django.db.models import Count, Max, Min, Q, Sum
+    from django.utils import timezone
     from storage.models import (
-        StorageBillingSettings, AcademyStorageUsage, StorageBillingCycle,
-        StorageBillingCycleStatus, StorageMeterRecord, MediaFile, MediaStatus
+        AcademyStorageUsage,
+        MediaFile,
+        MediaStatus,
+        StorageBillingCycle,
+        StorageBillingCycleStatus,
+        StorageBillingSettings,
+        StorageMeterRecord,
     )
     from storage.services import StorageOutstandingService
-    from storage.utils import bytes_to_gb, get_next_credit_debit_datetime, storage_interval_delta
-    from django.core.paginator import Paginator
-    from django.db.models import Q, Sum, Max, Min, Count
-    from django.utils import timezone
-    import datetime
+    from storage.utils import (
+        bytes_to_gb,
+        get_next_credit_debit_datetime,
+        storage_interval_delta,
+    )
 
     target_id = academy_id or pk
     academy = get_object_or_404(Academy, pk=target_id)

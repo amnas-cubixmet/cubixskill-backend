@@ -2,29 +2,28 @@ import csv
 import io
 import logging
 from datetime import timedelta
-from django.db import transaction
-from django.utils import timezone
-from django.core.files.base import ContentFile
-from rest_framework.exceptions import ValidationError
 
 from academy.models import Academy
-from users_roles.models import User
-from storage.models import MediaFile
-from notifications.services import NotificationService
 from analytics_reports.models import (
     AnalyticsSnapshot,
+    ReportFormat,
     ReportJob,
     ReportStatus,
-    ReportFormat,
     ReportType,
     SnapshotPeriodType,
 )
 from analytics_reports.selectors import AnalyticsSelector
-from students.models import StudentProfile
+from django.core.files.base import ContentFile
+from django.db import transaction
+from django.utils import timezone
 from enrollments.models import Enrollment
-from courses.models import Course
-from payments.models import PaymentOrder
 from leads.models import Lead
+from notifications.services import NotificationService
+from payments.models import PaymentOrder
+from rest_framework.exceptions import ValidationError
+from storage.models import MediaFile
+from students.models import StudentProfile
+from users_roles.models import User
 
 logger = logging.getLogger(__name__)
 

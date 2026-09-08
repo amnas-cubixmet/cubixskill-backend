@@ -1,5 +1,5 @@
+from core.models import ActiveMixin, BaseModel, OrderMixin
 from django.db import models
-from core.models import BaseModel, ActiveMixin, OrderMixin
 from storage.models import MediaFile
 
 #--------------------------------------------------------------

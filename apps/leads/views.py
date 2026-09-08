@@ -1,42 +1,41 @@
-from django.shortcuts import get_object_or_404
-from rest_framework import viewsets, status, permissions
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError, PermissionDenied
-
 from academy.models import Academy
 from courses.models import Course
-from users_roles.models import User
-from storage.models import MediaFile
-from leads.models import Lead, LeadFollowUp, LeadCourseInterest, LeadNote, LeadImportJob
+from django.shortcuts import get_object_or_404
+from leads.models import Lead, LeadCourseInterest, LeadFollowUp, LeadImportJob
 from leads.selectors import LeadSelector
-from leads.services import (
-    LeadService,
-    LeadAssignmentService,
-    LeadFollowUpService,
-    LeadStatusService,
-    LeadConversionService,
-    LeadNoteService,
-)
 from leads.serializers import (
-    LeadSerializer,
-    PublicLeadEnquirySerializer,
+    AddCourseInterestSerializer,
+    AssignLeadSerializer,
+    CompleteFollowUpSerializer,
+    ConvertLeadSerializer,
+    CreateLeadNoteSerializer,
     DemoLeadCreateSerializer,
     DemoLeadResponseSerializer,
-    AssignLeadSerializer,
-    TransitionStatusSerializer,
-    ConvertLeadSerializer,
-    ScheduleFollowUpSerializer,
-    CompleteFollowUpSerializer,
-    CreateLeadNoteSerializer,
-    AddCourseInterestSerializer,
-    LeadFollowUpSerializer,
-    LeadNoteSerializer,
     LeadCourseInterestSerializer,
+    LeadFollowUpSerializer,
     LeadImportJobSerializer,
+    LeadNoteSerializer,
+    LeadSerializer,
+    PublicLeadEnquirySerializer,
+    ScheduleFollowUpSerializer,
+    TransitionStatusSerializer,
+)
+from leads.services import (
+    LeadAssignmentService,
+    LeadConversionService,
+    LeadFollowUpService,
+    LeadNoteService,
+    LeadService,
+    LeadStatusService,
 )
 from leads.tasks import process_lead_import_job
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from storage.models import MediaFile
+from users_roles.models import User
 
 # --------------------------------------------------------------
 # 1. Public Lead Enquiry Endpoint

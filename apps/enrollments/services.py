@@ -1,15 +1,16 @@
 from datetime import timedelta
+
+from core.utils import CubixSkillAPIException
 from django.db import transaction
 from django.utils import timezone
-from core.utils import CubixSkillAPIException
 from enrollments.models import (
-    Enrollment,
     AccessType,
-    EnrollmentStatus,
-    EnrollmentSource,
+    Enrollment,
     EnrollmentAccessPeriod,
     EnrollmentEvent,
     EnrollmentEventType,
+    EnrollmentSource,
+    EnrollmentStatus,
 )
 from learning_progress.models import CourseProgress, ProgressStatus
 
@@ -122,7 +123,8 @@ class EnrollmentService:
         if created:
             # Deduct per-student course credit cost from Academy wallet
             from decimal import Decimal
-            from credits.services import CreditsService, CreditPricingService
+
+            from credits.services import CreditPricingService, CreditsService
 
             pricing = CreditPricingService.calculate_course_per_student_pricing(course)
             per_student_credits = Decimal(str(pricing.get('total_credits_per_student', 1)))

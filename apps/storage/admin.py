@@ -4,8 +4,13 @@
 
 from django.contrib import admin
 from storage.models import (
-    MediaFile, UploadSession, AcademyStorageAccount, StorageUsageEvent,
-    StorageUsageRollup, StorageMonthlyBilling, StoragePricingRule
+    AcademyStorageAccount,
+    MediaFile,
+    StorageMonthlyBilling,
+    StoragePricingRule,
+    StorageUsageEvent,
+    StorageUsageRollup,
+    UploadSession,
 )
 
 #--------------------------------------------------------------

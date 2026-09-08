@@ -1,13 +1,10 @@
+from django.db.models import Q, QuerySet
 from django.utils import timezone
-from django.db.models import QuerySet, Q, Count
 from leads.models import (
+    FollowUpStatus,
     Lead,
     LeadFollowUp,
-    LeadNote,
-    LeadActivity,
-    LeadAssignment,
     LeadStatus,
-    FollowUpStatus,
 )
 
 # --------------------------------------------------------------

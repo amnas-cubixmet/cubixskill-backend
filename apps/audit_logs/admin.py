@@ -1,5 +1,5 @@
-from django.contrib import admin
 from audit_logs.models import AuditLog
+from django.contrib import admin
 
 # --------------------------------------------------------------
 # Audit Log Admin Registration

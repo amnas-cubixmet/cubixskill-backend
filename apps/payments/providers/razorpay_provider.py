@@ -1,13 +1,12 @@
-import uuid
-import logging
-import hmac
 import hashlib
+import hmac
+import logging
+import uuid
 from decimal import Decimal
-from typing import Any, Dict, Tuple, Optional
-from django.conf import settings
+from typing import Any
 
 import razorpay
-
+from django.conf import settings
 from payments.models import PaymentOrder, PaymentTransaction, TransactionStatus
 from payments.providers.base import BasePaymentProvider
 
@@ -25,10 +24,10 @@ class RazorpayProvider(BasePaymentProvider):
 
     def __init__(
         self,
-        key_id: Optional[str] = None,
-        key_secret: Optional[str] = None,
-        webhook_secret: Optional[str] = None,
-        currency: Optional[str] = None
+        key_id: str | None = None,
+        key_secret: str | None = None,
+        webhook_secret: str | None = None,
+        currency: str | None = None
     ):
         self.key_id = key_id or getattr(settings, 'RAZORPAY_KEY_ID', '')
         self.key_secret = key_secret or getattr(settings, 'RAZORPAY_KEY_SECRET', '')
@@ -44,7 +43,7 @@ class RazorpayProvider(BasePaymentProvider):
         """
         Converts decimal currency to smallest unit (paise for INR).
         """
-        return int((Decimal(str(amount)) * Decimal('100.00')).quantize(Decimal('1')))
+        return int((Decimal(str(amount)) * Decimal('100.00')).quantize(Decimal(1)))
 
     def _paise_to_decimal(self, paise: int) -> Decimal:
         """
@@ -55,10 +54,10 @@ class RazorpayProvider(BasePaymentProvider):
     def create_checkout_session(
         self,
         order: PaymentOrder,
-        return_url: Optional[str] = None,
-        cancel_url: Optional[str] = None,
+        return_url: str | None = None,
+        cancel_url: str | None = None,
         **kwargs: Any
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         from core.utils import normalize_currency
         from rest_framework.exceptions import ValidationError
 
@@ -110,7 +109,7 @@ class RazorpayProvider(BasePaymentProvider):
             'raw': raw_data
         }
 
-    def verify_payment(self, payload: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+    def verify_payment(self, payload: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         razorpay_order_id = payload.get('razorpay_order_id', '')
         razorpay_payment_id = payload.get('razorpay_payment_id', '')
         razorpay_signature = payload.get('razorpay_signature', '')
@@ -162,7 +161,7 @@ class RazorpayProvider(BasePaymentProvider):
             'raw': payload
         }
 
-    def get_payment_status(self, gateway_payment_id_or_order_id: str) -> Dict[str, Any]:
+    def get_payment_status(self, gateway_payment_id_or_order_id: str) -> dict[str, Any]:
         if self.client and gateway_payment_id_or_order_id.startswith('pay_'):
             try:
                 payment_info = self.client.payment.fetch(gateway_payment_id_or_order_id)
@@ -190,7 +189,7 @@ class RazorpayProvider(BasePaymentProvider):
         amount: Decimal,
         reason: str = "",
         **kwargs: Any
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if not transaction.gateway_payment_id:
             raise ValueError("Cannot refund transaction without a valid gateway_payment_id.")
 
@@ -221,7 +220,7 @@ class RazorpayProvider(BasePaymentProvider):
             'raw': raw_data
         }
 
-    def cancel_payment(self, gateway_order_id: str, reason: str = "") -> Dict[str, Any]:
+    def cancel_payment(self, gateway_order_id: str, reason: str = "") -> dict[str, Any]:
         return {
             'status': 'CANCELLED',
             'gateway_order_id': gateway_order_id,
@@ -231,8 +230,8 @@ class RazorpayProvider(BasePaymentProvider):
     def verify_webhook_signature(
         self,
         payload_body: Any,
-        headers: Dict[str, Any]
-    ) -> Tuple[bool, Dict[str, Any]]:
+        headers: dict[str, Any]
+    ) -> tuple[bool, dict[str, Any]]:
         signature = headers.get('X-Razorpay-Signature') or headers.get('x-razorpay-signature', '')
         if not signature or not self.webhook_secret:
             return False, {"error": "Missing signature or webhook secret configuration."}
@@ -265,8 +264,8 @@ class RazorpayProvider(BasePaymentProvider):
     def parse_webhook_event(
         self,
         payload_body: Any,
-        headers: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        headers: dict[str, Any]
+    ) -> dict[str, Any]:
         import json
         is_valid, err = self.verify_webhook_signature(payload_body, headers)
         if not is_valid:

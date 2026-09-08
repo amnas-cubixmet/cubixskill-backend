@@ -1,11 +1,11 @@
 from django.contrib import admin
 from notifications.models import (
+    EmailSuppression,
     Notification,
+    NotificationBatch,
     NotificationDelivery,
     NotificationPreference,
     NotificationTemplate,
-    NotificationBatch,
-    EmailSuppression,
 )
 
 # --------------------------------------------------------------

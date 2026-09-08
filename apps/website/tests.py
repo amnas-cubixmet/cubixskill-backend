@@ -1,13 +1,11 @@
-from django.test import TestCase
-from django.urls import reverse
-from rest_framework.test import APIClient
-from rest_framework import status
-
 from academy.models import Academy
 from courses.models import Course, CourseStatus, CourseVisibility
-from users_roles.models import User, SystemRoleCode
-from website.models import WebsiteSettings
-from website.services import WebsiteService
+from django.test import TestCase
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APIClient
+from users_roles.models import SystemRoleCode, User
+
 
 class WebsiteAppTestCase(TestCase):
     def setUp(self):

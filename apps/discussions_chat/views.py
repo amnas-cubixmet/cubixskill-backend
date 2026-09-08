@@ -1,37 +1,35 @@
-from django.utils import timezone
-from rest_framework import viewsets, status, permissions
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError, PermissionDenied
-
 from courses.models import Course
 from discussions_chat.models import (
-    DiscussionThread,
-    DiscussionReply,
-    ChatRoom,
     ChatMessage,
+    ChatRoom,
     CommunicationReport,
+    DiscussionReply,
+    DiscussionThread,
     ReportStatus,
 )
-from discussions_chat.selectors import DiscussionSelector, ChatSelector
-from discussions_chat.services import DiscussionService, ChatService
+from discussions_chat.selectors import ChatSelector, DiscussionSelector
 from discussions_chat.serializers import (
-    DiscussionThreadSerializer,
-    DiscussionReplySerializer,
-    CreateThreadSerializer,
-    CreateReplySerializer,
-    ChatRoomSerializer,
     ChatMessageSerializer,
+    ChatRoomSerializer,
     CommunicationReportSerializer,
+    CreateReplySerializer,
     CreateReportSerializer,
+    CreateThreadSerializer,
+    DiscussionReplySerializer,
+    DiscussionThreadSerializer,
 )
+from discussions_chat.services import ChatService, DiscussionService
+from django.utils import timezone
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 #--------------------------------------------------------------
 # 1. Course Discussion ViewSet
 #--------------------------------------------------------------
-
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
+
 
 class StandardPagination(PageNumberPagination):
     page_size = 15
@@ -348,8 +346,8 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
             return Response([], status=status.HTTP_200_OK)
 
         from courses.models import Course
-        from features.services import CourseFeatureService
         from discussions_chat.models import RoomType
+        from features.services import CourseFeatureService
 
         courses_qs = Course.objects.filter(is_active=True)
         if academy:

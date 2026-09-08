@@ -2,6 +2,7 @@ from celery import shared_task
 from certificates.models import Certificate, CertPDFMode
 from certificates.services import CertificateService
 
+
 @shared_task
 def generate_persistent_certificate_pdf_task(certificate_id: str):
     """

@@ -1,5 +1,5 @@
-from django.db.models import Q
 from courses.models import Course, CourseStatus, CourseVisibility
+from django.db.models import Q
 from users_roles.models import SystemRoleCode
 
 #--------------------------------------------------------------

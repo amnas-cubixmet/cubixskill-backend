@@ -1,5 +1,5 @@
+from core.models import ActiveMixin, BaseModel
 from django.db import models
-from core.models import BaseModel, ActiveMixin
 
 #--------------------------------------------------------------
 # FeatureScope Enum

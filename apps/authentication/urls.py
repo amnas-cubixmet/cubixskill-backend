@@ -1,11 +1,29 @@
 from django.urls import path
+
 from .views import (
-    RegisterStudentView, RegisterAcademyView, LoginView, VerifyEmailView, ResendVerificationView,
-    SetupPasswordView, ForgotPasswordView, ResetPasswordView, ChangePasswordView,
-    LogoutView, CurrentUserView, TokenValidateView, ResendSetupEmailView, ResendVerificationEmailView,
+    ChangePasswordView,
     CookieTokenRefreshView,
-    StudentLoginView, StudentCookieTokenRefreshView, StudentLogoutView, StudentCurrentUserView,
-    InstructorLoginView, InstructorCookieTokenRefreshView, InstructorLogoutView, InstructorCurrentUserView
+    CurrentUserView,
+    ForgotPasswordView,
+    InstructorCookieTokenRefreshView,
+    InstructorCurrentUserView,
+    InstructorLoginView,
+    InstructorLogoutView,
+    LoginView,
+    LogoutView,
+    RegisterAcademyView,
+    RegisterStudentView,
+    ResendSetupEmailView,
+    ResendVerificationEmailView,
+    ResendVerificationView,
+    ResetPasswordView,
+    SetupPasswordView,
+    StudentCookieTokenRefreshView,
+    StudentCurrentUserView,
+    StudentLoginView,
+    StudentLogoutView,
+    TokenValidateView,
+    VerifyEmailView,
 )
 
 urlpatterns = [

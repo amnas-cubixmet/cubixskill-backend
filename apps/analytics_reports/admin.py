@@ -1,5 +1,5 @@
-from django.contrib import admin
 from analytics_reports.models import AnalyticsSnapshot, ReportJob, SavedReport
+from django.contrib import admin
 
 # --------------------------------------------------------------
 # Analytics & Reports Admin Registration

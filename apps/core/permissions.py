@@ -1,5 +1,5 @@
 from rest_framework import permissions
-from users_roles.models import has_permission, can_access_academy, SystemRoleCode
+from users_roles.models import SystemRoleCode, can_access_academy, has_permission
 
 # --------------------------------------------------------------
 # Core Platform & Tenant Permission Classes

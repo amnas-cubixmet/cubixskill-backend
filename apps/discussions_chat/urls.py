@@ -1,10 +1,10 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
 from discussions_chat.views import (
-    CourseDiscussionViewSet,
     ChatRoomViewSet,
     CommunicationReportViewSet,
+    CourseDiscussionViewSet,
 )
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
 router.register(r'discussions', CourseDiscussionViewSet, basename='discussion')

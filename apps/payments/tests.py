@@ -1,34 +1,28 @@
 from decimal import Decimal
-from django.test import TestCase
-from django.utils import timezone
-from rest_framework.exceptions import ValidationError
 
 from academy.models import Academy
 from courses.models import Course, CourseStatus
-from users_roles.models import User, SystemRoleCode
+from django.test import TestCase
+from django.utils import timezone
 from enrollments.models import Enrollment, EnrollmentStatus
-
 from payments.models import (
     Coupon,
-    PaymentOrder,
-    PaymentTransaction,
     CouponRedemption,
-    PaymentRefund,
-    PaymentInvoice,
     CouponScope,
     DiscountType,
-    PaymentContext,
     OrderStatus,
-    TransactionStatus,
+    PaymentContext,
     RefundStatus,
 )
 from payments.services import (
     CouponService,
-    PaymentPricingService,
-    PaymentOrderService,
     PaymentFulfillmentService,
+    PaymentOrderService,
     RefundService,
 )
+from rest_framework.exceptions import ValidationError
+from users_roles.models import SystemRoleCode, User
+
 
 class PaymentsAppTestCase(TestCase):
     def setUp(self):

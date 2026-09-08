@@ -1,6 +1,7 @@
-from django.core.management.base import BaseCommand
 from academy.models import Academy
-from users_roles.models import User, SystemRoleCode
+from django.core.management.base import BaseCommand
+from users_roles.models import SystemRoleCode, User
+
 
 class Command(BaseCommand):
     help = 'Creates default Instructor / Academy Admin account'

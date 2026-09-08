@@ -1,11 +1,20 @@
-from django.db import transaction, models
+from core.utils import CubixSkillAPIException
+from django.db import models, transaction
 from lessons.models import (
-    Lesson, LessonMedia, LessonRichText, Quiz, Question, QuestionOption,
-    Assignment, AssignmentAsset, LessonResource, LessonType, QuestionType
+    Assignment,
+    AssignmentAsset,
+    Lesson,
+    LessonMedia,
+    LessonResource,
+    LessonRichText,
+    LessonType,
+    Question,
+    QuestionOption,
+    QuestionType,
+    Quiz,
 )
 from modules.models import Module
 from storage.models import MediaFile
-from core.utils import CubixSkillAPIException
 
 #--------------------------------------------------------------
 # Lesson Duration & Preview Calculation Helpers
@@ -24,7 +33,7 @@ def get_lesson_actual_duration_seconds(lesson) -> int:
         return int(lesson.duration_minutes * 60)
     return 0
 
-def get_public_preview_duration_seconds(actual_duration_seconds: int | float) -> int:
+def get_public_preview_duration_seconds(actual_duration_seconds: float) -> int:
     """
     Canonical public preview duration formula:
     - If actual_duration_seconds > 300 (5 minutes): return 300 (5 minutes limit)
@@ -278,9 +287,7 @@ class LessonService:
                             raise CubixSkillAPIException(f"Question #{idx + 1} option #{opt_idx + 1} text is required.", code="MISSING_OPTION_TEXT", status_code=400)
 
                         if not is_corr and correct_ans_list:
-                            if opt_id and opt_id in correct_ans_list:
-                                is_corr = True
-                            elif opt_text and opt_text in correct_ans_list:
+                            if opt_id and opt_id in correct_ans_list or opt_text and opt_text in correct_ans_list:
                                 is_corr = True
 
                         if is_corr:

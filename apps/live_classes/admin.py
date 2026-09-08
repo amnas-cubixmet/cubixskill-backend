@@ -1,12 +1,13 @@
 from django.contrib import admin
 from live_classes.models import (
     LiveSession,
-    LiveSessionReminder,
-    LiveSessionParticipant,
     LiveSessionAttendance,
-    LiveSessionRecording,
     LiveSessionEvent,
+    LiveSessionParticipant,
+    LiveSessionRecording,
+    LiveSessionReminder,
 )
+
 
 class LiveSessionReminderInline(admin.TabularInline):
     model = LiveSessionReminder

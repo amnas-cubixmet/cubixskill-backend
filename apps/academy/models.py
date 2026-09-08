@@ -1,6 +1,6 @@
+from core.models import ActiveMixin, BaseModel, SlugMixin
 from django.db import models
 from django.utils.text import slugify
-from core.models import BaseModel, SlugMixin, ActiveMixin
 from storage.models import MediaFile
 
 #--------------------------------------------------------------

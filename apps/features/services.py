@@ -1,11 +1,12 @@
 import logging
-from django.utils import timezone
+
+from core.utils import CubixSkillAPIException
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Count, Q
-from django.core.cache import cache
-from core.utils import CubixSkillAPIException
+from django.utils import timezone
 from enrollments.services import EnrollmentAccessService
-from features.models import Feature, CourseFeature
+from features.models import CourseFeature, Feature
 
 logger = logging.getLogger(__name__)
 
@@ -301,6 +302,7 @@ class CourseFeatureService:
     @transaction.atomic
     def enable_feature(course, feature_code: str, user=None, config: dict = None) -> CourseFeature:
         from decimal import Decimal
+
         from control_panel.models import PricingRule
         from credits.services import CreditsService
 

@@ -1,7 +1,7 @@
 import logging
+
 import razorpay
 from django.conf import settings
-
 from payments.encryption_service import decrypt_secret
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,8 @@ def resolve_payment_credentials(academy) -> dict:
       - environment ('test' | 'live')
       - razorpay_client (instance of razorpay.Client)
     """
-    from payments.models import AcademyPaymentSettings, PaymentMode as ModelPaymentMode
+    from payments.models import AcademyPaymentSettings
+    from payments.models import PaymentMode as ModelPaymentMode
 
     payment_settings = None
     if academy:

@@ -1,14 +1,15 @@
 from decimal import Decimal
-from django.test import TestCase
+
 from academy.models import Academy
-from django.contrib.auth import get_user_model
-from courses.models import Course
-from enrollments.models import Enrollment
-from discussions_chat.models import DiscussionThread, ThreadType
-from discussions_chat.services import DiscussionService
-from credits.models import CreditAccount, CreditLedgerEntry, CreditSourceType
 from control_panel.models import PricingRule
 from core.exceptions import CubixSkillAPIException
+from courses.models import Course
+from credits.models import CreditAccount, CreditLedgerEntry, CreditSourceType
+from discussions_chat.models import ThreadType
+from discussions_chat.services import DiscussionService
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from enrollments.models import Enrollment
 
 User = get_user_model()
 

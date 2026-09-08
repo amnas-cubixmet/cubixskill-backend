@@ -1,15 +1,15 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
 from analytics_reports.views import (
     AcademyDashboardAnalyticsView,
-    PlatformDashboardAnalyticsView,
     CourseAnalyticsView,
-    RevenueAnalyticsView,
     LeadAnalyticsView,
     LiveClassAnalyticsView,
+    PlatformDashboardAnalyticsView,
     ReportJobViewSet,
+    RevenueAnalyticsView,
     SavedReportViewSet,
 )
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
 # --------------------------------------------------------------
 # Analytics & Reports URL Router Configuration

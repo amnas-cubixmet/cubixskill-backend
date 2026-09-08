@@ -1,13 +1,13 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import include, path
 from features.views import (
-    FeatureViewSet,
     CourseFeatureViewSet,
-    student_course_features_view,
-    student_available_features_view,
+    FeatureViewSet,
     academy_features_summary_view,
     public_pricing_list_view,
+    student_available_features_view,
+    student_course_features_view,
 )
+from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
 router.register(r'features', FeatureViewSet, basename='feature')

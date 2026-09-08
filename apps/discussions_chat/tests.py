@@ -1,35 +1,25 @@
+from academy.models import Academy
+from channels.db import database_sync_to_async
+from channels.testing import WebsocketCommunicator
+from courses.models import Course, CourseStatus
+from discussions_chat.models import (
+    ReportStatus,
+    ThreadType,
+)
+from discussions_chat.services import ChatService, DiscussionService
 from django.test import TestCase
-from rest_framework.test import APIClient
+from enrollments.models import Enrollment, EnrollmentStatus
+from features.models import Feature, FeatureScope
+from features.services import CourseFeatureService
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from channels.testing import WebsocketCommunicator
-from channels.db import database_sync_to_async
-
-from academy.models import Academy
-from users_roles.models import User
-from courses.models import Course, CourseStatus
-from enrollments.models import Enrollment, EnrollmentStatus
-from features.models import Feature, FeatureScope, CourseFeature
-from features.services import CourseFeatureService
-from storage.models import MediaFile, MediaType, MediaStatus
-from discussions_chat.models import (
-    DiscussionThread,
-    DiscussionReply,
-    ChatRoom,
-    ChatMessage,
-    ChatParticipant,
-    CommunicationReport,
-    ThreadType,
-    ThreadStatus,
-    RoomType,
-    MessageStatus,
-    ReportStatus,
-)
-from discussions_chat.services import DiscussionService, ChatService
-from discussions_chat.selectors import DiscussionSelector, ChatSelector
+from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
-from users_roles.models import SystemRoleCode
+from storage.models import MediaFile, MediaStatus, MediaType
+from users_roles.models import SystemRoleCode, User
+
 from config.asgi import application
+
 
 class DiscussionsChatTestCase(TestCase):
     def setUp(self):
@@ -358,7 +348,7 @@ class DiscussionsChatTestCase(TestCase):
         instructor_refresh['portal'] = 'instructor'
         instructor_access_str = str(instructor_refresh.access_token)
 
-        combined_cookies = f"instructor_access_token={instructor_access_str}; student_access_token={student_access_str}".encode('utf-8')
+        combined_cookies = f"instructor_access_token={instructor_access_str}; student_access_token={student_access_str}".encode()
 
         # 1. Student portal socket with both cookies present must resolve ONLY to STUDENT user
         comm_student = WebsocketCommunicator(
@@ -388,7 +378,7 @@ class DiscussionsChatTestCase(TestCase):
         comm_mismatch = WebsocketCommunicator(
             application,
             f"/ws/chat/{room.id}/?portal=student",
-            headers=[(b"cookie", f"student_access_token={instructor_access_str}".encode('utf-8'))]
+            headers=[(b"cookie", f"student_access_token={instructor_access_str}".encode())]
         )
         connected, _ = await comm_mismatch.connect()
         self.assertFalse(connected)

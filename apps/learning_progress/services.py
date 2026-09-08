@@ -1,10 +1,9 @@
 import logging
-from django.utils import timezone
-from enrollments.models import Enrollment, EnrollmentStatus, AccessType
+
+from enrollments.models import AccessType, Enrollment, EnrollmentStatus
 from features.services import CourseFeatureService
+from learning_progress.models import LessonProgress, ProgressStatus
 from modules.models import Module
-from lessons.models import Lesson
-from learning_progress.models import LessonProgress, ProgressStatus, CourseProgress
 
 logger = logging.getLogger(__name__)
 

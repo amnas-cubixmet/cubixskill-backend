@@ -1,4 +1,5 @@
 from django.urls import path
+
 try:
     from . import views
 except (ImportError, ValueError):

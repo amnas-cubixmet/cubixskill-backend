@@ -3,7 +3,13 @@
 #--------------------------------------------------------------
 
 from django.contrib import admin
-from users_roles.models import User, Role, Permission, RolePermission, UserPermissionOverride
+from users_roles.models import (
+    Permission,
+    Role,
+    RolePermission,
+    User,
+    UserPermissionOverride,
+)
 
 #--------------------------------------------------------------
 # Admin Configurations

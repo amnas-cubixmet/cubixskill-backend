@@ -1,10 +1,10 @@
-from rest_framework import serializers
 from notifications.models import (
     Notification,
-    NotificationPreference,
     NotificationBatch,
-    NotificationDelivery,
+    NotificationPreference,
 )
+from rest_framework import serializers
+
 
 class NotificationSerializer(serializers.ModelSerializer):
     is_read = serializers.BooleanField(read_only=True)

@@ -1,8 +1,9 @@
 import logging
+
+from analytics_reports.models import ReportJob, ReportStatus
+from analytics_reports.services import AnalyticsSnapshotService, ReportService
 from celery import shared_task
 from django.utils import timezone
-from analytics_reports.models import ReportJob, ReportStatus
-from analytics_reports.services import ReportService, AnalyticsSnapshotService
 
 logger = logging.getLogger(__name__)
 

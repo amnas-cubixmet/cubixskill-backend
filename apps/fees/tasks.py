@@ -1,5 +1,4 @@
 import logging
-from fees.services import FeeReminderService
 
 logger = logging.getLogger(__name__)
 

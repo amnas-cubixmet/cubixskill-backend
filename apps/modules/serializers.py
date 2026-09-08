@@ -1,6 +1,6 @@
-from rest_framework import serializers
-from modules.models import Module
 from lessons.serializers import LessonSerializer
+from modules.models import Module
+from rest_framework import serializers
 
 #--------------------------------------------------------------
 # Module Serializer

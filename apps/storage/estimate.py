@@ -1,9 +1,9 @@
-import math
 import logging
 from decimal import Decimal
-from storage.models import StorageStreamingProfile, MediaFile, MediaType
-from storage.metering import StorageMeteringService
+
 from credits.services import CreditPricingService
+from storage.metering import StorageMeteringService
+from storage.models import StorageStreamingProfile
 from storage.utils import format_bytes
 
 logger = logging.getLogger(__name__)
@@ -41,10 +41,10 @@ class StorageEstimateService:
             estimated_streaming_bytes = 0
             estimated_total_bytes = file_size_bytes
 
-            bytes_in_gb = Decimal('1073741824')
+            bytes_in_gb = Decimal(1073741824)
             gb_count = Decimal(str(estimated_total_bytes)) / bytes_in_gb
             estimated_monthly_credits = (gb_count * rate_cost).quantize(Decimal('0.0001'))
-            estimated_daily_credits = (estimated_monthly_credits / Decimal('30')).quantize(Decimal('0.0001'))
+            estimated_daily_credits = (estimated_monthly_credits / Decimal(30)).quantize(Decimal('0.0001'))
 
             return {
                 "filename": filename,
@@ -119,10 +119,10 @@ class StorageEstimateService:
         estimated_source_bytes = file_size_bytes
         estimated_total_bytes = estimated_source_bytes + estimated_streaming_bytes
 
-        bytes_in_gb = Decimal('1073741824')
+        bytes_in_gb = Decimal(1073741824)
         gb_count = Decimal(str(estimated_total_bytes)) / bytes_in_gb
         estimated_monthly_credits = (gb_count * rate_cost).quantize(Decimal('0.0001'))
-        estimated_daily_credits = (estimated_monthly_credits / Decimal('30')).quantize(Decimal('0.0001'))
+        estimated_daily_credits = (estimated_monthly_credits / Decimal(30)).quantize(Decimal('0.0001'))
 
         return {
             "filename": filename,

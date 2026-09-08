@@ -1,11 +1,11 @@
-from rest_framework import viewsets, permissions, status
-from rest_framework.response import Response
+from core.permissions import CanAccessAcademyPermission
+from core.utils import CubixSkillAPIException, api_response
 from courses.models import Course
 from modules.selectors import ModuleSelector
+from modules.serializers import ModuleCreateSerializer, ModuleSerializer
 from modules.services import ModuleService
-from modules.serializers import ModuleSerializer, ModuleCreateSerializer
-from core.permissions import CanAccessAcademyPermission
-from core.utils import api_response, CubixSkillAPIException
+from rest_framework import permissions, status, viewsets
+from rest_framework.response import Response
 from users_roles.models import SystemRoleCode
 
 #--------------------------------------------------------------

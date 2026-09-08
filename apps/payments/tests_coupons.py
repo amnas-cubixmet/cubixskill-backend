@@ -1,13 +1,14 @@
 from decimal import Decimal
-from django.test import TestCase
-from django.utils import timezone
-from rest_framework.exceptions import ValidationError
 
 from academy.models import Academy
 from courses.models import Course
-from users_roles.models import User
+from django.test import TestCase
+from django.utils import timezone
 from payments.models import Coupon, CouponScope, DiscountType, PaymentContext
 from payments.services import CouponService, PaymentPricingService
+from rest_framework.exceptions import ValidationError
+from users_roles.models import User
+
 
 class CourseCouponsTestCase(TestCase):
     def setUp(self):

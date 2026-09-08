@@ -2,14 +2,24 @@
 # Imports
 #--------------------------------------------------------------
 
-from django.urls import path, include
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 from storage.views import (
-    RequestUploadUrlView, DirectUploadView, ConfirmUploadView, MediaFileViewSet,
-    StorageUsageView, EstimateUploadCostView, StorageCurrentPeriodView,
-    StorageDailyRollupView, StorageMonthlyBillingView,
-    StorageSummaryDashboardView, StorageSnapshotsView, StorageBillingPeriodsView,
-    ControlPanelStorageSettingsView, StorageMeterLogsView, StorageSettlementHistoryView
+    ConfirmUploadView,
+    ControlPanelStorageSettingsView,
+    DirectUploadView,
+    EstimateUploadCostView,
+    MediaFileViewSet,
+    RequestUploadUrlView,
+    StorageBillingPeriodsView,
+    StorageCurrentPeriodView,
+    StorageDailyRollupView,
+    StorageMeterLogsView,
+    StorageMonthlyBillingView,
+    StorageSettlementHistoryView,
+    StorageSnapshotsView,
+    StorageSummaryDashboardView,
+    StorageUsageView,
 )
 
 #--------------------------------------------------------------

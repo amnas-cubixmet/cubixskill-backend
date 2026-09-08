@@ -1,17 +1,20 @@
 import logging
-from django.db import transaction
-from rest_framework import viewsets, permissions, status
-from rest_framework.views import APIView
-from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.decorators import action
-from storage.models import MediaFile, UploadSession, StorageUsageRollup
-from storage.services import StorageService
-from storage.serializers import (
-    MediaFileSerializer, UploadUrlRequestSerializer,
-    UpdateMediaFileSerializer, StorageUsageRollupSerializer
-)
+
 from core.permissions import CanAccessAcademyPermission
-from core.utils import api_response, CubixSkillAPIException
+from core.utils import CubixSkillAPIException, api_response
+from django.db import transaction
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.views import APIView
+from storage.models import MediaFile, StorageUsageRollup, UploadSession
+from storage.serializers import (
+    MediaFileSerializer,
+    StorageUsageRollupSerializer,
+    UpdateMediaFileSerializer,
+    UploadUrlRequestSerializer,
+)
+from storage.services import StorageService
 
 logger = logging.getLogger(__name__)
 
@@ -379,7 +382,7 @@ class MediaFileViewSet(viewsets.ModelViewSet):
         if media_file.media_type != 'VIDEO':
             raise CubixSkillAPIException("Only video media files can be converted to HLS.", code="NOT_A_VIDEO", status_code=status.HTTP_400_BAD_REQUEST)
 
-        from storage.models import ProcessingStatus, ProcessingMode
+        from storage.models import ProcessingMode, ProcessingStatus
         media_file.processing_mode = ProcessingMode.HLS
         media_file.processing_status = ProcessingStatus.QUEUED
         media_file.processing_progress = 5
@@ -448,9 +451,9 @@ class StorageCurrentPeriodView(APIView):
         current_record = StorageBillingService.close_billing_period(acad_uuid)
 
         from decimal import Decimal
-        bytes_in_gb = Decimal('1073741824')
-        gb_hours = (Decimal(str(current_record.total_byte_seconds)) / (bytes_in_gb * Decimal('3600'))).quantize(Decimal('0.0001'))
-        gb_days = (Decimal(str(current_record.total_byte_seconds)) / (bytes_in_gb * Decimal('86400'))).quantize(Decimal('0.0001'))
+        bytes_in_gb = Decimal(1073741824)
+        gb_hours = (Decimal(str(current_record.total_byte_seconds)) / (bytes_in_gb * Decimal(3600))).quantize(Decimal('0.0001'))
+        gb_days = (Decimal(str(current_record.total_byte_seconds)) / (bytes_in_gb * Decimal(86400))).quantize(Decimal('0.0001'))
 
         return api_response(data={
             "used_bytes": account.current_usage_bytes,
@@ -475,8 +478,6 @@ class StorageDailyRollupView(APIView):
         if not acad_uuid and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
             raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
         from storage.metering import StorageBillingService
-        from storage.models import StorageUsageRollup
-        from storage.serializers import StorageUsageRollupSerializer
 
         # Ensure today's rollup is built
         StorageBillingService.build_daily_rollup(acad_uuid)
@@ -510,10 +511,20 @@ class StorageSummaryDashboardView(APIView):
         academy = safe_get_user_academy(request.user)
         if not academy and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
             raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
-        from decimal import Decimal, ROUND_HALF_UP
+        from decimal import Decimal
+
         from django.utils import timezone
-        from storage.models import StorageBillingSettings, AcademyStorageUsage, StorageBillingCycle, StorageBillingCycleStatus
-        from storage.utils import storage_interval_delta, get_interval_label, get_next_credit_debit_datetime
+        from storage.models import (
+            AcademyStorageUsage,
+            StorageBillingCycle,
+            StorageBillingCycleStatus,
+            StorageBillingSettings,
+        )
+        from storage.utils import (
+            get_interval_label,
+            get_next_credit_debit_datetime,
+            storage_interval_delta,
+        )
 
         settings_obj = StorageBillingSettings.get_settings()
         usage, _ = AcademyStorageUsage.objects.get_or_create(
@@ -628,7 +639,8 @@ class ControlPanelStorageSettingsView(APIView):
             raise CubixSkillAPIException("Only Super Admins can manage platform storage settings.", code="PERMISSION_DENIED", status_code=status.HTTP_403_FORBIDDEN)
 
         from decimal import Decimal
-        from storage.models import StorageBillingSettings, StorageBillingInterval
+
+        from storage.models import StorageBillingInterval, StorageBillingSettings
         from storage.serializers import StorageBillingSettingsSerializer
 
         settings_obj = StorageBillingSettings.get_settings()
@@ -691,9 +703,9 @@ class StorageMeterLogsView(APIView):
         academy = safe_get_user_academy(request.user)
         if not academy and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
             raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
+        from django.core.paginator import Paginator
         from storage.models import StorageMeterRecord
         from storage.serializers import StorageMeterRecordSerializer
-        from django.core.paginator import Paginator
 
         qs = StorageMeterRecord.objects.filter(academy=academy).order_by('-metered_at')
 
@@ -728,13 +740,14 @@ class StorageSettlementHistoryView(APIView):
         academy = safe_get_user_academy(request.user)
         if not academy and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
             raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
-        from decimal import Decimal
-        from django.utils import timezone
         import calendar
-        from storage.models import StorageBillingCycle, StorageBillingCycleStatus
-        from storage.serializers import StorageBillingCycleSerializer
+        from decimal import Decimal
+
         from django.core.paginator import Paginator
         from django.db.models import Q
+        from django.utils import timezone
+        from storage.models import StorageBillingCycle, StorageBillingCycleStatus
+        from storage.serializers import StorageBillingCycleSerializer
 
         qs = StorageBillingCycle.objects.filter(
             academy=academy,

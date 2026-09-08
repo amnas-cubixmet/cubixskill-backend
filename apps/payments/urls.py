@@ -1,38 +1,38 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from payments.views import (
-    AcademyPaymentSettingsView,
-    VerifyAcademyRazorpayView,
-    DisconnectAcademyRazorpayView,
-    AcademySettlementsViewSet,
-    CreatePaymentOrderView,
-    VerifyPaymentSignatureView,
-    CourseCheckoutView,
-    PayOrderView,
-    ValidateCouponView,
-    PlatformCheckoutView,
-    PaymentWebhookView,
-    StudentPaymentHistoryViewSet,
-    AcademyPaymentHistoryViewSet,
-    AdminPaymentHistoryViewSet,
-    AcademyCouponViewSet,
-    AdminPlatformCouponViewSet,
-    CourseCouponListCreateView,
-    CourseCouponDetailView,
-    CourseCouponToggleView,
-    CourseCouponRedemptionsView,
-    CourseCouponGenerateCodeView,
-)
+from django.urls import include, path
 from fees.views import (
-    CourseFeeSummaryView,
-    CourseDefaultFeePlanView,
-    StudentFeeAccountListCreateView,
-    StudentFeeAccountDetailView,
     CollectFeePaymentView,
-    WaiveFeeView,
-    SendFeeReminderView,
+    CourseDefaultFeePlanView,
     CourseFeePaymentsLedgerView,
+    CourseFeeSummaryView,
+    SendFeeReminderView,
+    StudentFeeAccountDetailView,
+    StudentFeeAccountListCreateView,
+    WaiveFeeView,
 )
+from payments.views import (
+    AcademyCouponViewSet,
+    AcademyPaymentHistoryViewSet,
+    AcademyPaymentSettingsView,
+    AcademySettlementsViewSet,
+    AdminPaymentHistoryViewSet,
+    AdminPlatformCouponViewSet,
+    CourseCheckoutView,
+    CourseCouponDetailView,
+    CourseCouponGenerateCodeView,
+    CourseCouponListCreateView,
+    CourseCouponRedemptionsView,
+    CourseCouponToggleView,
+    CreatePaymentOrderView,
+    DisconnectAcademyRazorpayView,
+    PaymentWebhookView,
+    PayOrderView,
+    PlatformCheckoutView,
+    StudentPaymentHistoryViewSet,
+    ValidateCouponView,
+    VerifyAcademyRazorpayView,
+    VerifyPaymentSignatureView,
+)
+from rest_framework.routers import DefaultRouter
 
 # --------------------------------------------------------------
 # Payments URL Router Configuration

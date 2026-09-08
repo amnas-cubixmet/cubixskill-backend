@@ -1,5 +1,6 @@
-from django.db import models
 from core.models import BaseModel
+from django.db import models
+
 
 class ProgressStatus(models.TextChoices):
     NOT_STARTED = 'NOT_STARTED', 'Not Started'

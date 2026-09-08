@@ -1,6 +1,7 @@
 import json
-from channels.generic.websocket import AsyncWebsocketConsumer
+
 from channels.db import database_sync_to_async
+from channels.generic.websocket import AsyncWebsocketConsumer
 
 # --------------------------------------------------------------
 # Realtime Chat Consumer
@@ -179,8 +180,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def save_message(self, user, room_id, content, message_type='TEXT', reply_to_id=None, media_file_ids=None):
         from discussions_chat.models import ChatRoom
-        from discussions_chat.services import ChatService
         from discussions_chat.serializers import ChatMessageSerializer
+        from discussions_chat.services import ChatService
 
         room = ChatRoom.objects.get(id=room_id)
         msg = ChatService.send_message(

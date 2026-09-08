@@ -1,13 +1,11 @@
 import logging
 import math
-from decimal import Decimal
 from datetime import timedelta
-from typing import Optional, List, Dict, Any
+from decimal import Decimal
 
 from django.db import transaction
 from django.utils import timezone
-
-from emails.models import EmailJob, EmailRecipientDelivery, EmailJobStatus, EmailJobType
+from emails.models import EmailJob, EmailJobStatus, EmailJobType, EmailRecipientDelivery
 from emails.services import send_transactional_email
 
 logger = logging.getLogger(__name__)
@@ -25,8 +23,8 @@ class EmailJobService:
         scheduled_for=None,
         reference_type: str = '',
         reference_id=None,
-        idempotency_key: Optional[str] = None,
-        metadata: Optional[dict] = None
+        idempotency_key: str | None = None,
+        metadata: dict | None = None
     ) -> EmailJob:
         """
         Atomically creates a durable EmailJob record in the DB outbox.
@@ -76,12 +74,12 @@ class EmailJobService:
         recipient_email: str,
         subject: str,
         template_name: str,
-        context: Optional[dict] = None,
+        context: dict | None = None,
         academy_uuid=None,
         job_type: str = EmailJobType.TRANSACTIONAL,
         recipient_user_uuid=None,
         recipient_name: str = "",
-        idempotency_key: Optional[str] = None
+        idempotency_key: str | None = None
     ) -> EmailJob:
         """
         Creates a single-recipient transactional EmailJob with immediate Celery dispatch.
@@ -247,8 +245,8 @@ class EmailJobService:
         # Email Credit Cost Calculation & Ledger Charge
         if job.academy_uuid:
             from academy.models import Academy
-            from credits.services import CreditsService, CreditPricingService
             from credits.models import CreditSourceType
+            from credits.services import CreditPricingService, CreditsService
 
             academy = Academy.objects.filter(id=job.academy_uuid).first()
             if academy:
@@ -278,7 +276,7 @@ class EmailJobService:
                 except Exception as e:
                     logger.error(f"Credit debit failed for EmailJob {job.id}: {e}")
                     job.status = EmailJobStatus.FAILED
-                    job.last_error = f"CREDIT_DEBIT_FAILED: {str(e)}"
+                    job.last_error = f"CREDIT_DEBIT_FAILED: {e!s}"
                     job.save(update_fields=['status', 'last_error'])
                     return False
 
@@ -358,7 +356,7 @@ class EmailJobService:
             return False
 
     @classmethod
-    def _resolve_job_recipients(cls, job: EmailJob) -> List[tuple]:
+    def _resolve_job_recipients(cls, job: EmailJob) -> list[tuple]:
         """
         Dynamically resolves recipient (user_id, email, full_name) tuples for a job at send time.
         """

@@ -1,6 +1,7 @@
 import uuid
 from dataclasses import dataclass
 
+
 @dataclass
 class AuditRequestContext:
     request_id: str

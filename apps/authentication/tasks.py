@@ -1,4 +1,5 @@
 import logging
+
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
@@ -19,5 +20,5 @@ def send_email_task(self, subject: str, recipient: str, message_body: str):
         logger.info(f"Delegated legacy authentication send_email_task to EmailJob {job.id}")
         return str(job.id)
     except Exception as exc:
-        logger.error(f"Failed to queue email job for {recipient}: {str(exc)}")
+        logger.error(f"Failed to queue email job for {recipient}: {exc!s}")
         raise self.retry(exc=exc)

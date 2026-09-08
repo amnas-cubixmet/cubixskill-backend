@@ -1,10 +1,22 @@
-from rest_framework import viewsets, permissions, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
 from django.db.models import Q
-from users_roles.models import User, Role, Permission, RolePermission, SystemRoleCode, RoleScope
-from users_roles.serializers import UserSerializer, UserCreateSerializer, RoleSerializer, PermissionSerializer
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
+from users_roles.models import (
+    Permission,
+    Role,
+    RolePermission,
+    RoleScope,
+    SystemRoleCode,
+    User,
+)
+from users_roles.serializers import (
+    PermissionSerializer,
+    RoleSerializer,
+    UserCreateSerializer,
+    UserSerializer,
+)
 
 #--------------------------------------------------------------
 # User ViewSet for Staff & Tenant Users Management

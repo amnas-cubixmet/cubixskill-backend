@@ -1,5 +1,11 @@
 from django.contrib import admin
-from students.models import StudentProfile, StudentGuardian, StudentDocument, StudentNote, StudentTag
+from students.models import (
+    StudentDocument,
+    StudentGuardian,
+    StudentNote,
+    StudentProfile,
+    StudentTag,
+)
 
 #--------------------------------------------------------------
 # Admin Configurations

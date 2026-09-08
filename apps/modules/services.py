@@ -1,7 +1,6 @@
-from django.db import transaction, models
-from modules.models import Module
 from courses.models import Course
-from core.utils import CubixSkillAPIException
+from django.db import models, transaction
+from modules.models import Module
 
 #--------------------------------------------------------------
 # Module Services

@@ -1,28 +1,24 @@
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError, PermissionDenied
-
-from users_roles.models import User, SystemRoleCode
-from students.models import StudentProfile
 from enrollments.services import EnrollmentService
-from notifications.services import EmailService
 from leads.models import (
-    Lead,
-    LeadCourseInterest,
-    LeadAssignment,
-    LeadFollowUp,
-    LeadNote,
-    LeadActivity,
-    LeadStatus,
-    LeadPriority,
-    LeadSource,
-    FollowUpType,
     FollowUpStatus,
     InterestLevel,
+    Lead,
+    LeadActivity,
+    LeadAssignment,
+    LeadCourseInterest,
+    LeadFollowUp,
+    LeadNote,
+    LeadStatus,
     normalize_email_address,
     normalize_phone_number,
 )
+from notifications.services import EmailService
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from students.models import StudentProfile
+from users_roles.models import SystemRoleCode, User
 
 # --------------------------------------------------------------
 # 1. Lead Duplicate Service

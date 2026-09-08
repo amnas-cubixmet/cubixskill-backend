@@ -1,16 +1,29 @@
 import logging
-from rest_framework import viewsets, permissions, status
-from rest_framework.exceptions import ValidationError
-from rest_framework.decorators import action
-from students.models import  StudentGuardian, StudentDocument, StudentNote, StudentTag, StudentStatus
-from students.selectors import StudentSelector
-from students.services import StudentService
-from students.serializers import (
-    StudentProfileSerializer, StudentCreateSerializer, StudentUpdateSerializer, StudentSelfUpdateSerializer,
-    StudentGuardianSerializer, StudentDocumentSerializer, StudentNoteSerializer, StudentTagSerializer
-)
+
 from core.permissions import CanAccessAcademyPermission
 from core.utils import CubixSkillAPIException, api_response
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from students.models import (
+    StudentDocument,
+    StudentGuardian,
+    StudentNote,
+    StudentStatus,
+    StudentTag,
+)
+from students.selectors import StudentSelector
+from students.serializers import (
+    StudentCreateSerializer,
+    StudentDocumentSerializer,
+    StudentGuardianSerializer,
+    StudentNoteSerializer,
+    StudentProfileSerializer,
+    StudentSelfUpdateSerializer,
+    StudentTagSerializer,
+    StudentUpdateSerializer,
+)
+from students.services import StudentService
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +209,8 @@ class StudentViewSet(viewsets.ModelViewSet):
 # Student Self-Service ViewSet
 #--------------------------------------------------------------
 
-from rest_framework.parsers import JSONParser, FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+
 
 class StudentSelfServiceViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
@@ -212,7 +226,7 @@ class StudentSelfServiceViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['patch'])
     def update_profile(self, request):
         from django.db import transaction
-        from storage.models import MediaFile, MediaType, MediaStatus
+        from storage.models import MediaFile, MediaStatus, MediaType
 
         profile = getattr(request.user, 'student_profile', None)
         if not profile:
@@ -323,6 +337,7 @@ class StudentTagViewSet(viewsets.ModelViewSet):
 
 from students.models import StudentCustomFieldDefinition
 from students.serializers import StudentCustomFieldDefinitionSerializer
+
 
 class StudentCustomFieldViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]

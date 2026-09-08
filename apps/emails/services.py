@@ -1,10 +1,15 @@
 import logging
-from typing import Dict, Any, Optional
+from typing import Any
+
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
-from emails.utils import build_reset_password_url, build_verify_email_url, build_setup_password_url
+from emails.utils import (
+    build_reset_password_url,
+    build_setup_password_url,
+    build_verify_email_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +30,7 @@ def send_transactional_email(
     recipient: str,
     template_name: str,
     subject: str,
-    context: Dict[str, Any]
+    context: dict[str, Any]
 ) -> bool:
     """
     Sends transactional HTML + Plain text email via Django's SMTP backend.
@@ -46,7 +51,7 @@ def send_transactional_email(
         logger.info(f"Transactional email '{template_name}' sent successfully to {recipient}")
         return True
     except Exception as e:
-        logger.error(f"Failed to send transactional email '{template_name}' to {recipient}: {str(e)}", exc_info=True)
+        logger.error(f"Failed to send transactional email '{template_name}' to {recipient}: {e!s}", exc_info=True)
         return False
 
 

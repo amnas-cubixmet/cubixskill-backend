@@ -1,26 +1,26 @@
 from datetime import timedelta
-from django.test import TestCase
-from django.utils import timezone
-from rest_framework.test import APIClient
-from rest_framework import status
-from rest_framework.exceptions import ValidationError
 
 from academy.models import Academy
-from users_roles.models import User
 from courses.models import Course, CourseStatus
+from django.test import TestCase
+from django.utils import timezone
 from enrollments.models import Enrollment, EnrollmentStatus
 from live_classes.models import (
     LiveSession,
-    LiveSessionReminder,
-    LiveSessionParticipant,
-    LiveSessionAttendance,
     LiveSessionEvent,
     LiveStatus,
     ReminderStatus,
 )
 from live_classes.services import LiveSessionService
-from live_classes.selectors import LiveSessionSelector
-from live_classes.tasks import update_live_session_statuses, process_pending_live_session_reminders
+from live_classes.tasks import (
+    process_pending_live_session_reminders,
+    update_live_session_statuses,
+)
+from rest_framework import status
+from rest_framework.exceptions import ValidationError
+from rest_framework.test import APIClient
+from users_roles.models import User
+
 
 class LiveClassesTestCase(TestCase):
     def setUp(self):

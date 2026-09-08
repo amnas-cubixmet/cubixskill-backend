@@ -1,13 +1,14 @@
-from django.test import TestCase
 from academy.models import Academy
 from courses.models import Course
-from modules.models import Module
-from lessons.models import Lesson
-from users_roles.models import User
+from django.test import TestCase
 from enrollments.models import Enrollment, EnrollmentStatus
+from features.services import CourseFeatureService
 from learning_progress.models import LessonProgress, ProgressStatus
 from learning_progress.services import StudentCourseProgressionService
-from features.services import CourseFeatureService
+from lessons.models import Lesson
+from modules.models import Module
+from users_roles.models import User
+
 
 class StudentCourseProgressionServiceTest(TestCase):
     def setUp(self):

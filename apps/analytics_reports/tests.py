@@ -1,18 +1,18 @@
 from decimal import Decimal
-from django.test import TestCase
-from django.urls import reverse
-from rest_framework.test import APIClient
-from rest_framework import status
 
 from academy.models import Academy
-from users_roles.models import User, SystemRoleCode
-from students.models import StudentProfile, StudentStatus
-from courses.models import Course, CourseStatus
-from enrollments.models import Enrollment, EnrollmentStatus
-from payments.models import PaymentOrder, OrderStatus, PaymentContext
-from analytics_reports.models import  ReportStatus, ReportType
+from analytics_reports.models import ReportStatus, ReportType
 from analytics_reports.selectors import AnalyticsSelector
 from analytics_reports.services import ReportService
+from courses.models import Course, CourseStatus
+from django.test import TestCase
+from django.urls import reverse
+from enrollments.models import Enrollment, EnrollmentStatus
+from payments.models import OrderStatus, PaymentContext, PaymentOrder
+from rest_framework import status
+from rest_framework.test import APIClient
+from students.models import StudentProfile
+from users_roles.models import SystemRoleCode, User
 
 # --------------------------------------------------------------
 # Analytics & Reports Unit & Integration Tests

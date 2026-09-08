@@ -1,7 +1,7 @@
-from django.db import models, transaction
-from django.utils import timezone
-from courses.models import Course, CourseModule, CourseStatus
 from core.utils import CubixSkillAPIException
+from courses.models import Course, CourseModule, CourseStatus
+from django.db import transaction
+from django.utils import timezone
 
 #--------------------------------------------------------------
 # Course Publish Readiness Service
@@ -14,8 +14,8 @@ class CoursePublishReadinessService:
     """
     @staticmethod
     def get_readiness(course: Course) -> dict:
-        from modules.models import Module
         from lessons.models import Lesson, LessonMedia
+        from modules.models import Module
         from storage.models import ProcessingStatus
 
         # 1. Real Canonical Module Count from DB
@@ -207,6 +207,7 @@ class CourseService:
 #--------------------------------------------------------------
 
 from decimal import Decimal
+
 
 class CoursePricingService:
     """

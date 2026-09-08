@@ -1,7 +1,8 @@
-import math
 import calendar
+import math
 from datetime import datetime, time, timedelta
 from decimal import Decimal
+
 from django.utils import timezone
 
 BYTES_PER_GB = Decimal(1024 ** 3)
@@ -93,11 +94,12 @@ def repair_duplicate_open_storage_cycles():
     Finds Academies with multiple OPEN StorageBillingCycles, moves all meter records into the canonical
     OPEN cycle, recalculates accumulated_credits from meter records, and deletes empty duplicate OPEN cycles.
     """
-    from storage.models import StorageBillingCycle, StorageBillingCycleStatus
+    from decimal import Decimal
+
     from academy.models import Academy
     from django.db import models
     from django.db.models import Count, Sum
-    from decimal import Decimal
+    from storage.models import StorageBillingCycle, StorageBillingCycleStatus
 
     academies = Academy.objects.annotate(
         open_count=Count('storage_billing_cycles', filter=models.Q(storage_billing_cycles__status=StorageBillingCycleStatus.OPEN))

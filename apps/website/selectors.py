@@ -1,7 +1,7 @@
-from django.shortcuts import get_object_or_404
-from django.db.models import QuerySet
 from academy.models import Academy
 from courses.models import Course, CourseStatus, CourseVisibility
+from django.db.models import QuerySet
+from django.shortcuts import get_object_or_404
 
 # --------------------------------------------------------------
 # Website Selectors

@@ -1,5 +1,5 @@
 from django.db.models import QuerySet
-from payments.models import PaymentOrder, PaymentContext
+from payments.models import PaymentContext, PaymentOrder
 
 # --------------------------------------------------------------
 # Payment Selectors

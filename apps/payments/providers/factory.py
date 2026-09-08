@@ -1,7 +1,6 @@
 import logging
-from typing import Dict, Type, Optional
-from django.conf import settings
 
+from django.conf import settings
 from payments.providers.base import BasePaymentProvider
 from payments.providers.razorpay_provider import RazorpayProvider
 
@@ -14,10 +13,10 @@ class PaymentProviderFactory:
     Currently defaults to Razorpay as the official payment gateway for CubixSkill.
     """
 
-    _providers: Dict[str, Type[BasePaymentProvider]] = {}
+    _providers: dict[str, type[BasePaymentProvider]] = {}
 
     @classmethod
-    def register_provider(cls, name: str, provider_class: Type[BasePaymentProvider]) -> None:
+    def register_provider(cls, name: str, provider_class: type[BasePaymentProvider]) -> None:
         """
         Registers a payment provider class under a name (e.g. 'razorpay').
         """
@@ -25,7 +24,7 @@ class PaymentProviderFactory:
         logger.info(f"Registered payment provider: '{name.lower()}' ({provider_class.__name__})")
 
     @classmethod
-    def get_provider(cls, gateway_name: Optional[str] = None) -> BasePaymentProvider:
+    def get_provider(cls, gateway_name: str | None = None) -> BasePaymentProvider:
         """
         Returns an initialized instance of the requested payment provider.
         Defaults to Razorpay if gateway_name is omitted or unavailable.
@@ -34,7 +33,7 @@ class PaymentProviderFactory:
 
         if provider_key not in cls._providers:
             # Fallback to Razorpay
-            logger.info(f"Using default 'razorpay' provider.")
+            logger.info("Using default 'razorpay' provider.")
             provider_key = 'razorpay'
             if 'razorpay' not in cls._providers:
                 cls.register_provider('razorpay', RazorpayProvider)

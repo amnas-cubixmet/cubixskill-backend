@@ -1,10 +1,7 @@
-from rest_framework import viewsets, permissions, status
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
-
 from audit_logs.models import AuditLog
 from audit_logs.selectors import AuditLogSelector
 from audit_logs.serializers import AuditLogSerializer
+from rest_framework import permissions, viewsets
 
 # --------------------------------------------------------------
 # 1. Academy Audit Logs ViewSet

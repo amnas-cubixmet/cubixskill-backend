@@ -1,14 +1,13 @@
-from rest_framework import serializers
-from users_roles.models import User
 from courses.models import Course
 from enrollments.models import (
+    AccessType,
     Enrollment,
     EnrollmentAccessPeriod,
     EnrollmentEvent,
-    AccessType,
-    EnrollmentStatus,
-    EnrollmentSource
+    EnrollmentSource,
 )
+from rest_framework import serializers
+from users_roles.models import User
 
 #--------------------------------------------------------------
 # Student Minimal Serializer

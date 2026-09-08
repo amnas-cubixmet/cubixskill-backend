@@ -1,65 +1,62 @@
-import uuid
+import hashlib
+import hmac
+import logging
 import random
 import string
-import hmac
-import hashlib
-import logging
+import uuid
 from decimal import Decimal
-from django.db import  transaction
-from django.db.models import Q
-from django.utils import timezone
-from django.shortcuts import get_object_or_404
-from rest_framework import viewsets, status, permissions
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError, PermissionDenied
 
-from core.utils import api_response
 from core.permissions import CanAccessAcademyPermission
+from core.utils import api_response
 from courses.models import Course
-from plans_entitlements.models import Plan, AddOn
-from enrollments.services import EnrollmentService
+from django.db import transaction
+from django.db.models import Q
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from enrollments.models import Enrollment
+from enrollments.services import EnrollmentService
 from payments.models import (
-    Coupon,
-    CouponRedemption,
-    PaymentOrder,
-    PaymentTransaction,
-    PaymentRefund,
     AcademyPaymentSettings,
     AcademySettlement,
-    PaymentMode,
-    SettlementStatus,
-    OrderStatus,
-    TransactionStatus,
+    Coupon,
+    CouponRedemption,
     CouponScope,
     DiscountType,
-    PaymentContext,
     GatewayType,
-    PaymentMethod,
+    OrderStatus,
+    PaymentContext,
+    PaymentMode,
+    PaymentOrder,
+    PaymentTransaction,
+    SettlementStatus,
+    TransactionStatus,
 )
-from payments.selectors import PaymentSelector
 from payments.provider_resolver import resolve_payment_credentials
-from payments.services import (
-    PaymentOrderService,
-    PaymentPricingService,
-    PaymentFulfillmentService,
-)
+from payments.selectors import PaymentSelector
 from payments.serializers import (
-    CouponSerializer,
-    CreateCouponSerializer,
-    ValidateCouponSerializer,
-    CourseCheckoutSerializer,
-    PlatformCheckoutSerializer,
-    PayOrderSerializer,
-    PaymentOrderSerializer,
-    PaymentTransactionSerializer,
-    CouponRedemptionSerializer,
     AcademyPaymentSettingsSerializer,
     AcademySettlementSerializer,
+    CouponRedemptionSerializer,
+    CouponSerializer,
+    CourseCheckoutSerializer,
+    CreateCouponSerializer,
     CreateOrderApiSerializer,
+    PaymentOrderSerializer,
+    PayOrderSerializer,
+    PlatformCheckoutSerializer,
+    ValidateCouponSerializer,
     VerifyPaymentApiSerializer,
 )
+from payments.services import (
+    PaymentFulfillmentService,
+    PaymentOrderService,
+    PaymentPricingService,
+)
+from plans_entitlements.models import AddOn, Plan
+from rest_framework import permissions, status, viewsets
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +123,7 @@ class VerifyAcademyRazorpayView(APIView):
             return api_response(data={"verified": True}, message="Razorpay configuration verified successfully!")
         except Exception as e:
             logger.warning(f"Razorpay verification failed for academy {academy.id}: {e}")
-            return api_response(message=f"Razorpay verification failed: {str(e)}", status_code=status.HTTP_400_BAD_REQUEST)
+            return api_response(message=f"Razorpay verification failed: {e!s}", status_code=status.HTTP_400_BAD_REQUEST)
 
 
 class DisconnectAcademyRazorpayView(APIView):
@@ -265,7 +262,7 @@ class CreatePaymentOrderView(APIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-            amount_in_paise = int(final_amount * Decimal('100'))
+            amount_in_paise = int(final_amount * Decimal(100))
 
             # Resolve credentials dynamically based on Academy Payment Mode
             cred = resolve_payment_credentials(academy)
@@ -597,7 +594,7 @@ class ValidateCouponView(APIView):
                 "code": "INVALID_COUPON",
                 "message": str(msg)
             }, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
+        except Exception:
             logger.exception("Coupon validation failed")
             return Response({
                 "valid": False,
@@ -717,7 +714,7 @@ def _parse_datetime_input(val, is_end_of_day=False):
         val = val.strip()
         if not val:
             return None
-        from django.utils.dateparse import parse_datetime, parse_date
+        from django.utils.dateparse import parse_date, parse_datetime
         dt = parse_datetime(val)
         if dt is None:
             d = parse_date(val)

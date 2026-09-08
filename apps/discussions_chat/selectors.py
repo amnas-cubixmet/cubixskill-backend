@@ -1,14 +1,14 @@
-from django.db.models import QuerySet, Q
 from discussions_chat.models import (
-    DiscussionThread,
-    DiscussionReply,
-    ChatRoom,
     ChatMessage,
+    ChatRoom,
     CommunicationReport,
-    ThreadStatus,
+    DiscussionReply,
+    DiscussionThread,
     MessageStatus,
+    ThreadStatus,
 )
 from discussions_chat.services import ChatService
+from django.db.models import Q, QuerySet
 from enrollments.models import Enrollment, EnrollmentStatus
 
 #--------------------------------------------------------------

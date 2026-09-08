@@ -1,18 +1,16 @@
-from rest_framework import serializers
 from leads.models import (
-    Lead,
-    LeadCourseInterest,
-    LeadFollowUp,
-    LeadNote,
-    LeadActivity,
-    LeadTag,
-    LeadImportJob,
-    LeadStatus,
-    LeadPriority,
-    LeadSource,
     FollowUpType,
     InterestLevel,
+    Lead,
+    LeadActivity,
+    LeadCourseInterest,
+    LeadFollowUp,
+    LeadImportJob,
+    LeadNote,
+    LeadStatus,
+    LeadTag,
 )
+from rest_framework import serializers
 
 # --------------------------------------------------------------
 # 1. Lead Read Component Serializers

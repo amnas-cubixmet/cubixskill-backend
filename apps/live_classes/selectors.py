@@ -1,10 +1,8 @@
-from django.utils import timezone
 from django.db.models import QuerySet
+from django.utils import timezone
 from enrollments.models import Enrollment, EnrollmentStatus
 from live_classes.models import (
     LiveSession,
-    LiveSessionReminder,
-    LiveSessionParticipant,
     LiveSessionAttendance,
     LiveSessionEvent,
     LiveStatus,
@@ -31,8 +29,8 @@ class LiveSessionSelector:
         ).values_list('course_id', flat=True))
 
         if enrolled_course_ids:
-            from features.services import CourseFeatureService
             from courses.models import Course
+            from features.services import CourseFeatureService
             valid_course_ids = []
             for c_id in enrolled_course_ids:
                 try:

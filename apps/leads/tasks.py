@@ -1,9 +1,9 @@
 import csv
-import io
 from datetime import timedelta
+
 from celery import shared_task
 from django.utils import timezone
-from leads.models import LeadFollowUp, FollowUpStatus, LeadImportJob, ImportJobStatus
+from leads.models import FollowUpStatus, ImportJobStatus, LeadFollowUp, LeadImportJob
 from leads.services import LeadService
 from notifications.services import EmailService
 
@@ -129,4 +129,4 @@ def process_lead_import_job(job_id: str):
         job.status = ImportJobStatus.FAILED
         job.completed_at = timezone.now()
         job.save()
-        return f"Import job failed: {str(e)}"
+        return f"Import job failed: {e!s}"

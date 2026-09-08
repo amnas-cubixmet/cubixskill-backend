@@ -1,9 +1,10 @@
-import secrets
 import hashlib
+import secrets
+from datetime import timedelta
+
+from core.models import BaseModel
 from django.db import models
 from django.utils import timezone
-from datetime import timedelta
-from core.models import BaseModel
 from users_roles.models import User
 
 #--------------------------------------------------------------

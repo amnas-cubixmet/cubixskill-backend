@@ -1,5 +1,5 @@
-from django.db import models
 from core.models import BaseModel
+from django.db import models
 
 # --------------------------------------------------------------
 # Website Settings & Single Academy Theme Store

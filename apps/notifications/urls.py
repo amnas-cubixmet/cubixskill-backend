@@ -1,10 +1,10 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import include, path
 from notifications.views import (
-    NotificationViewSet,
-    NotificationPreferenceView,
     EmailProviderWebhookView,
+    NotificationPreferenceView,
+    NotificationViewSet,
 )
+from rest_framework.routers import DefaultRouter
 
 # --------------------------------------------------------------
 # Notifications URL Router Configuration

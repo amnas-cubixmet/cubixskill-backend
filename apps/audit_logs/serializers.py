@@ -1,5 +1,5 @@
-from rest_framework import serializers
 from audit_logs.models import AuditLog
+from rest_framework import serializers
 
 # --------------------------------------------------------------
 # Audit Log Serializers

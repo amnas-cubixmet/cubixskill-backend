@@ -1,25 +1,21 @@
-import uuid
 from decimal import Decimal
-from django.test import TestCase
-from rest_framework.test import APIClient
-from rest_framework import status
 
-from users_roles.models import User, Role
 from academy.models import Academy
 from courses.models import Course
+from django.test import TestCase
+from enrollments.models import Enrollment
+from payments.encryption_service import decrypt_secret, encrypt_secret
 from payments.models import (
     AcademyPaymentSettings,
     AcademySettlement,
-    PaymentOrder,
-    PaymentTransaction,
     PaymentMode,
-    OrderStatus,
-    TransactionStatus,
     SettlementStatus,
 )
-from payments.encryption_service import encrypt_secret, decrypt_secret
 from payments.provider_resolver import resolve_payment_credentials
-from enrollments.models import Enrollment
+from rest_framework import status
+from rest_framework.test import APIClient
+from users_roles.models import Role, User
+
 
 class DualPaymentArchitectureTestCase(TestCase):
     def setUp(self):

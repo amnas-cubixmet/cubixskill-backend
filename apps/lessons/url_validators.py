@@ -1,5 +1,6 @@
 import ipaddress
 import urllib.parse
+
 from rest_framework.exceptions import ValidationError
 
 BLOCKED_IP_NETWORKS = [

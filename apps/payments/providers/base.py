@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
 from decimal import Decimal
-from typing import Any, Dict, Tuple, Optional
+from typing import Any
+
 from payments.models import PaymentOrder, PaymentTransaction
+
 
 class BasePaymentProvider(ABC):
     """
@@ -17,10 +19,10 @@ class BasePaymentProvider(ABC):
     def create_checkout_session(
         self,
         order: PaymentOrder,
-        return_url: Optional[str] = None,
-        cancel_url: Optional[str] = None,
+        return_url: str | None = None,
+        cancel_url: str | None = None,
         **kwargs: Any
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Creates a checkout or payment session with the provider gateway.
         Returns a normalized dict:
@@ -35,10 +37,9 @@ class BasePaymentProvider(ABC):
             'raw': dict
         }
         """
-        pass
 
     @abstractmethod
-    def verify_payment(self, payload: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+    def verify_payment(self, payload: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         """
         Verifies payment authenticity and details.
         Returns a normalized dict:
@@ -53,15 +54,13 @@ class BasePaymentProvider(ABC):
             'raw': dict
         }
         """
-        pass
 
     @abstractmethod
-    def get_payment_status(self, gateway_payment_id_or_order_id: str) -> Dict[str, Any]:
+    def get_payment_status(self, gateway_payment_id_or_order_id: str) -> dict[str, Any]:
         """
         Queries provider API to retrieve live payment status.
         Returns normalized status info dict.
         """
-        pass
 
     @abstractmethod
     def refund_payment(
@@ -70,7 +69,7 @@ class BasePaymentProvider(ABC):
         amount: Decimal,
         reason: str = "",
         **kwargs: Any
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Processes a full or partial refund via the provider API.
         Returns a normalized dict:
@@ -81,10 +80,9 @@ class BasePaymentProvider(ABC):
             'raw': dict
         }
         """
-        pass
 
     @abstractmethod
-    def cancel_payment(self, gateway_order_id: str, reason: str = "") -> Dict[str, Any]:
+    def cancel_payment(self, gateway_order_id: str, reason: str = "") -> dict[str, Any]:
         """
         Cancels an unpaid checkout session or order if supported by provider.
         Returns a normalized dict:
@@ -94,26 +92,24 @@ class BasePaymentProvider(ABC):
             'raw': dict
         }
         """
-        pass
 
     @abstractmethod
     def verify_webhook_signature(
         self,
         payload_body: Any,
-        headers: Dict[str, Any]
-    ) -> Tuple[bool, Dict[str, Any]]:
+        headers: dict[str, Any]
+    ) -> tuple[bool, dict[str, Any]]:
         """
         Verifies provider webhook cryptographic signature.
         Returns (is_valid, parsed_event_or_error_dict).
         """
-        pass
 
     @abstractmethod
     def parse_webhook_event(
         self,
         payload_body: Any,
-        headers: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        headers: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Parses raw webhook body and headers into a normalized event dict:
         {
@@ -129,4 +125,3 @@ class BasePaymentProvider(ABC):
             'raw_payload': dict
         }
         """
-        pass

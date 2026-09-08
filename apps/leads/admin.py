@@ -1,13 +1,13 @@
 from django.contrib import admin
 from leads.models import (
     Lead,
-    LeadCourseInterest,
-    LeadAssignment,
-    LeadFollowUp,
-    LeadNote,
     LeadActivity,
-    LeadTag,
+    LeadAssignment,
+    LeadCourseInterest,
+    LeadFollowUp,
     LeadImportJob,
+    LeadNote,
+    LeadTag,
 )
 
 # --------------------------------------------------------------

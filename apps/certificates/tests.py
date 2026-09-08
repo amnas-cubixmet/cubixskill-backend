@@ -1,19 +1,22 @@
 import uuid
-from django.test import TestCase
-from rest_framework.test import APIClient
-from rest_framework import status
-from django.contrib.auth import get_user_model
-from academy.models import Academy
-from courses.models import Course
-from enrollments.models import Enrollment
-from students.models import StudentProfile, StudentCustomFieldDefinition, StudentCustomFieldValue
-from certificates.models import CertificateTemplate, Certificate
-from certificates.services import CertificateService, CertificateDataResolver
-from certificates.generator import CertificatePDFGenerator
-from learning_progress.models import CourseProgress, ProgressStatus
 
-from credits.services import CreditsService
+from academy.models import Academy
+from certificates.generator import CertificatePDFGenerator
+from certificates.models import Certificate, CertificateTemplate
+from certificates.services import CertificateService
+from courses.models import Course
 from credits.models import CreditSourceType
+from credits.services import CreditsService
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from enrollments.models import Enrollment
+from learning_progress.models import CourseProgress, ProgressStatus
+from rest_framework import status
+from rest_framework.test import APIClient
+from students.models import (
+    StudentCustomFieldValue,
+    StudentProfile,
+)
 
 User = get_user_model()
 
@@ -308,7 +311,7 @@ class EnrollmentCertificateProfileDetailsTest(TestCase):
 
     def test_pdf_generator_font_and_center_coordinate_parity(self):
         from certificates.models import CertificateFont, FontSourceChoices
-        from storage.models import MediaFile, MediaType, MediaStatus
+        from storage.models import MediaFile, MediaStatus, MediaType
 
         media_file = MediaFile.objects.create(
             academy_uuid=self.academy.id,
@@ -393,11 +396,8 @@ class EnrollmentCertificateProfileDetailsTest(TestCase):
         self.assertEqual(data["verification_code"], "PREVIEW-DEMO")
 
     def test_custom_font_id_priority_and_safe_fallback(self):
-        import os
-        from django.conf import settings
-        from certificates.models import CertificateFont, FontSourceChoices, CertPDFMode
-        from storage.models import MediaFile, MediaType, MediaStatus
-        from rest_framework.exceptions import ValidationError
+        from certificates.models import CertificateFont, FontSourceChoices
+        from storage.models import MediaFile, MediaStatus, MediaType
 
         # 1. Create MediaFile pointing to test_conv.ttf
         ttf_rel = "test_conv.ttf"
@@ -465,7 +465,7 @@ class EnrollmentCertificateProfileDetailsTest(TestCase):
         self.assertTrue(pdf_bytes_cross.startswith(b"%PDF"))
 
     def test_persistent_pdf_regeneration_preserves_identity_and_credits(self):
-        from certificates.models import CertPDFMode, CertificateStatus
+        from certificates.models import CertificateStatus, CertPDFMode
         initial_balance = self.academy.credits.first().balance if hasattr(self.academy, 'credits') and self.academy.credits.exists() else None
 
         cert = Certificate.objects.create(
@@ -499,11 +499,15 @@ class EnrollmentCertificateProfileDetailsTest(TestCase):
         Verify that unsupported/incompatible fonts fall back to safe default PDF font
         and produce a valid 200 PDF byte stream instead of raising 400.
         """
-        from certificates.models import CertificateFont, FontSourceChoices, CertPDFMode, CertificateStatus
-        from storage.models import MediaFile
+        from certificates.models import (
+            CertificateFont,
+            CertificateStatus,
+            CertPDFMode,
+            FontSourceChoices,
+        )
 
         # Create CFF font DB record (simulating incompatible OTF)
-        from storage.models import MediaType, MediaStatus
+        from storage.models import MediaFile, MediaStatus, MediaType
         media_file = MediaFile.objects.create(
             academy_uuid=self.academy.id,
             uploaded_by_uuid=self.student_user.id,
@@ -519,7 +523,7 @@ class EnrollmentCertificateProfileDetailsTest(TestCase):
 
         cff_font = CertificateFont.objects.create(
             academy=self.academy,
-            key=f"cubix-font-bad-cff",
+            key="cubix-font-bad-cff",
             name="Incompatible CFF Font",
             family="Incompatible CFF Font",
             source=FontSourceChoices.ACADEMY,

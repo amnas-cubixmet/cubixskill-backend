@@ -3,10 +3,15 @@
 #--------------------------------------------------------------
 
 from decimal import Decimal
+
 from rest_framework import serializers
 from storage.models import (
-    MediaFile, AcademyStorageAccount, StorageUsageEvent,
-    StorageUsageRollup, StorageMonthlyBilling, VideoRendition
+    AcademyStorageAccount,
+    MediaFile,
+    StorageMonthlyBilling,
+    StorageUsageEvent,
+    StorageUsageRollup,
+    VideoRendition,
 )
 
 #--------------------------------------------------------------

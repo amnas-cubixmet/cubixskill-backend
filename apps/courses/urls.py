@@ -1,7 +1,12 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from courses.views import CourseViewSet, CourseCategoryViewSet, CourseModuleViewSet, CourseLanguageViewSet
+from courses.views import (
+    CourseCategoryViewSet,
+    CourseLanguageViewSet,
+    CourseModuleViewSet,
+    CourseViewSet,
+)
+from django.urls import include, path
 from features.views import CourseFeatureViewSet
+from rest_framework.routers import DefaultRouter
 
 #--------------------------------------------------------------
 # Router Setup

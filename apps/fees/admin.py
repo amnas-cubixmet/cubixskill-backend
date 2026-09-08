@@ -1,12 +1,13 @@
 from django.contrib import admin
 from fees.models import (
-    StudentFeeAccount,
+    CourseDefaultFeePlan,
+    FeeAdjustment,
     FeeInstallment,
     FeePayment,
     FeePaymentAllocation,
-    FeeAdjustment,
-    CourseDefaultFeePlan,
+    StudentFeeAccount,
 )
+
 
 @admin.register(StudentFeeAccount)
 class StudentFeeAccountAdmin(admin.ModelAdmin):

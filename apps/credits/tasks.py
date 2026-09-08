@@ -1,7 +1,8 @@
 import logging
+
+from academy.models import Academy
 from celery import shared_task
 from django.utils import timezone
-from academy.models import Academy
 
 logger = logging.getLogger(__name__)
 

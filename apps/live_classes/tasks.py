@@ -1,12 +1,13 @@
 import logging
+
 from celery import shared_task
 from django.utils import timezone
 from live_classes.models import (
     LiveSession,
+    LiveSessionEvent,
     LiveSessionReminder,
     LiveStatus,
     ReminderStatus,
-    LiveSessionEvent,
 )
 
 logger = logging.getLogger(__name__)

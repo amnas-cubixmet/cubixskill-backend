@@ -1,24 +1,25 @@
-import uuid
 import logging
+import uuid
 from decimal import Decimal
-from typing import Dict, Any
+from typing import Any
+
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
+from certificates.generator import CertificatePDFGenerator
 from certificates.models import (
     Certificate,
-    CertificateTemplate,
     CertificateIssueLog,
-    CertPDFMode,
     CertificateStatus,
+    CertificateTemplate,
+    CertPDFMode,
     IssueLogEventType,
 )
-from certificates.generator import CertificatePDFGenerator
-from learning_progress.models import CourseProgress, ProgressStatus
 from enrollments.models import Enrollment
+from learning_progress.models import CourseProgress, ProgressStatus
 from students.models import StudentCustomFieldValue
 
 
@@ -35,9 +36,9 @@ class CertificateDataResolver:
         course=None,
         enrollment=None,
         certificate=None,
-        custom_overrides: Dict[str, Any] = None
-    ) -> Dict[str, Any]:
-        data: Dict[str, Any] = {}
+        custom_overrides: dict[str, Any] = None
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {}
 
         # 1. Student Fields
         if student:
@@ -395,8 +396,10 @@ class CertificateService:
         required_credits = Decimal(str(cost_int))
 
         if academy:
+            from credits.models import (
+                CreditAccount,
+            )
             from credits.services import CreditsService
-            from credits.models import CreditAccount, CreditAccountStatus, CreditSourceType
             account = CreditsService.get_or_create_account(academy)
             account_locked = CreditAccount.objects.select_for_update().get(id=account.id)
 
@@ -543,8 +546,8 @@ class CertificateService:
         academy = course.academy
         ledger_entry = None
         if academy:
-            from credits.services import CreditsService
             from credits.models import CreditAccount, CreditSourceType
+            from credits.services import CreditsService
             account = CreditsService.get_or_create_account(academy)
             account_locked = CreditAccount.objects.select_for_update().get(id=account.id)
 
@@ -577,8 +580,8 @@ class CertificateService:
         )
 
         if academy:
-            from credits.services import CreditsService
             from credits.models import CreditSourceType
+            from credits.services import CreditsService
             idempotency_key = f"CERTIFICATE_ISSUE:{certificate.id}"
             ledger_entry = CreditsService.debit(
                 academy=academy,
@@ -664,7 +667,7 @@ class CertificateService:
     @classmethod
     def store_persistent_pdf(cls, certificate: Certificate):
         pdf_bytes = cls.generate_pdf_bytes_for_certificate(certificate)
-        from storage.models import MediaFile, MediaType, MediaStatus
+        from storage.models import MediaFile, MediaStatus, MediaType
         from storage.services import StorageUsageService
 
         academy = certificate.course.academy
@@ -792,6 +795,7 @@ class CertificateService:
         page_w, page_h = resolve_page_size(page_size=page_size, custom_width=custom_width, custom_height=custom_height, custom_unit=custom_unit, orientation=orientation)
 
         import io
+
         from reportlab.pdfgen import canvas
         dummy_buf = io.BytesIO()
         c = canvas.Canvas(dummy_buf, pagesize=(page_w, page_h))

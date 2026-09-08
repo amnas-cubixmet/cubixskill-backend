@@ -1,5 +1,5 @@
-from rest_framework import serializers
 from academy.models import Academy
+from rest_framework import serializers
 from storage.serializers import MediaFileSerializer
 
 #--------------------------------------------------------------

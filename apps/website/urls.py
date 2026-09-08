@@ -1,13 +1,13 @@
 from django.urls import path
 from website.views import (
-    PublicWebsiteConfigView,
-    PublicAcademyCoursesView,
-    PublicAcademyCourseDetailView,
-    PublicLessonPreviewView,
-    StudentPortalBrandingView,
-    AcademyWebsiteSettingsView,
-    AcademyWebsitePublishView,
     AcademyThemeColorUpdateView,
+    AcademyWebsitePublishView,
+    AcademyWebsiteSettingsView,
+    PublicAcademyCourseDetailView,
+    PublicAcademyCoursesView,
+    PublicLessonPreviewView,
+    PublicWebsiteConfigView,
+    StudentPortalBrandingView,
 )
 
 # --------------------------------------------------------------

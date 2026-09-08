@@ -1,29 +1,33 @@
-from rest_framework import viewsets, permissions, status
+from core.utils import CubixSkillAPIException
+from courses.models import Course
+from django.db.models import Count, Q
+from django.utils import timezone
+from enrollments.models import (
+    AccessType,
+    Enrollment,
+    EnrollmentSource,
+    EnrollmentStatus,
+)
+from enrollments.permissions import IsStudentOwnerOrAcademyStaff
+from enrollments.selectors import EnrollmentSelector
+from enrollments.serializers import (
+    BulkEnrollmentSerializer,
+    CreateEnrollmentSerializer,
+    EnrollmentAccessPeriodSerializer,
+    EnrollmentDetailSerializer,
+    EnrollmentEventSerializer,
+    EnrollmentSerializer,
+    ExtendEnrollmentSerializer,
+    LifecycleActionSerializer,
+)
+from enrollments.services import EnrollmentService
+from learning_progress.models import CourseProgress, LessonProgress, ProgressStatus
+from lessons.models import Lesson
+from modules.models import Module
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from users_roles.models import User
-from courses.models import Course
-from core.utils import CubixSkillAPIException
-from enrollments.models import Enrollment, AccessType, EnrollmentSource, EnrollmentStatus
-from enrollments.selectors import EnrollmentSelector
-from enrollments.services import EnrollmentService
-from enrollments.permissions import IsStudentOwnerOrAcademyStaff
-from enrollments.serializers import (
-    EnrollmentSerializer,
-    EnrollmentDetailSerializer,
-    CreateEnrollmentSerializer,
-    BulkEnrollmentSerializer,
-    ExtendEnrollmentSerializer,
-    LifecycleActionSerializer,
-    EnrollmentAccessPeriodSerializer,
-    EnrollmentEventSerializer,
-)
-from modules.models import Module
-from lessons.models import Lesson
-from learning_progress.models import CourseProgress, LessonProgress, ProgressStatus
-
-from django.utils import timezone
-from django.db.models import Count, Q
 
 #--------------------------------------------------------------
 # Student Academy Access Service
@@ -287,7 +291,6 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'detail': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
 
         from academy.models import Academy
-        from lessons.models import Lesson
         try:
             academy = Academy.objects.get(id=academy_uuid)
             course = Course.objects.get(id=course_uuid, academy=academy)
@@ -466,8 +469,11 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'detail': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
 
         from academy.models import Academy
-        from lessons.models import Lesson
-        from learning_progress.models import CourseProgress, LessonProgress, ProgressStatus
+        from learning_progress.models import (
+            CourseProgress,
+            LessonProgress,
+            ProgressStatus,
+        )
 
         try:
             academy = Academy.objects.get(id=academy_uuid)
@@ -510,7 +516,7 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
         course_progress.total_lessons = total_active_lessons
         course_progress.progress_percent = round(pct, 2)
         course_just_completed = False
-        if completed_lessons >= total_active_lessons and total_active_lessons > 0:
+        if completed_lessons >= total_active_lessons > 0:
             if course_progress.status != ProgressStatus.COMPLETED:
                 course_just_completed = True
             course_progress.status = ProgressStatus.COMPLETED

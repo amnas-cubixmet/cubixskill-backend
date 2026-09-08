@@ -1,18 +1,18 @@
 from django.urls import path
 from fees.views import (
-    CourseFeeSummaryView,
-    CourseDefaultFeePlanView,
-    StudentFeeAccountListCreateView,
-    StudentFeeAccountDetailView,
     CollectFeePaymentView,
-    WaiveFeeView,
-    SendFeeReminderView,
+    CourseDefaultFeePlanView,
     CourseFeePaymentsLedgerView,
+    CourseFeeSummaryView,
     GlobalFeeSummaryView,
     GlobalStudentFeeAccountListView,
-    StudentOwnFeeAccountListView,
+    SendFeeReminderView,
+    StudentFeeAccountDetailView,
+    StudentFeeAccountListCreateView,
     StudentFeeCheckoutOrderView,
     StudentFeeVerifyPaymentView,
+    StudentOwnFeeAccountListView,
+    WaiveFeeView,
 )
 
 # --------------------------------------------------------------

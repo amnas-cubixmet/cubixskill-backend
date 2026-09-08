@@ -1,5 +1,5 @@
-from django.contrib import admin
 from academy.models import Academy
+from django.contrib import admin
 
 #--------------------------------------------------------------
 # Admin Configuration

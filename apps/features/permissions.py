@@ -1,8 +1,9 @@
 from functools import wraps
-from rest_framework import permissions
+
 from core.utils import CubixSkillAPIException
-from features.services import CourseFeatureService, StudentFeatureService
 from courses.models import Course
+from features.services import CourseFeatureService, StudentFeatureService
+from rest_framework import permissions
 
 #--------------------------------------------------------------
 # HasCourseFeature

@@ -1,5 +1,5 @@
+from credits.models import CreditAccount, CreditAdjustment, CreditLedgerEntry
 from django.contrib import admin
-from credits.models import CreditAccount, CreditLedgerEntry, CreditAdjustment
 
 # --------------------------------------------------------------
 # Credits Admin Registration

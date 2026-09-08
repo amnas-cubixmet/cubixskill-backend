@@ -1,6 +1,6 @@
 from django.db.models import QuerySet
-from users_roles.models import User
 from notifications.models import Notification, NotificationPreference
+from users_roles.models import User
 
 # --------------------------------------------------------------
 # Notification Selectors

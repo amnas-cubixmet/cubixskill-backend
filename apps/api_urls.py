@@ -1,5 +1,5 @@
-from django.urls import path, include
 from core.views import HealthCheckView
+from django.urls import include, path
 
 urlpatterns = [
     path('health/', HealthCheckView.as_view(), name='health-check'),

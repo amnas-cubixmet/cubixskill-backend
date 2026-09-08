@@ -1,16 +1,17 @@
 import io
-import os
 import logging
+import os
+
 import qrcode
 from PIL import Image, ImageDraw, ImageOps
 
 logger = logging.getLogger(__name__)
 from django.conf import settings
-from reportlab.lib.pagesizes import A4, LETTER
-from reportlab.lib.units import mm, cm, inch
-from reportlab.pdfgen import canvas
 from reportlab.lib.colors import HexColor
+from reportlab.lib.pagesizes import A4, LETTER
+from reportlab.lib.units import cm, inch, mm
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 
 PAGE_SIZES = {
     'A4': A4,
@@ -80,9 +81,9 @@ def convert_otf_cff_to_ttf(abs_otf_path: str) -> str:
         return out_ttf_path
 
     try:
-        from fontTools.ttLib import TTFont as FTFont
-        from fontTools.pens.ttGlyphPen import TTGlyphPen
         from fontTools.pens.cu2quPen import Cu2QuPen
+        from fontTools.pens.ttGlyphPen import TTGlyphPen
+        from fontTools.ttLib import TTFont as FTFont
         from fontTools.ttLib.tables._g_l_y_f import table__g_l_y_f
         from fontTools.ttLib.tables._l_o_c_a import table__l_o_c_a
         from fontTools.ttLib.tables._m_a_x_p import table__m_a_x_p
@@ -160,9 +161,8 @@ def resolve_reportlab_font(font_key_or_family: str, font_weight: str = 'normal',
     elif len(font_key) == 36 and '-' in font_key:
         target_uuid = font_key
 
-    from django.db.models import Q
     from certificates.models import CertificateFont, FontSourceChoices
-    from rest_framework.exceptions import ValidationError
+    from django.db.models import Q
 
     font_obj = None
 
@@ -213,8 +213,7 @@ def resolve_reportlab_font(font_key_or_family: str, font_weight: str = 'normal',
                     abs_path = candidate_path
                 else:
                     clean_rel = candidate_path.lstrip('/')
-                    if clean_rel.startswith('media/'):
-                        clean_rel = clean_rel[6:]
+                    clean_rel = clean_rel.removeprefix('media/')
                     abs_path = os.path.join(settings.MEDIA_ROOT, clean_rel)
 
             if not abs_path or not os.path.exists(abs_path):
@@ -250,7 +249,7 @@ def resolve_reportlab_font(font_key_or_family: str, font_weight: str = 'normal',
                 return 'Helvetica-Bold' if is_bold else 'Helvetica'
 
             # 4. Register converted font with exact runtime family name cubix-font-<uuid>
-            registered_name = f"cubix-font-{str(font_obj.id)}"
+            registered_name = f"cubix-font-{font_obj.id!s}"
             logger.info(f"Certificate font resolved: uuid={font_obj.id}, format={ext}, runtime={registered_name}, usable_path={usable_font_path}")
             try:
                 from reportlab.pdfbase import pdfmetrics

@@ -1,27 +1,27 @@
 import logging
 import random
-from decimal import Decimal
 from datetime import timedelta
-from dateutil.relativedelta import relativedelta
-from django.db import transaction, models
-from django.utils import timezone
-from rest_framework.exceptions import ValidationError
+from decimal import Decimal
 
-from users_roles.models import User
+from dateutil.relativedelta import relativedelta
+from django.db import models, transaction
+from django.utils import timezone
 from enrollments.models import Enrollment, EnrollmentStatus
-from notifications.models import Notification, NotificationType
-from payments.models import PaymentMethod
 from fees.models import (
-    StudentFeeAccount,
-    StudentFeePlanType,
-    StudentFeeAccountStatus,
+    CourseDefaultFeePlan,
+    FeeAdjustment,
     FeeInstallment,
-    InstallmentStatus,
     FeePayment,
     FeePaymentAllocation,
-    FeeAdjustment,
-    CourseDefaultFeePlan,
+    InstallmentStatus,
+    StudentFeeAccount,
+    StudentFeeAccountStatus,
+    StudentFeePlanType,
 )
+from notifications.models import Notification, NotificationType
+from payments.models import PaymentMethod
+from rest_framework.exceptions import ValidationError
+from users_roles.models import User
 
 logger = logging.getLogger(__name__)
 

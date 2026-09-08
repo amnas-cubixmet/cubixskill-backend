@@ -1,7 +1,13 @@
 from rest_framework import serializers
-from students.models import StudentProfile, StudentGuardian, StudentDocument, StudentNote, StudentTag
-from users_roles.serializers import UserSerializer
 from storage.serializers import MediaFileSerializer
+from students.models import (
+    StudentDocument,
+    StudentGuardian,
+    StudentNote,
+    StudentProfile,
+    StudentTag,
+)
+from users_roles.serializers import UserSerializer
 
 #--------------------------------------------------------------
 # Student Tag Serializer
@@ -109,6 +115,7 @@ class StudentSelfUpdateSerializer(serializers.ModelSerializer):
 #--------------------------------------------------------------
 
 from students.models import StudentCustomFieldDefinition, StudentCustomFieldValue
+
 
 class StudentCustomFieldDefinitionSerializer(serializers.ModelSerializer):
     class Meta:

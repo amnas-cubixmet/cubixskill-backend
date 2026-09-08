@@ -1,5 +1,6 @@
+from core.models import ActiveMixin, BaseModel
 from django.db import models
-from core.models import BaseModel, ActiveMixin
+
 
 class Plan(BaseModel, ActiveMixin):
     name = models.CharField(max_length=100)

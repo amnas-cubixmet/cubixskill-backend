@@ -1,9 +1,14 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import include, path
 from lessons.views import (
-    ModuleLessonViewSet, LessonViewSet, QuizViewSet, QuestionViewSet,
-    QuestionOptionViewSet, AssignmentViewSet, LessonResourceViewSet
+    AssignmentViewSet,
+    LessonResourceViewSet,
+    LessonViewSet,
+    ModuleLessonViewSet,
+    QuestionOptionViewSet,
+    QuestionViewSet,
+    QuizViewSet,
 )
+from rest_framework.routers import DefaultRouter
 
 #--------------------------------------------------------------
 # Router Setup

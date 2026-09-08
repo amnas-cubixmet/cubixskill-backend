@@ -1,11 +1,12 @@
-from rest_framework import serializers
 from certificates.models import (
-    CertificateTemplate,
     Certificate,
+    CertificateFont,
     CertificateIssueLog,
     CertificateSettings,
-    CertificateFont,
+    CertificateTemplate,
 )
+from rest_framework import serializers
+
 
 class CertificateFontSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()

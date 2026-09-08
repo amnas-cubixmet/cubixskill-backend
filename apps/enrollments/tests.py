@@ -1,25 +1,23 @@
 from datetime import timedelta
-from django.test import TestCase
-from django.utils import timezone
-from rest_framework.test import APIClient
 
 from academy.models import Academy
-from users_roles.models import User, SystemRoleCode
-from courses.models import Course
-from modules.models import Module
-from lessons.models import Lesson, LessonType
 from core.utils import CubixSkillAPIException
+from courses.models import Course
+from django.test import TestCase
+from django.utils import timezone
 from enrollments.models import (
-    Enrollment,
     AccessType,
-    EnrollmentStatus,
-    EnrollmentSource,
-    EnrollmentAccessPeriod,
     EnrollmentEvent,
     EnrollmentEventType,
+    EnrollmentStatus,
 )
-from enrollments.services import EnrollmentService, EnrollmentAccessService
+from enrollments.services import EnrollmentAccessService, EnrollmentService
 from enrollments.tasks import expire_enrollments_task
+from lessons.models import Lesson, LessonType
+from modules.models import Module
+from rest_framework.test import APIClient
+from users_roles.models import SystemRoleCode, User
+
 
 class EnrollmentsAppTests(TestCase):
     def setUp(self):
@@ -27,6 +25,7 @@ class EnrollmentsAppTests(TestCase):
 
         # Create Academies
         from decimal import Decimal
+
         from credits.models import CreditAccount
         self.academy_a = Academy.objects.create(name="Academy A", slug="academy-a", email="info@academya.com")
         self.academy_b = Academy.objects.create(name="Academy B", slug="academy-b", email="info@academyb.com")

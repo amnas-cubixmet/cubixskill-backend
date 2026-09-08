@@ -2,13 +2,14 @@
 # Imports
 #--------------------------------------------------------------
 
-import re
 import logging
-from django.db import transaction
-from students.models import StudentProfile, StudentStatus
-from users_roles.models import User, SystemRoleCode
+import re
+
 from authentication.models import AuthTokenService, TokenType
 from core.utils import CubixSkillAPIException
+from django.db import transaction
+from students.models import StudentProfile, StudentStatus
+from users_roles.models import SystemRoleCode, User
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +75,11 @@ class StudentService:
     @transaction.atomic
     def update_student(student_profile: StudentProfile, **kwargs) -> StudentProfile:
         user = student_profile.user
-        if 'full_name' in kwargs and kwargs['full_name']:
+        if kwargs.get('full_name'):
             clean_name = kwargs['full_name'].strip()
             user.full_name = clean_name
             student_profile.display_name = clean_name
-        if 'email' in kwargs and kwargs['email']:
+        if kwargs.get('email'):
             new_email = kwargs['email'].strip().lower()
             if User.objects.filter(email=new_email, academy=user.academy).exclude(id=user.id).exists():
                 raise CubixSkillAPIException("Another user with this email already exists in this academy.", code="EMAIL_EXISTS", status_code=400)
@@ -87,13 +88,13 @@ class StudentService:
             user.phone = kwargs['phone'].strip()
         user.save()
 
-        if 'display_name' in kwargs and kwargs['display_name']:
+        if kwargs.get('display_name'):
             student_profile.display_name = kwargs['display_name'].strip()
         if 'date_of_birth' in kwargs:
             student_profile.date_of_birth = kwargs['date_of_birth']
         if 'bio' in kwargs:
             student_profile.bio = kwargs['bio']
-        if 'status' in kwargs and kwargs['status']:
+        if kwargs.get('status'):
             new_status = kwargs['status'].upper()
             student_profile.status = new_status
             if new_status in [StudentStatus.INACTIVE, StudentStatus.SUSPENDED, StudentStatus.ARCHIVED]:
@@ -134,7 +135,7 @@ class StudentService:
     @staticmethod
     def bulk_upload_students(academy, course_id: str, rows: list, created_by=None) -> dict:
         from courses.models import Course
-        from enrollments.models import Enrollment, AccessType, EnrollmentSource
+        from enrollments.models import AccessType, Enrollment, EnrollmentSource
         from enrollments.services import EnrollmentService
 
         if not academy:

@@ -1,12 +1,13 @@
-from django.test import TestCase
-from rest_framework.exceptions import ValidationError
 from academy.models import Academy
 from courses.models import Course
-from modules.models import Module
+from django.test import TestCase
 from lessons.models import Lesson, LessonType
-from lessons.serializers import LessonSerializer, LessonCreateSerializer
+from lessons.serializers import LessonCreateSerializer, LessonSerializer
 from lessons.url_validators import validate_audio_url
-from users_roles.models import User, SystemRoleCode
+from modules.models import Module
+from rest_framework.exceptions import ValidationError
+from users_roles.models import SystemRoleCode, User
+
 
 class AudioLessonSourceTests(TestCase):
     def setUp(self):
@@ -99,8 +100,6 @@ class AudioLessonSourceTests(TestCase):
 
 class QuizEndToEndTests(TestCase):
     def setUp(self):
-        from lessons.services import LessonService
-        from lessons.models import Quiz, Question, QuestionOption
 
         self.academy_a = Academy.objects.create(name="Academy A", slug="academy-a")
         self.user_a = User.objects.create_user(
@@ -283,10 +282,10 @@ class QuizEndToEndTests(TestCase):
 class AssignmentEndToEndTests(TestCase):
     def setUp(self):
         from academy.models import Academy
-        from users_roles.models import User, SystemRoleCode
         from courses.models import Course
         from modules.models import Module
         from storage.models import MediaFile
+        from users_roles.models import User
 
         self.academy_a = Academy.objects.create(name="Academy Assignment", slug="academy-assignment")
         self.user_a = User.objects.create_user(
