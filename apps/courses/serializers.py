@@ -77,6 +77,7 @@ class CourseModuleSerializer(serializers.ModelSerializer):
 
 class CourseListSerializer(serializers.ModelSerializer):
     thumbnail = MediaFileSerializer(read_only=True)
+    thumbnail_url = serializers.SerializerMethodField()
     category_name = serializers.CharField(source='category.name', read_only=True)
     per_student_pricing = serializers.SerializerMethodField()
     pricing = serializers.SerializerMethodField()
@@ -90,6 +91,16 @@ class CourseListSerializer(serializers.ModelSerializer):
             'price', 'sale_price', 'currency', 'is_free', 'status', 'visibility', 'category_name',
             'module_count', 'lesson_count', 'per_student_pricing', 'pricing', 'created_at'
         ]
+
+    def get_thumbnail_url(self, obj):
+        if hasattr(obj, 'thumbnail') and obj.thumbnail:
+            mf = obj.thumbnail
+            storage_key = getattr(mf, 'storage_key', '') or ''
+            raw_url = getattr(mf, 'url', '') or getattr(mf, 'file_url', '') or ''
+            url_path = raw_url or (f"/media/{storage_key.lstrip('/')}" if storage_key else '')
+            request = self.context.get('request') if hasattr(self, 'context') and isinstance(self.context, dict) else None
+            return request.build_absolute_uri(url_path) if (request and url_path) else url_path
+        return getattr(obj, 'thumbnail_url', '') or ""
 
     def get_module_count(self, obj):
         from courses.models import CourseModule
@@ -211,6 +222,7 @@ class PublicCourseModuleSerializer(serializers.ModelSerializer):
 
 class CourseDetailSerializer(serializers.ModelSerializer):
     thumbnail = MediaFileSerializer(read_only=True)
+    thumbnail_url = serializers.SerializerMethodField()
     promo_video = MediaFileSerializer(read_only=True)
     category = CourseCategorySerializer(read_only=True)
     modules = PublicCourseModuleSerializer(source='course_modules', many=True, read_only=True)
@@ -226,9 +238,19 @@ class CourseDetailSerializer(serializers.ModelSerializer):
             'id', 'academy', 'category', 'title', 'slug', 'subtitle', 'short_description', 'description',
             'thumbnail', 'thumbnail_url', 'promo_video', 'promo_video_url', 'level', 'language', 'duration_minutes',
             'price', 'sale_price', 'currency', 'is_free', 'visibility', 'status', 'is_published', 'published_at',
-            'demo_enabled', 'demo_duration_days', 'certificate_enabled', 'modules', 'curriculum', 'module_count', 'lesson_count', 'per_student_pricing', 'pricing', 'created_at', 'updated_at'
+            'demo_enabled', 'demo_duration_days', 'certificate_enabled', 'allow_data_export', 'modules', 'curriculum', 'module_count', 'lesson_count', 'per_student_pricing', 'pricing', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'slug', 'academy', 'is_published', 'published_at', 'created_at', 'updated_at']
+
+    def get_thumbnail_url(self, obj):
+        if hasattr(obj, 'thumbnail') and obj.thumbnail:
+            mf = obj.thumbnail
+            storage_key = getattr(mf, 'storage_key', '') or ''
+            raw_url = getattr(mf, 'url', '') or getattr(mf, 'file_url', '') or ''
+            url_path = raw_url or (f"/media/{storage_key.lstrip('/')}" if storage_key else '')
+            request = self.context.get('request') if hasattr(self, 'context') and isinstance(self.context, dict) else None
+            return request.build_absolute_uri(url_path) if (request and url_path) else url_path
+        return getattr(obj, 'thumbnail_url', '') or ""
 
     def get_module_count(self, obj):
         from courses.models import CourseModule
@@ -255,13 +277,22 @@ class CourseDetailSerializer(serializers.ModelSerializer):
         return CoursePricingService.get_course_pricing_dict(obj)
 
 class CourseWriteSerializer(serializers.ModelSerializer):
+    data_export = serializers.BooleanField(required=False, write_only=True)
+
     class Meta:
         model = Course
         fields = [
             'id', 'slug', 'status', 'category', 'title', 'subtitle', 'short_description', 'description', 'thumbnail',
             'thumbnail_url', 'promo_video', 'promo_video_url', 'level', 'language', 'duration_minutes',
-            'price', 'sale_price', 'currency', 'is_free', 'visibility', 'demo_enabled', 'demo_duration_days', 'certificate_enabled'
+            'price', 'sale_price', 'currency', 'is_free', 'visibility', 'demo_enabled', 'demo_duration_days', 'certificate_enabled', 'allow_data_export', 'data_export'
         ]
         read_only_fields = ['id', 'slug']
+
+    def update(self, instance, validated_data):
+        if 'data_export' in validated_data:
+            instance.allow_data_export = validated_data.pop('data_export')
+        if 'allow_data_export' in validated_data:
+            instance.allow_data_export = validated_data['allow_data_export']
+        return super().update(instance, validated_data)
 
 

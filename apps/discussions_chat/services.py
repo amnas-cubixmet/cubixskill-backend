@@ -77,8 +77,14 @@ class DiscussionService:
         balance = CreditsService.get_balance(target_academy) if target_academy else Decimal('0.000000')
 
         # Read active prices from PricingService (Control Panel)
-        announcement_rate = Decimal(str(PricingService.get_rate('COURSE_ANNOUNCEMENT', default_cost=2)))
-        email_unit_rate = Decimal(str(PricingService.get_rate('EMAIL_DELIVERY', default_cost=0.10)))
+        announcement_rate = Decimal(str(PricingService.get_credit_cost('COURSE_ANNOUNCEMENT', default_cost=2)))
+        email_unit_rate = Decimal(str(PricingService.get_credit_cost('EMAIL_DELIVERY', default_cost=1)))
+
+        # Check EMAIL_DELIVERY course feature if course is specified
+        if course:
+            from features.services import CourseFeatureService
+            if not CourseFeatureService.has_feature(course, 'EMAIL_DELIVERY'):
+                send_email = False
 
         recipients = cls.get_eligible_email_recipients(course=course, academy=target_academy) if send_email else []
         recipient_count = len(recipients) if send_email else 0
@@ -129,10 +135,12 @@ class DiscussionService:
         is_staff = getattr(user, 'is_staff', False) or (hasattr(user, 'academy') and academy and user.academy == academy)
 
         # 1. Feature Activation Check
-        if course and not is_staff:
-            has_feature = StudentFeatureService.has_course_feature(user, course, 'course_discussions')
-            if not has_feature:
-                raise PermissionDenied("Discussions feature is disabled for this course or student has no access.")
+        if course:
+            from features.services import CourseFeatureService
+            if thread_type == ThreadType.ANNOUNCEMENT:
+                CourseFeatureService.require_enabled(course, 'COURSE_ANNOUNCEMENT', user=user)
+            else:
+                CourseFeatureService.require_enabled(course, 'COURSE_DISCUSSION', user=user)
 
         # 2. Announcement Restrictions (Only staff can post announcements)
         if thread_type == ThreadType.ANNOUNCEMENT and not is_staff:
@@ -490,7 +498,12 @@ class ChatService:
         if not room.is_active or room.is_locked:
             return False
 
-        # Staff bypass
+        if room.course:
+            has_feature = CourseFeatureService.has_feature(room.course, 'COURSE_DISCUSSION')
+            if not has_feature:
+                return False
+
+        # Staff bypass after feature check
         is_staff = getattr(user, 'is_staff', False) or (hasattr(user, 'academy') and user.academy == room.academy)
         if is_staff:
             return True
@@ -500,14 +513,10 @@ class ChatService:
         if participant and participant.is_blocked:
             return False
 
-        # If Course Room: Validate Course Feature & Student Enrollment
+        # If Course Room: Validate Student Enrollment
         if room.course:
             has_access, _, _ = EnrollmentAccessService.can_access_course(user, room.course)
             if not has_access:
-                return False
-
-            has_feature = CourseFeatureService.has_feature(room.course, 'COURSE_DISCUSSION')
-            if not has_feature:
                 return False
 
         return True

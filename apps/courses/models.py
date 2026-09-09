@@ -164,6 +164,7 @@ class Course(BaseModel, SlugMixin, ActiveMixin, PublishMixin):
     demo_enabled = models.BooleanField(default=False)
     demo_duration_days = models.PositiveIntegerField(default=0)
     certificate_enabled = models.BooleanField(default=True)
+    allow_data_export = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'courses'

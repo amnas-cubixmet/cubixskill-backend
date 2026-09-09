@@ -3,6 +3,7 @@ from courses.views import (
     CourseLanguageViewSet,
     CourseModuleViewSet,
     CourseViewSet,
+    StudentCourseOverviewView,
 )
 from django.urls import include, path
 from features.views import CourseFeatureViewSet
@@ -24,18 +25,25 @@ category_router.register(r'', CourseCategoryViewSet, basename='course-category-d
 
 from discussions_chat.views import CourseDiscussionViewSet
 
-course_features_list = CourseFeatureViewSet.as_view({'get': 'list'})
+course_features_list = CourseFeatureViewSet.as_view({'get': 'list', 'patch': 'partial_update'})
 course_feature_enable = CourseFeatureViewSet.as_view({'post': 'enable_feature'})
 course_feature_disable = CourseFeatureViewSet.as_view({'post': 'disable_feature'})
 course_feature_save_bulk = CourseFeatureViewSet.as_view({'post': 'save_bulk'})
 course_discussions_list = CourseDiscussionViewSet.as_view({'get': 'list', 'post': 'create'})
 
 urlpatterns = [
+    path('<uuid:course_uuid>/students/<uuid:student_uuid>/overview/', StudentCourseOverviewView.as_view(), name='course-student-overview-direct'),
+    path('courses/<uuid:course_uuid>/students/<uuid:student_uuid>/overview/', StudentCourseOverviewView.as_view(), name='course-student-overview-nested'),
     path('<uuid:course_id>/discussions/', course_discussions_list, name='course-discussions-direct'),
     path('<uuid:course_id>/features/', course_features_list, name='course-features-list-direct'),
     path('<uuid:course_id>/features/save-bulk/', course_feature_save_bulk, name='course-features-save-bulk-direct'),
     path('<uuid:course_id>/features/<str:feature_code>/enable/', course_feature_enable, name='course-feature-enable-direct'),
     path('<uuid:course_id>/features/<str:feature_code>/disable/', course_feature_disable, name='course-feature-disable-direct'),
+    path('courses/<uuid:course_id>/discussions/', course_discussions_list, name='course-discussions-nested'),
+    path('courses/<uuid:course_id>/features/', course_features_list, name='course-features-list-nested'),
+    path('courses/<uuid:course_id>/features/save-bulk/', course_feature_save_bulk, name='course-features-save-bulk-nested'),
+    path('courses/<uuid:course_id>/features/<str:feature_code>/enable/', course_feature_enable, name='course-feature-enable-nested'),
+    path('courses/<uuid:course_id>/features/<str:feature_code>/disable/', course_feature_disable, name='course-feature-disable-nested'),
     path('', include(router.urls)),
     path('direct-categories/', include(category_router.urls)),
 ]

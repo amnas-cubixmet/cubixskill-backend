@@ -134,15 +134,13 @@ class CreditUsagePreviewView(APIView):
             account = CreditsService.get_or_create_account(None)
             academy = account.academy
 
-        resource_type = request.data.get('resource_type', 'COURSE_FEATURE')
-        resource_id = request.data.get('resource_id', 'LIVE_CLASS')
+        feature_code = request.data.get('feature_code') or request.data.get('resource_id') or 'LESSONS'
         course_id = request.data.get('course_id')
 
-        preview = CreditsService.get_usage_preview(
+        preview = CreditsService.get_course_feature_preview(
             academy=academy,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            course_id=course_id
+            course_id=course_id,
+            feature_code=feature_code
         )
         return Response(preview, status=status.HTTP_200_OK)
 

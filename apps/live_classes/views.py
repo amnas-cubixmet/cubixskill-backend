@@ -41,6 +41,13 @@ class StudentLiveClassesView(APIView):
 
     def get(self, request):
         course_id = request.query_params.get('course_id')
+        if course_id:
+            try:
+                course = Course.objects.get(id=course_id)
+                from features.services import CourseFeatureService
+                CourseFeatureService.require_enabled(course, 'LIVE_CLASS', user=request.user)
+            except Course.DoesNotExist:
+                pass
         categorized = LiveSessionSelector.get_student_categorized_live_classes(
             student=request.user,
             course_id=course_id
@@ -73,6 +80,13 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         course_id = self.request.query_params.get('course') or self.request.query_params.get('course_id')
+        if course_id:
+            try:
+                course = Course.objects.get(id=course_id)
+                from features.services import CourseFeatureService
+                CourseFeatureService.require_enabled(course, 'LIVE_CLASS', user=user)
+            except Course.DoesNotExist:
+                pass
         if hasattr(user, 'academy') and user.academy:
             qs = LiveSessionSelector.get_academy_live_sessions(user.academy)
         else:
@@ -96,6 +110,8 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
                     course = Course.objects.get(id=course_id, academy=academy)
                 else:
                     course = Course.objects.get(id=course_id)
+                from features.services import CourseFeatureService
+                CourseFeatureService.require_enabled(course, 'LIVE_CLASS', user=user)
             except Course.DoesNotExist:
                 raise ValidationError({"course_id": ["Course not found or does not belong to your academy."]})
 

@@ -121,32 +121,8 @@ class EnrollmentService:
         )
 
         if created:
-            # Deduct per-student course credit cost from Academy wallet
-            from decimal import Decimal
-
-            from credits.services import CreditPricingService, CreditsService
-
-            pricing = CreditPricingService.calculate_course_per_student_pricing(course)
-            per_student_credits = Decimal(str(pricing.get('total_credits_per_student', 1)))
-
-            if per_student_credits > Decimal('0.000000') and course.academy:
-                idempotency_key = f"enrollment_credit_charge:{course.id}:{student.id}"
-                CreditsService.debit(
-                    academy=course.academy,
-                    amount=per_student_credits,
-                    source_type="OTHER",
-                    idempotency_key=idempotency_key,
-                    description=f"Course Student Access for '{course.title or course.id}' ({student.email or student.id}) - {per_student_credits} Credits",
-                    reference_type="ENROLLMENT",
-                    reference_id=str(student.id),
-                    created_by=created_by,
-                    metadata={
-                        "course_id": str(course.id),
-                        "student_id": str(student.id),
-                        "per_student_credits": str(per_student_credits),
-                        "pricing_breakdown": pricing.get('breakdown', [])
-                    }
-                )
+            # Deduct per-student course credit cost from Academy wallet for unbilled PER_STUDENT features
+            EnrollmentService.charge_enrollment_per_student_credits(course, [student], created_by=created_by)
 
             # Create Initial Access Period & Event
             EnrollmentAccessPeriod.objects.create(
@@ -436,3 +412,103 @@ class EnrollmentService:
             'successful': successful,
             'failed': failed
         }
+
+    @staticmethod
+    @transaction.atomic
+    def charge_enrollment_per_student_credits(course, students, created_by=None):
+        """
+        Calculates and deducts credits for student enrollments based on enabled PER_STUDENT features.
+        Idempotent per (course, student, feature_code).
+        """
+        if not course or not course.academy or not students:
+            return
+
+        import uuid
+        from decimal import Decimal
+        from features.services import CourseFeatureService
+        from credits.models import CourseFeatureBilledStudent
+        from credits.services import CreditsService
+
+        features = CourseFeatureService.get_features(course)
+        enabled_per_student_features = [
+            f for f in features
+            if (f.get('effective_enabled', False) or f.get('is_enabled', False))
+            and (f.get('is_per_student', False) or f.get('billing_unit') == 'PER_STUDENT')
+            and int(f.get('credit_cost', 0)) > 0
+        ]
+
+        if not enabled_per_student_features:
+            return
+
+        total_per_student_credits = sum(int(f.get('credit_cost', 0)) for f in enabled_per_student_features)
+
+        student_list = list(students)
+        student_ids = [s.id for s in student_list]
+
+        billed_records = set(
+            CourseFeatureBilledStudent.objects.filter(
+                course=course,
+                student_id__in=student_ids
+            ).values_list('student_id', 'feature_code')
+        )
+
+        items_to_charge = []
+        for st in student_list:
+            for f in enabled_per_student_features:
+                if (st.id, f['code']) not in billed_records:
+                    items_to_charge.append((st, f))
+
+        if not items_to_charge:
+            return
+
+        total_required_credits = Decimal(str(sum(int(f['credit_cost']) for _, f in items_to_charge)))
+        balance = CreditsService.get_balance(course.academy)
+        unique_billable_students = {st.id for st, _ in items_to_charge}
+        billable_count = len(unique_billable_students)
+
+        if balance < total_required_credits:
+            raise CubixSkillAPIException(
+                "You do not have enough credits to enroll these students.",
+                code="INSUFFICIENT_CREDITS",
+                status_code=400,
+                details={
+                    "code": "INSUFFICIENT_CREDITS",
+                    "message": "You do not have enough credits to enroll these students.",
+                    "credits_per_student": total_per_student_credits,
+                    "billable_students": billable_count,
+                    "required_credits": int(total_required_credits),
+                    "available_credits": int(balance)
+                }
+            )
+
+        idempotency_key = f"enrollment_credits:{course.id}:{uuid.uuid4().hex[:12]}"
+        desc = f"Student Course Enrollment for '{course.title or course.id}' ({billable_count} student(s) - {int(total_required_credits)} Credits)"
+
+        ledger_entry = CreditsService.debit(
+            academy=course.academy,
+            amount=total_required_credits,
+            source_type="OTHER",
+            idempotency_key=idempotency_key,
+            description=desc,
+            reference_type="ENROLLMENT",
+            reference_id=str(course.id),
+            created_by=created_by,
+            metadata={
+                "course_id": str(course.id),
+                "total_per_student_credits": total_per_student_credits,
+                "billable_student_count": billable_count,
+                "required_credits": str(total_required_credits),
+            }
+        )
+
+        new_records = [
+            CourseFeatureBilledStudent(
+                academy=course.academy,
+                course=course,
+                student=st,
+                feature_code=f['code'],
+                ledger_entry=ledger_entry
+            )
+            for st, f in items_to_charge
+        ]
+        CourseFeatureBilledStudent.objects.bulk_create(new_records, ignore_conflicts=True)

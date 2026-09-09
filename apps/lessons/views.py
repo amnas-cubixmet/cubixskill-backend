@@ -52,6 +52,10 @@ class ModuleLessonViewSet(viewsets.ModelViewSet):
             if not getattr(user, 'is_superuser', False) and getattr(user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
                 raise CubixSkillAPIException("Permission denied: Module belongs to another Academy.", code="PERMISSION_DENIED", status_code=status.HTTP_403_FORBIDDEN)
 
+        if module.course:
+            from features.services import CourseFeatureService
+            CourseFeatureService.require_enabled(module.course, 'LESSONS', user=user)
+
         return module
 
     def get_queryset(self):

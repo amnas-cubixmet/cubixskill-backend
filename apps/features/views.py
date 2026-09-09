@@ -59,8 +59,52 @@ class CourseFeatureViewSet(viewsets.ViewSet):
         if user_academy and course.academy_id and user_academy != course.academy_id:
             raise CubixSkillAPIException("Access denied to course in another academy.", code="CROSS_ACADEMY_FORBIDDEN", status_code=403)
 
+        if request.query_params.get('format') == 'canonical':
+            return Response(CourseFeatureService.get_canonical_features(course))
+
         features = CourseFeatureService.get_features(course)
-        return Response({"course_id": str(course.id), "features": features})
+        from credits.services import CreditPricingService
+        pricing_summary = CreditPricingService.get_course_per_student_credit_cost(course)
+        return Response({
+            "course_id": str(course.id),
+            "features": features,
+            "total_per_student_credits": pricing_summary["total_per_student_credits"],
+            "per_student_features": pricing_summary["per_student_features"]
+        })
+
+    def partial_update(self, request, course_id=None):
+        course = get_object_or_404(Course, pk=course_id)
+        user_academy = getattr(request.user, 'academy_id', None)
+        if user_academy and course.academy_id and user_academy != course.academy_id:
+            raise CubixSkillAPIException("Access denied to course in another academy.", code="CROSS_ACADEMY_FORBIDDEN", status_code=403)
+
+        # Mapping of JSON keys to backend feature codes
+        reverse_mapping = {
+            'lessons': 'LESSONS',
+            'fee_collection': 'FEE_COLLECTION',
+            'announcements': 'COURSE_ANNOUNCEMENT',
+            'live_classes': 'LIVE_CLASS',
+            'email_delivery': 'EMAIL_DELIVERY',
+            'certificates': 'COMPLETION_CERTIFICATE',
+            'discussions': 'COURSE_DISCUSSION',
+            'one_to_one': 'ONE_TO_ONE_SESSION',
+            'lesson_locking_report': 'LESSON_LOCKING_REPORT',
+            'lesson_locking_report_enabled': 'LESSON_LOCKING_REPORT',
+            'lesson_locking': 'LESSON_LOCKING_REPORT',
+            'lesson_locking_enabled': 'LESSON_LOCKING_REPORT',
+            'student_report': 'LESSON_LOCKING_REPORT',
+            'student_reports': 'LESSON_LOCKING_REPORT',
+            'student_report_enabled': 'LESSON_LOCKING_REPORT',
+        }
+
+        features_data = {}
+        for key, val in request.data.items():
+            code = reverse_mapping.get(key.lower(), key.upper())
+            enabled = val.get('enabled') if isinstance(val, dict) else bool(val)
+            features_data[code] = enabled
+
+        CourseFeatureService.save_bulk_features(course, features_data, user=request.user)
+        return Response(CourseFeatureService.get_canonical_features(course))
 
     @action(detail=False, methods=['post'], url_path='(?P<feature_code>[^/.]+)/enable')
     def enable_feature(self, request, course_id=None, feature_code=None):
@@ -71,11 +115,17 @@ class CourseFeatureViewSet(viewsets.ViewSet):
 
         config = request.data.get('config', None)
         cf = CourseFeatureService.enable_feature(course, feature_code, user=request.user, config=config)
+        features = CourseFeatureService.get_features(course)
+        from credits.services import CreditPricingService
+        pricing_summary = CreditPricingService.get_course_per_student_credit_cost(course)
         return Response({
             "message": f"Feature '{feature_code}' enabled for course.",
             "feature_code": feature_code,
             "is_enabled": cf.is_enabled,
-            "config": cf.config
+            "config": cf.config,
+            "features": features,
+            "total_per_student_credits": pricing_summary["total_per_student_credits"],
+            "per_student_features": pricing_summary["per_student_features"]
         })
 
     @action(detail=False, methods=['post'], url_path='(?P<feature_code>[^/.]+)/disable')
@@ -86,10 +136,16 @@ class CourseFeatureViewSet(viewsets.ViewSet):
             raise CubixSkillAPIException("Access denied to course in another academy.", code="CROSS_ACADEMY_FORBIDDEN", status_code=403)
 
         cf = CourseFeatureService.disable_feature(course, feature_code, user=request.user)
+        features = CourseFeatureService.get_features(course)
+        from credits.services import CreditPricingService
+        pricing_summary = CreditPricingService.get_course_per_student_credit_cost(course)
         return Response({
             "message": f"Feature '{feature_code}' disabled for course.",
             "feature_code": feature_code,
-            "is_enabled": cf.is_enabled
+            "is_enabled": cf.is_enabled,
+            "features": features,
+            "total_per_student_credits": pricing_summary["total_per_student_credits"],
+            "per_student_features": pricing_summary["per_student_features"]
         })
 
     @action(detail=False, methods=['post'], url_path='save-bulk')

@@ -104,7 +104,7 @@ class PricingService:
                 'description': 'Video, audio, documents, questions, assessments, assignments, and learning resources.',
                 'category': 'FEATURE PRICING',
                 'billing_unit': 'PER_STUDENT',
-                'credit_cost': 2,
+                'credit_cost': 100,
                 'icon': 'book-open',
             },
             {
@@ -113,7 +113,7 @@ class PricingService:
                 'description': 'Collect fees from students.',
                 'category': 'FEATURE PRICING',
                 'billing_unit': 'PER_STUDENT',
-                'credit_cost': 1,
+                'credit_cost': 2,
                 'icon': 'wallet',
             },
             {
@@ -131,7 +131,7 @@ class PricingService:
                 'description': 'Run live classes for students.',
                 'category': 'FEATURE PRICING',
                 'billing_unit': 'PER_STUDENT',
-                'credit_cost': 2,
+                'credit_cost': 0,
                 'icon': 'video',
             },
             {
@@ -149,7 +149,7 @@ class PricingService:
                 'description': 'Issue course completion certificates.',
                 'category': 'FEATURE PRICING',
                 'billing_unit': 'PER_CERTIFICATE',
-                'credit_cost': 3,
+                'credit_cost': 5,
                 'icon': 'award',
             },
             {
@@ -158,7 +158,7 @@ class PricingService:
                 'description': 'Enable course discussions.',
                 'category': 'FEATURE PRICING',
                 'billing_unit': 'PER_STUDENT',
-                'credit_cost': 1,
+                'credit_cost': 0,
                 'icon': 'message-square',
             },
             {
@@ -167,7 +167,7 @@ class PricingService:
                 'description': 'Enable private student sessions.',
                 'category': 'FEATURE PRICING',
                 'billing_unit': 'PER_STUDENT',
-                'credit_cost': 2,
+                'credit_cost': 0,
                 'icon': 'user-check',
             },
             {
@@ -194,9 +194,13 @@ class PricingService:
                     'is_active': True
                 }
             )
-            if not created and not rule.is_active:
+            if not created:
+                rule.name = r['name']
+                rule.description = r['description']
+                rule.billing_unit = r['billing_unit']
+                rule.credit_cost = r['credit_cost']
                 rule.is_active = True
-                rule.save(update_fields=['is_active'])
+                rule.save()
 
         PricingRule.objects.exclude(code__in=canonical_codes).update(is_active=False)
 

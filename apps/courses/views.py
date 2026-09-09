@@ -76,6 +76,60 @@ class CourseViewSet(viewsets.ModelViewSet):
         CourseService.reorder_modules(course, module_order_map)
         return api_response(message="Modules reordered successfully.")
 
+    @action(detail=True, methods=['get'], url_path='export')
+    def export_data(self, request, pk=None):
+        import csv
+        import re
+        from django.http import HttpResponse
+        from django.utils import timezone
+        from core.utils import CubixSkillAPIException
+        from enrollments.models import Enrollment
+
+        course = self.get_object()
+
+        user_academy = getattr(request.user, 'academy_id', None)
+        if user_academy and course.academy_id and user_academy != course.academy_id:
+            raise CubixSkillAPIException("Access denied to course in another academy.", code="CROSS_ACADEMY_FORBIDDEN", status_code=403)
+
+        if not getattr(course, 'allow_data_export', True):
+            raise CubixSkillAPIException("Data export is disabled for this course.", code="DATA_EXPORT_DISABLED", status_code=403)
+
+        enrollments = Enrollment.objects.filter(course=course).select_related('student')
+
+        response = HttpResponse(content_type='text/csv')
+        clean_title = re.sub(r'[^a-zA-Z0-9_-]', '_', course.title or 'course')
+        filename = f"{clean_title}-students-{timezone.now().strftime('%Y-%m-%d')}.csv"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        writer = csv.writer(response)
+        writer.writerow([
+            'Student ID',
+            'Full Name',
+            'Email',
+            'Enrollment Status',
+            'Access Type',
+            'Enrolled Date',
+            'Progress (%)'
+        ])
+
+        for enr in enrollments:
+            student = enr.student
+            student_id = str(student.id) if student else ''
+            student_name = getattr(student, 'full_name', '') if student else (getattr(student, 'username', '') if student else '')
+            student_email = getattr(student, 'email', '') if student else ''
+
+            writer.writerow([
+                student_id,
+                student_name,
+                student_email,
+                enr.status,
+                enr.access_type,
+                enr.enrolled_at.strftime('%Y-%m-%d') if enr.enrolled_at else '',
+                f"{enr.progress_percent:.2f}"
+            ])
+
+        return response
+
     @action(detail=True, methods=['get', 'patch', 'put'])
     def fees(self, request, pk=None):
         course = self.get_object()
@@ -358,3 +412,176 @@ class CourseLanguageViewSet(viewsets.ModelViewSet):
         )
         serializer = self.get_serializer(lang)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+#--------------------------------------------------------------
+# Student Course Overview View
+#--------------------------------------------------------------
+from rest_framework.views import APIView
+from rest_framework.response import Response
+import re
+from django.utils.text import slugify
+from django.db import models
+
+class StudentCourseOverviewView(APIView):
+    """
+    Returns complete real database telemetry for a student in a specific course.
+    GET /api/v1/courses/<course_uuid>/students/<student_uuid>/overview/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, course_uuid, student_uuid):
+        user = request.user
+        academy = getattr(user, 'academy', None)
+        if not academy:
+            return Response({"detail": "User must belong to an academy."}, status=status.HTTP_403_FORBIDDEN)
+
+        # 1. Course check (Multi-tenant security)
+        try:
+            course = Course.objects.get(id=course_uuid, academy=academy)
+        except (Course.DoesNotExist, ValueError):
+            return Response({"detail": "Course not found in your academy."}, status=status.HTTP_404_NOT_FOUND)
+
+        # 2. Student check
+        from users_roles.models import User
+        from students.models import StudentProfile
+
+        student_user = User.objects.filter(id=student_uuid).first()
+        student_profile = None
+        if student_user:
+            student_profile = StudentProfile.objects.filter(user=student_user, academy=academy).first()
+        else:
+            student_profile = StudentProfile.objects.filter(id=student_uuid, academy=academy).first()
+            if student_profile:
+                student_user = student_profile.user
+
+        if not student_user:
+            return Response({"detail": "Student not found in your academy."}, status=status.HTTP_404_NOT_FOUND)
+
+        # 3. Enrollment check
+        from enrollments.models import Enrollment
+        enrollment = Enrollment.objects.filter(course=course, student=student_user).first()
+        if not enrollment:
+            return Response({"detail": "Student is not enrolled in this course."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Avatar URL
+        avatar_url = None
+        if student_profile and getattr(student_profile, 'profile_photo', None):
+            mf = student_profile.profile_photo
+            if hasattr(mf, 'file') and mf.file:
+                avatar_url = request.build_absolute_uri(mf.file.url) if request else mf.file.url
+            elif getattr(mf, 'file_url', ''):
+                avatar_url = mf.file_url
+
+        full_name = (student_profile.display_name if student_profile and student_profile.display_name else student_user.full_name) or student_user.email
+        student_code = (student_profile.student_code if student_profile and student_profile.student_code else f"CS-{str(student_user.id)[:6].upper()}")
+
+        # 4. Progress calculation
+        from modules.models import Module
+        from lessons.models import Lesson
+        from learning_progress.models import LessonProgress, ProgressStatus, LearningActivity
+
+        active_modules = Module.objects.filter(course=course, is_active=True).order_by('order_index')
+        total_lessons = Lesson.objects.filter(module__course=course, is_active=True, module__is_active=True).count()
+
+        completed_lp_qs = LessonProgress.objects.filter(
+            student=student_user,
+            lesson__module__course=course,
+            status=ProgressStatus.COMPLETED
+        )
+        completed_lesson_ids = set(completed_lp_qs.values_list('lesson_id', flat=True))
+        completed_lessons = len(completed_lesson_ids)
+        percentage = round((completed_lessons / total_lessons * 100), 2) if total_lessons > 0 else 0.0
+
+        # Modules breakdown
+        modules_data = []
+        for mod in active_modules:
+            mod_lessons = mod.lessons.filter(is_active=True)
+            mod_total = mod_lessons.count()
+            mod_comp = mod_lessons.filter(id__in=completed_lesson_ids).count()
+            mod_pct = round((mod_comp / mod_total * 100), 2) if mod_total > 0 else 0.0
+            modules_data.append({
+                "uuid": str(mod.id),
+                "title": mod.title,
+                "completed_lessons": mod_comp,
+                "total_lessons": mod_total,
+                "percentage": mod_pct
+            })
+
+        # Lessons list
+        lessons_data = []
+        lp_map = {lp.lesson_id: lp for lp in LessonProgress.objects.filter(student=student_user, lesson__module__course=course)}
+        for mod in active_modules:
+            for les in mod.lessons.filter(is_active=True).order_by('order_index'):
+                lp = lp_map.get(les.id)
+                is_comp = (lp.status == ProgressStatus.COMPLETED) if lp else False
+                lessons_data.append({
+                    "uuid": str(les.id),
+                    "module_uuid": str(mod.id),
+                    "title": les.title,
+                    "type": les.lesson_type,
+                    "completed": is_comp,
+                    "completed_at": lp.completed_at.isoformat() if (lp and lp.completed_at and is_comp) else None
+                })
+
+        # Activities from real DB
+        activities_qs = LearningActivity.objects.filter(
+            student=student_user,
+            lesson__module__course=course
+        ).order_by('-created_at')[:20]
+        activities_data = []
+        for act in activities_qs:
+            activities_data.append({
+                "id": str(act.id),
+                "activity_type": act.activity_type,
+                "lesson_title": act.lesson.title if act.lesson else '',
+                "details": act.payload if isinstance(act.payload, dict) else {},
+                "timestamp": act.created_at.isoformat() if hasattr(act, 'created_at') and act.created_at else None
+            })
+
+        # Real certificates from DB
+        from certificates.models import Certificate
+        certs_qs = Certificate.objects.filter(enrollment=enrollment)
+        certificates_data = []
+        for cert in certs_qs:
+            certificates_data.append({
+                "id": str(cert.id),
+                "certificate_number": cert.certificate_number,
+                "issued_at": cert.issued_at.isoformat() if cert.issued_at else None,
+                "status": cert.status
+            })
+
+        return Response({
+            "student": {
+                "uuid": str(student_user.id),
+                "profile_uuid": str(student_profile.id) if student_profile else None,
+                "full_name": full_name,
+                "email": student_user.email,
+                "phone": student_user.phone or (student_profile.phone if student_profile else ''),
+                "student_code": student_code,
+                "avatar": avatar_url,
+                "status": student_profile.status if student_profile else "ACTIVE"
+            },
+            "course": {
+                "uuid": str(course.id),
+                "title": course.title
+            },
+            "enrollment": {
+                "uuid": str(enrollment.id),
+                "status": enrollment.status,
+                "enrolled_at": enrollment.enrolled_at.isoformat() if enrollment.enrolled_at else enrollment.created_at.isoformat(),
+                "completed_at": enrollment.updated_at.isoformat() if enrollment.status == 'COMPLETED' else None
+            },
+            "progress": {
+                "completed_lessons": completed_lessons,
+                "total_lessons": total_lessons,
+                "percentage": percentage
+            },
+            "modules": modules_data,
+            "lessons": lessons_data,
+            "quiz_attempts": [],
+            "assignment_submissions": [],
+            "activities": activities_data,
+            "certificates": certificates_data
+        }, status=status.HTTP_200_OK)
+

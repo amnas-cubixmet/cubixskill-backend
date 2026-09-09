@@ -35,6 +35,8 @@ class CourseFeeSummaryView(APIView):
         try:
             course = Course.objects.get(id=course_id)
             self.check_object_permissions(request, course)
+            from features.services import CourseFeatureService
+            CourseFeatureService.require_enabled(course, 'FEE_COLLECTION', user=request.user)
         except Course.DoesNotExist:
             return api_response(message="Course not found.", status_code=status.HTTP_404_NOT_FOUND)
 

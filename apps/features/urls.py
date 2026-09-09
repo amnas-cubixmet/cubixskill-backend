@@ -12,7 +12,7 @@ from rest_framework.routers import DefaultRouter
 router = DefaultRouter()
 router.register(r'features', FeatureViewSet, basename='feature')
 
-course_features_list = CourseFeatureViewSet.as_view({'get': 'list'})
+course_features_list = CourseFeatureViewSet.as_view({'get': 'list', 'patch': 'partial_update'})
 course_feature_enable = CourseFeatureViewSet.as_view({'post': 'enable_feature'})
 course_feature_disable = CourseFeatureViewSet.as_view({'post': 'disable_feature'})
 course_feature_save_bulk = CourseFeatureViewSet.as_view({'post': 'save_bulk'})

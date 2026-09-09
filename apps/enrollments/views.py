@@ -24,6 +24,7 @@ from enrollments.services import EnrollmentService
 from learning_progress.models import CourseProgress, LessonProgress, ProgressStatus
 from lessons.models import Lesson
 from modules.models import Module
+from features.services import CourseFeatureService
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -105,7 +106,11 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
                 'total_courses_count': acad.total_courses_count,
                 'enrolled_courses_count': acad.total_courses_count,
                 'overall_progress_percent': 0,
-                'last_active_at': 'Recently active'
+                'last_active_at': 'Recently active',
+                'features': {
+                    'lesson_locking': getattr(acad, 'lesson_locking', True),
+                    'student_reports': getattr(acad, 'student_reports', True),
+                }
             })
         return Response({
             'count': len(results),
@@ -140,7 +145,16 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
             c = enr.course
             thumbnail_url = ''
             if hasattr(c, 'thumbnail') and c.thumbnail:
-                thumbnail_url = c.thumbnail.url if hasattr(c.thumbnail, 'url') else str(c.thumbnail)
+                storage_key = getattr(c.thumbnail, 'storage_key', '') or ''
+                raw = getattr(c.thumbnail, 'url', '') or getattr(c.thumbnail, 'file_url', '') or (f"/media/{storage_key.lstrip('/')}" if storage_key else '')
+                if raw and not raw.endswith('(IMAGE)'):
+                    thumbnail_url = request.build_absolute_uri(raw) if request else raw
+            if not thumbnail_url and getattr(c, 'thumbnail_url', ''):
+                thumbnail_url = request.build_absolute_uri(c.thumbnail_url) if (request and not c.thumbnail_url.startswith(('http://', 'https://'))) else c.thumbnail_url
+
+            total_active_lessons = Lesson.objects.filter(module__course=c, is_active=True, module__is_active=True).count()
+            completed_lessons = LessonProgress.objects.filter(student=user, lesson__module__course=c, status=ProgressStatus.COMPLETED, lesson__is_active=True, lesson__module__is_active=True).values('lesson_id').distinct().count()
+            progress_percentage = round((completed_lessons / total_active_lessons * 100.0), 2) if total_active_lessons > 0 else 0.0
 
             courses_data.append({
                 'id': str(c.id),
@@ -152,10 +166,14 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
                 'level': getattr(c, 'level', 'Intermediate'),
                 'enrollment_status': enr.status,
                 'access_type': enr.access_type,
-                'progress_percentage': enr.progress_percent,
-                'completed_lessons': getattr(enr, 'completed_lessons_count', 0),
-                'total_lessons': getattr(c, 'total_lessons_count', 0) or 10,
-                'academy_uuid': str(academy.id)
+                'progress_percentage': progress_percentage,
+                'progress_percent': progress_percentage,
+                'completed_lessons': completed_lessons,
+                'total_lessons': total_active_lessons,
+                'completed_lessons_count': completed_lessons,
+                'total_lessons_count': total_active_lessons,
+                'academy_uuid': str(academy.id),
+                'features': CourseFeatureService.get_canonical_features(c),
             })
 
         logo_url = academy.logo.file.url if (academy.logo and hasattr(academy.logo, 'file') and academy.logo.file) else ''
@@ -166,6 +184,10 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
                 'uuid': str(academy.id),
                 'name': academy.name,
                 'logo_url': logo_url,
+                'features': {
+                    'lesson_locking': getattr(academy, 'lesson_locking', True),
+                    'student_reports': getattr(academy, 'student_reports', True),
+                }
             },
             'courses': courses_data
         })
@@ -200,7 +222,14 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
         progression = StudentCourseProgressionService.get_student_course_progression(user, course)
         lessons_map = progression['lessons_map']
 
-        thumbnail_url = course.thumbnail.url if (hasattr(course, 'thumbnail') and course.thumbnail and hasattr(course.thumbnail, 'url')) else str(getattr(course, 'thumbnail', ''))
+        thumbnail_url = ''
+        if hasattr(course, 'thumbnail') and course.thumbnail:
+            storage_key = getattr(course.thumbnail, 'storage_key', '') or ''
+            raw = getattr(course.thumbnail, 'url', '') or getattr(course.thumbnail, 'file_url', '') or (f"/media/{storage_key.lstrip('/')}" if storage_key else '')
+            if raw and not raw.endswith('(IMAGE)'):
+                thumbnail_url = request.build_absolute_uri(raw) if request else raw
+        if not thumbnail_url and getattr(course, 'thumbnail_url', ''):
+            thumbnail_url = request.build_absolute_uri(course.thumbnail_url) if (request and not course.thumbnail_url.startswith(('http://', 'https://'))) else course.thumbnail_url
         modules = Module.objects.filter(course=course, is_active=True).prefetch_related('lessons').order_index_sorted() if hasattr(Module.objects, 'order_index_sorted') else Module.objects.filter(course=course, is_active=True).order_by('order_index')
 
         completed_lesson_ids = list(LessonProgress.objects.filter(

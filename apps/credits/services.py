@@ -155,71 +155,77 @@ class CreditPricingService:
         return gb_units, cost.quantize(Decimal('0.000001'))
 
     @classmethod
-    def calculate_course_per_student_pricing(cls, course) -> dict:
+    def get_course_per_student_credit_cost(cls, course) -> dict:
         """
-        Calculates per-student credit price for a course based on Base Student Access + enabled features.
-        Authoritative formula: Total = Base + SUM(enabled billable feature credit rates).
+        Calculates canonical per-student credit cost from all currently enabled PER_STUDENT features.
+        Authoritative formula: total_per_student_credits = SUM(credit_rate for enabled PER_STUDENT features).
         """
         if not course:
             return {
-                "base_credits_per_student": 1,
-                "total_credits_per_student": 1,
+                "total_per_student_credits": 0,
+                "per_student_features": [],
                 "enabled_features_count": 0,
                 "breakdown": []
             }
 
-        from control_panel.models import PricingRule
         from features.services import CourseFeatureService
 
-        pricing_rules = {
-            pr.code.strip().upper(): pr for pr in PricingRule.objects.filter(is_active=True)
-        }
-
-        base_rule = pricing_rules.get('STUDENT_BASE') or pricing_rules.get('COURSE_BASE')
-        base_credits = int(base_rule.credit_cost) if base_rule else 15
-
-        breakdown = [{
-            "key": "STUDENT_BASE",
-            "name": "Student Base Price",
-            "credits_per_student": base_credits,
-            "is_base": True,
-            "enabled": True
-        }]
-
         features = CourseFeatureService.get_features(course)
-        enabled_features_count = 0
-        feature_credits_sum = 0
-        per_student_codes = {'LESSONS', 'FEE_COLLECTION', 'LIVE_CLASS', 'COURSE_DISCUSSION', 'ONE_TO_ONE_SESSION'}
+        per_student_features = []
+        breakdown = []
+        total_credits = 0
 
         for f in features:
             is_enabled = f.get('effective_enabled', False) or f.get('is_enabled', False)
-            is_per_student = f.get('is_per_student', False) or f.get('code') in per_student_codes or f.get('billing_unit') == 'PER_STUDENT'
+            billing_unit = f.get('billing_unit', '')
+            is_per_student = f.get('is_per_student', False) or billing_unit == 'PER_STUDENT'
 
-            if is_enabled:
-                enabled_features_count += 1
-                if is_per_student:
-                    cost = f.get('credit_cost', 0)
-                    feature_credits_sum += cost
-                    if cost > 0:
-                        breakdown.append({
-                            "key": f['code'],
-                            "name": f['name'],
-                            "credits_per_student": cost,
-                            "is_base": False,
-                            "enabled": True
-                        })
-
-        total_credits = base_credits + feature_credits_sum
+            if is_enabled and is_per_student:
+                rate = int(f.get('credit_cost', 0))
+                label = f.get('billing_unit_label') or 'Student'
+                total_credits += rate
+                
+                feat_obj = {
+                    "key": f.get('frontend_key') or f.get('code', '').lower(),
+                    "code": f.get('code'),
+                    "name": f.get('name'),
+                    "credit_rate": rate,
+                    "billing_unit": "PER_STUDENT",
+                    "billing_unit_label": label
+                }
+                per_student_features.append(feat_obj)
+                breakdown.append({
+                    "key": f.get('code'),
+                    "name": f.get('name'),
+                    "credits_per_student": rate,
+                    "billing_unit_label": label,
+                    "enabled": True
+                })
 
         return {
-            "student_base_price": str(Decimal(base_credits).quantize(Decimal('0.000000'))),
-            "feature_student_total": str(Decimal(feature_credits_sum).quantize(Decimal('0.000000'))),
-            "total_per_student": str(Decimal(total_credits).quantize(Decimal('0.000000'))),
-            "base_credits_per_student": base_credits,
-            "feature_credits_sum": feature_credits_sum,
-            "total_credits_per_student": total_credits,
-            "enabled_features_count": enabled_features_count,
+            "total_per_student_credits": total_credits,
+            "per_student_features": per_student_features,
+            "enabled_features_count": len(per_student_features),
             "breakdown": breakdown
+        }
+
+    @classmethod
+    def calculate_course_per_student_pricing(cls, course) -> dict:
+        """
+        Calculates per-student credit price for a course based on enabled PER_STUDENT features.
+        """
+        pricing = cls.get_course_per_student_credit_cost(course)
+        total_credits = pricing["total_per_student_credits"]
+        return {
+            "student_base_price": str(Decimal('0.000000')),
+            "feature_student_total": str(Decimal(total_credits).quantize(Decimal('0.000000'))),
+            "total_per_student": str(Decimal(total_credits).quantize(Decimal('0.000000'))),
+            "base_credits_per_student": 0,
+            "feature_credits_sum": total_credits,
+            "total_credits_per_student": total_credits,
+            "enabled_features_count": pricing["enabled_features_count"],
+            "per_student_features": pricing["per_student_features"],
+            "breakdown": pricing["breakdown"]
         }
 
 
@@ -910,71 +916,102 @@ class CreditsService:
         return (expected_balance == actual_balance, expected_balance, actual_balance)
 
     @classmethod
-    def get_usage_preview(
+    def get_course_feature_preview(
         cls,
         academy: Academy,
-        resource_type: str,
-        resource_id: str,
-        course_id: str = None
+        course_id: str,
+        feature_code: str
     ) -> dict:
         """
-        Calculates authoritative backend preview for daily credit usage.
-        Returns trusted daily rate, current wallet balance, aggregate usage, projected usage,
-        and estimated coverage days.
+        Calculates authoritative backend preview for Course Feature activation.
+        Billing-unit based (STUDENT, ANNOUNCEMENT, EMAIL, CERTIFICATE, FREE).
+        Calculates unbilled eligible student count and estimated charge without deducting credits.
         """
-        current_balance = cls.get_balance(academy)
+        from control_panel.models import PricingRule
+        from courses.models import Course
+        from enrollments.models import Enrollment, EnrollmentStatus
+        from credits.models import CourseFeatureBilledStudent
 
-        # Resolve rate from CreditRate or PricingRule
-        rate_obj = CreditRate.objects.filter(feature_key=resource_id, is_active=True).first()
-        if rate_obj and rate_obj.credit_cost > Decimal('0.0000'):
-            additional_daily_cost = rate_obj.credit_cost
-        else:
-            # Fallback default feature rates
-            feature_costs = {
-                'LIVE_CLASS': Decimal('10.0000'),
-                'ONE_TO_ONE_SESSION': Decimal('15.0000'),
-                'COURSE_DISCUSSION': Decimal('5.0000'),
-                'COMPLETION_CERTIFICATE': Decimal('5.0000'),
-                'LESSONS': Decimal('2.0000'),
-                'FEE_COLLECTION': Decimal('3.0000'),
-                'COURSE_ANNOUNCEMENT': Decimal('2.0000'),
-                'EMAIL_DELIVERY': Decimal('5.0000'),
-                'STORAGE_MEDIA': Decimal('10.0000'),
-            }
-            additional_daily_cost = feature_costs.get(str(resource_id).upper(), Decimal('10.0000'))
+        current_balance = float(cls.get_balance(academy))
+        code_upper = (feature_code or '').strip().upper()
 
-        # Calculate active daily usage across Academy
-        active_subs = CreditUsageSubscription.objects.filter(academy=academy, status=SubscriptionStatus.ACTIVE)
-        already_active = active_subs.filter(resource_type=resource_type, resource_id=resource_id).exists()
+        # Map aliases to canonical feature code
+        alias_map = {
+            'LESSON': 'LESSONS', 'LESSONS': 'LESSONS',
+            'FEE_COLLECTION': 'FEE_COLLECTION', 'FEES': 'FEE_COLLECTION',
+            'COURSE_ANNOUNCEMENT': 'COURSE_ANNOUNCEMENT', 'ANNOUNCEMENT': 'COURSE_ANNOUNCEMENT', 'ANNOUNCEMENTS': 'COURSE_ANNOUNCEMENT',
+            'LIVE_CLASS': 'LIVE_CLASS', 'LIVE_CLASSES': 'LIVE_CLASS',
+            'EMAIL_DELIVERY': 'EMAIL_DELIVERY', 'EMAIL': 'EMAIL_DELIVERY',
+            'COMPLETION_CERTIFICATE': 'COMPLETION_CERTIFICATE', 'CERTIFICATE': 'COMPLETION_CERTIFICATE', 'CERTIFICATES': 'COMPLETION_CERTIFICATE',
+            'COURSE_DISCUSSION': 'COURSE_DISCUSSION', 'DISCUSSIONS': 'COURSE_DISCUSSION',
+            'ONE_TO_ONE_SESSION': 'ONE_TO_ONE_SESSION', 'ONE_TO_ONE': 'ONE_TO_ONE_SESSION',
+            'LESSON_LOCKING': 'LESSON_LOCKING', 'LESSON_LOCK': 'LESSON_LOCKING'
+        }
+        canonical_code = alias_map.get(code_upper, code_upper)
 
-        current_daily_usage = active_subs.aggregate(total=Sum('daily_credit_cost'))['total'] or Decimal('0.0000')
+        pr = PricingRule.objects.filter(code__iexact=canonical_code, is_active=True).first()
+        credit_rate = int(pr.credit_cost) if pr else 0
+        raw_unit = pr.billing_unit.replace('PER_', '').upper() if pr else 'STUDENT'
 
-        if already_active:
-            projected_daily_usage = current_daily_usage
-        else:
-            projected_daily_usage = current_daily_usage + additional_daily_cost
+        billing_unit = 'FREE' if credit_rate == 0 else raw_unit
 
-        estimated_days_remaining = None
-        if projected_daily_usage > Decimal('0.0000'):
-            estimated_days_remaining = int(math.floor(current_balance / projected_daily_usage))
+        billable_quantity = 1
+        if billing_unit == 'STUDENT':
+            try:
+                course = Course.objects.get(pk=course_id)
+                # Find active enrolled students who have NOT been billed yet for this feature
+                enrolled_student_ids = Enrollment.objects.filter(
+                    course=course,
+                    status=EnrollmentStatus.ACTIVE
+                ).values_list('student_id', flat=True)
 
-        has_enough_credits = current_balance >= additional_daily_cost
+                already_billed_student_ids = CourseFeatureBilledStudent.objects.filter(
+                    course=course,
+                    feature_code=canonical_code
+                ).values_list('student_id', flat=True)
 
-        tomorrow_str = (timezone.now() + timezone.timedelta(days=1)).strftime('%Y-%m-%d')
+                unbilled_student_ids = set(enrolled_student_ids) - set(already_billed_student_ids)
+                billable_quantity = len(unbilled_student_ids)
+            except Exception:
+                billable_quantity = 0
+
+        estimated_charge = credit_rate * billable_quantity
+        can_afford = current_balance >= estimated_charge
+        remaining_balance = current_balance - estimated_charge if can_afford else current_balance
+
+        key_mapping = {
+            'LESSONS': 'lessons',
+            'FEE_COLLECTION': 'fee_collection',
+            'COURSE_ANNOUNCEMENT': 'announcements',
+            'LIVE_CLASS': 'live_classes',
+            'EMAIL_DELIVERY': 'email_delivery',
+            'COMPLETION_CERTIFICATE': 'certificates',
+            'COURSE_DISCUSSION': 'discussions',
+            'ONE_TO_ONE_SESSION': 'one_to_one',
+            'LESSON_LOCKING': 'lesson_locking',
+        }
+        json_feature_key = key_mapping.get(canonical_code, canonical_code.lower())
+
+        unit_labels = {
+            'STUDENT': 'Student',
+            'ANNOUNCEMENT': 'Announcement',
+            'EMAIL': 'Email',
+            'CERTIFICATE': 'Certificate',
+            'FREE': 'Action',
+        }
+        billing_unit_label = unit_labels.get(billing_unit, billing_unit.capitalize())
 
         return {
-            "billable": True,
-            "billing_type": BillingType.PER_DAY,
-            "daily_credit_cost": str(additional_daily_cost.quantize(Decimal('0.0000'))),
-            "current_balance": str(current_balance.quantize(Decimal('0.0000'))),
-            "current_daily_usage": str(current_daily_usage.quantize(Decimal('0.0000'))),
-            "additional_daily_cost": str(additional_daily_cost.quantize(Decimal('0.0000'))),
-            "projected_daily_usage": str(projected_daily_usage.quantize(Decimal('0.0000'))),
-            "estimated_days_remaining": estimated_days_remaining,
-            "first_charge": str(additional_daily_cost.quantize(Decimal('0.0000'))),
-            "next_charge_date": tomorrow_str,
-            "has_enough_credits": has_enough_credits,
-            "already_active": already_active,
+            "feature": json_feature_key,
+            "feature_code": canonical_code,
+            "billing_unit": billing_unit,
+            "billing_unit_label": billing_unit_label,
+            "credit_rate": credit_rate,
+            "billable_quantity": billable_quantity,
+            "estimated_charge": estimated_charge,
+            "current_balance": current_balance,
+            "remaining_balance": remaining_balance,
+            "can_afford": can_afford
         }
 
     @classmethod

@@ -682,7 +682,39 @@ class FeatureUsageEvent(BaseModel):
         db_table = 'credit_feature_usage_events'
         ordering = ['-occurred_at']
 
+class CourseFeatureBilledStudent(BaseModel):
+    academy = models.ForeignKey(
+        'academy.Academy',
+        on_delete=models.CASCADE,
+        related_name='feature_billed_students'
+    )
+    course = models.ForeignKey(
+        'courses.Course',
+        on_delete=models.CASCADE,
+        related_name='feature_billed_students'
+    )
+    student = models.ForeignKey(
+        'users_roles.User',
+        on_delete=models.CASCADE,
+        related_name='feature_billed_entitlements'
+    )
+    feature_code = models.CharField(max_length=100, db_index=True)
+    ledger_entry = models.ForeignKey(
+        'credits.CreditLedgerEntry',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='billed_student_entitlements'
+    )
+    billed_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        db_table = 'credit_course_feature_billed_students'
+        unique_together = ('course', 'student', 'feature_code')
+        ordering = ['-billed_at']
+
     def __str__(self):
-        return f"UsageEvent [{self.feature_code}] - {self.quantity} for Academy {self.academy_id}"
+        return f"BilledStudent [{self.feature_code}] - Course {self.course_id}, Student {self.student_id}"
+
 
 

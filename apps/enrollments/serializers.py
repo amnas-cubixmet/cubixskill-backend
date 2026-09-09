@@ -14,18 +14,22 @@ from users_roles.models import User
 #--------------------------------------------------------------
 
 class StudentMinimalSerializer(serializers.ModelSerializer):
+    uuid = serializers.CharField(source='id', read_only=True)
+
     class Meta:
         model = User
-        fields = ['id', 'email', 'full_name', 'phone']
+        fields = ['id', 'uuid', 'email', 'full_name', 'phone']
 
 #--------------------------------------------------------------
 # Course Minimal Serializer
 #--------------------------------------------------------------
 
 class CourseMinimalSerializer(serializers.ModelSerializer):
+    uuid = serializers.CharField(source='id', read_only=True)
+
     class Meta:
         model = Course
-        fields = ['id', 'title', 'price', 'academy_id']
+        fields = ['id', 'uuid', 'title', 'price', 'academy_id']
 
 #--------------------------------------------------------------
 # Enrollment Access Period Serializer
@@ -50,20 +54,69 @@ class EnrollmentEventSerializer(serializers.ModelSerializer):
         fields = ['id', 'event_type', 'previous_status', 'new_status', 'occurred_at', 'performed_by', 'performed_by_name', 'reason', 'metadata']
 
 class EnrollmentSerializer(serializers.ModelSerializer):
+    uuid = serializers.CharField(source='id', read_only=True)
     student = StudentMinimalSerializer(read_only=True)
     course = CourseMinimalSerializer(read_only=True)
     is_valid = serializers.SerializerMethodField()
 
+    completed_lessons = serializers.SerializerMethodField()
+    total_lessons = serializers.SerializerMethodField()
+    progress_percentage = serializers.SerializerMethodField()
+    completed_lessons_count = serializers.SerializerMethodField()
+    total_lessons_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Enrollment
         fields = [
-            'id', 'student', 'course', 'access_type', 'status', 'source',
+            'id', 'uuid', 'student', 'course', 'access_type', 'status', 'source',
             'enrolled_at', 'access_starts_at', 'access_expires_at', 'is_lifetime',
-            'source_reference', 'progress_percent', 'is_valid', 'created_at', 'updated_at'
+            'source_reference', 'progress_percent', 'progress_percentage',
+            'completed_lessons', 'total_lessons', 'completed_lessons_count',
+            'total_lessons_count', 'is_valid', 'created_at', 'updated_at'
         ]
 
     def get_is_valid(self, obj) -> bool:
         return obj.is_currently_valid()
+
+    def get_total_lessons(self, obj) -> int:
+        if hasattr(obj, 'annotated_total_lessons'):
+            return getattr(obj, 'annotated_total_lessons', 0)
+        if not getattr(obj, 'course_id', None):
+            return 0
+        from lessons.models import Lesson
+        return Lesson.objects.filter(
+            module__course_id=obj.course_id,
+            is_active=True,
+            module__is_active=True
+        ).count()
+
+    def get_completed_lessons(self, obj) -> int:
+        if hasattr(obj, 'annotated_completed_lessons'):
+            return getattr(obj, 'annotated_completed_lessons', 0)
+        if not getattr(obj, 'student_id', None) or not getattr(obj, 'course_id', None):
+            return 0
+        from learning_progress.models import LessonProgress, ProgressStatus
+        return LessonProgress.objects.filter(
+            student_id=obj.student_id,
+            lesson__module__course_id=obj.course_id,
+            status=ProgressStatus.COMPLETED,
+            lesson__is_active=True,
+            lesson__module__is_active=True
+        ).values('lesson_id').distinct().count()
+
+    def get_progress_percentage(self, obj) -> float:
+        total = self.get_total_lessons(obj)
+        completed = self.get_completed_lessons(obj)
+        if total <= 0:
+            return 0.0
+        pct = (completed / total) * 100.0
+        return round(min(100.0, max(0.0, pct)), 2)
+
+    def get_completed_lessons_count(self, obj) -> int:
+        return self.get_completed_lessons(obj)
+
+    def get_total_lessons_count(self, obj) -> int:
+        return self.get_total_lessons(obj)
 
 #--------------------------------------------------------------
 # Enrollment Detail Serializer

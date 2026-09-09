@@ -18,6 +18,9 @@ class StudentCourseProgressionService:
     def is_lesson_locking_enabled(course) -> bool:
         if not course:
             return False
+        if hasattr(course, 'academy') and course.academy:
+            if hasattr(course.academy, 'lesson_locking') and not course.academy.lesson_locking:
+                return False
         if getattr(course, 'learning_mode', None) == 'SEQUENTIAL':
             return True
         return CourseFeatureService.has_feature(course, 'LESSON_LOCKING')

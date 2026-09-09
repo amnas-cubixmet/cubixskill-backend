@@ -68,6 +68,10 @@ class Academy(BaseModel, SlugMixin, ActiveMixin):
     # Community Chat Configuration
     community_chat_file_upload_enabled = models.BooleanField(default=True)
 
+    # Academy Feature Settings
+    lesson_locking = models.BooleanField(default=True)
+    student_reports = models.BooleanField(default=True)
+
     class Meta:
         db_table = 'academies'
         ordering = ['name']
@@ -118,6 +122,8 @@ class Academy(BaseModel, SlugMixin, ActiveMixin):
             "coupons": True,
             "demo_leads": True,
             "staff_management": True,
+            "lesson_locking": self.lesson_locking,
+            "student_reports": self.student_reports,
         }
         if isinstance(self.feature_config, dict):
             default_features.update(self.feature_config)

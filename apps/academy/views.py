@@ -161,6 +161,8 @@ class AcademySettingsView(APIView):
             "hls_video_enabled": academy.hls_video_enabled,
             "personal_chat_file_upload_enabled": academy.personal_chat_file_upload_enabled,
             "community_chat_file_upload_enabled": academy.community_chat_file_upload_enabled,
+            "lesson_locking": academy.lesson_locking,
+            "student_reports": academy.student_reports,
             "academy_id": str(academy.id),
         }
         return api_response(data=data)
@@ -207,6 +209,20 @@ class AcademySettingsView(APIView):
             academy.community_chat_file_upload_enabled = bool(val)
             update_fields.append('community_chat_file_upload_enabled')
 
+        if 'lesson_locking' in request.data:
+            val = request.data['lesson_locking']
+            if isinstance(val, str):
+                val = val.lower() in ('true', '1', 'yes', 'on')
+            academy.lesson_locking = bool(val)
+            update_fields.append('lesson_locking')
+
+        if 'student_reports' in request.data:
+            val = request.data['student_reports']
+            if isinstance(val, str):
+                val = val.lower() in ('true', '1', 'yes', 'on')
+            academy.student_reports = bool(val)
+            update_fields.append('student_reports')
+
         if update_fields:
             academy.save(update_fields=update_fields)
 
@@ -214,5 +230,7 @@ class AcademySettingsView(APIView):
             "hls_video_enabled": academy.hls_video_enabled,
             "personal_chat_file_upload_enabled": academy.personal_chat_file_upload_enabled,
             "community_chat_file_upload_enabled": academy.community_chat_file_upload_enabled,
+            "lesson_locking": academy.lesson_locking,
+            "student_reports": academy.student_reports,
             "academy_id": str(academy.id),
         }, message="Academy settings updated successfully.")

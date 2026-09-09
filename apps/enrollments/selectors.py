@@ -18,7 +18,29 @@ class EnrollmentSelector:
     @staticmethod
     def get_student_enrollments(user):
         """Returns all enrollments for a specific student user."""
-        return Enrollment.objects.filter(student=user).select_related('course', 'course__academy')
+        from django.db.models import Count, OuterRef, Subquery, IntegerField
+        from django.db.models.functions import Coalesce
+        from learning_progress.models import LessonProgress, ProgressStatus
+        from lessons.models import Lesson
+
+        total_lessons_sq = Lesson.objects.filter(
+            module__course_id=OuterRef('course_id'),
+            is_active=True,
+            module__is_active=True
+        ).values('module__course_id').annotate(cnt=Count('id', distinct=True)).values('cnt')
+
+        completed_lessons_sq = LessonProgress.objects.filter(
+            student_id=OuterRef('student_id'),
+            lesson__module__course_id=OuterRef('course_id'),
+            status=ProgressStatus.COMPLETED,
+            lesson__is_active=True,
+            lesson__module__is_active=True
+        ).values('student_id').annotate(cnt=Count('lesson_id', distinct=True)).values('cnt')
+
+        return Enrollment.objects.filter(student=user).select_related('course', 'course__academy').annotate(
+            annotated_total_lessons=Coalesce(Subquery(total_lessons_sq, output_field=IntegerField()), 0),
+            annotated_completed_lessons=Coalesce(Subquery(completed_lessons_sq, output_field=IntegerField()), 0)
+        )
 
     @staticmethod
     def get_academy_enrollments(
@@ -35,6 +57,11 @@ class EnrollmentSelector:
         """
         Returns enrollments scoped to the user's Academy (or all if Super Admin).
         """
+        from django.db.models import Count, OuterRef, Subquery, IntegerField
+        from django.db.models.functions import Coalesce
+        from learning_progress.models import LessonProgress, ProgressStatus
+        from lessons.models import Lesson
+
         qs = Enrollment.objects.select_related('student', 'course', 'course__academy', 'created_by')
 
         # Tenant isolation
@@ -72,7 +99,24 @@ class EnrollmentSelector:
                 Q(course__title__icontains=search)
             )
 
-        return qs.order_by('-enrolled_at')
+        total_lessons_sq = Lesson.objects.filter(
+            module__course_id=OuterRef('course_id'),
+            is_active=True,
+            module__is_active=True
+        ).values('module__course_id').annotate(cnt=Count('id', distinct=True)).values('cnt')
+
+        completed_lessons_sq = LessonProgress.objects.filter(
+            student_id=OuterRef('student_id'),
+            lesson__module__course_id=OuterRef('course_id'),
+            status=ProgressStatus.COMPLETED,
+            lesson__is_active=True,
+            lesson__module__is_active=True
+        ).values('student_id').annotate(cnt=Count('lesson_id', distinct=True)).values('cnt')
+
+        return qs.annotate(
+            annotated_total_lessons=Coalesce(Subquery(total_lessons_sq, output_field=IntegerField()), 0),
+            annotated_completed_lessons=Coalesce(Subquery(completed_lessons_sq, output_field=IntegerField()), 0)
+        ).order_by('-enrolled_at')
 
     @staticmethod
     def get_enrollment_by_id(user, enrollment_id: str) -> Enrollment:

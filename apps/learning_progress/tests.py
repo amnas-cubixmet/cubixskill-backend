@@ -14,7 +14,7 @@ class StudentCourseProgressionServiceTest(TestCase):
     def setUp(self):
         self.academy = Academy.objects.create(name="Test Academy", slug="test-academy")
         self.course = Course.objects.create(academy=self.academy, title="Test Course", slug="test-course")
-        self.user = User.objects.create_user(username="student1@example.com", email="student1@example.com", password="password123")
+        self.user = User.objects.create_user(email="student1@example.com", password="password123")
         self.enrollment = Enrollment.objects.create(student=self.user, course=self.course, status=EnrollmentStatus.ACTIVE)
 
         self.module1 = Module.objects.create(course=self.course, title="Module 1", order_index=1)
@@ -32,7 +32,7 @@ class StudentCourseProgressionServiceTest(TestCase):
         self.assertTrue(progression['lessons_map'][str(self.lesson3.id)]['unlocked'])
 
     def test_progression_when_locking_enabled(self):
-        CourseFeatureService.enable_feature(self.course, 'LESSON_LOCKING')
+        CourseFeatureService.enable_feature(self.course, 'LESSON_LOCKING_REPORT')
         progression = StudentCourseProgressionService.get_student_course_progression(self.user, self.course)
         self.assertTrue(progression['lesson_locking_enabled'])
 

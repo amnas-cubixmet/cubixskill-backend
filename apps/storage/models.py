@@ -123,6 +123,16 @@ class MediaFile(BaseModel):
     def total_storage_bytes(self) -> int:
         return self.size_bytes + self.streaming_size_bytes
 
+    @property
+    def url(self) -> str:
+        if self.file_url:
+            return self.file_url
+        if self.storage_key:
+            return f"/media/{self.storage_key.lstrip('/')}"
+        if self.relative_path:
+            return f"/media/{self.relative_path.lstrip('/')}"
+        return ""
+
 
 # --------------------------------------------------------------
 # HLS Streaming Profiles & Rendition Models

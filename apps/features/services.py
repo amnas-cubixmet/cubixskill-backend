@@ -92,19 +92,19 @@ DEFAULT_FEATURES = [
         'pricing_code': 'ONE_TO_ONE_SESSION',
     },
     {
-        'code': 'LESSON_LOCKING',
-        'name': 'Lesson Locking',
-        'description': 'Require students to complete lessons in sequence before unlocking next lessons.',
+        'code': 'LESSON_LOCKING_REPORT',
+        'name': 'Lesson Locking + Student Report',
+        'description': 'Require students to complete lessons in sequence and enable detailed student learning reports.',
         'category': 'Content',
         'icon_key': 'Lock',
         'sort_order': 9,
         'billing_unit': 'PER_STUDENT',
-        'pricing_code': 'LESSON_LOCKING',
+        'pricing_code': 'LESSON_LOCKING_REPORT',
     },
 ]
 
 DEFAULT_CODES = {f['code'] for f in DEFAULT_FEATURES}
-PER_STUDENT_CODES = {'LESSONS', 'FEE_COLLECTION', 'LIVE_CLASS', 'COURSE_DISCUSSION', 'ONE_TO_ONE_SESSION', 'LESSON_LOCKING'}
+PER_STUDENT_CODES = {'LESSONS', 'FEE_COLLECTION', 'LIVE_CLASS', 'COURSE_DISCUSSION', 'ONE_TO_ONE_SESSION', 'LESSON_LOCKING_REPORT'}
 
 
 class CourseFeatureService:
@@ -142,6 +142,25 @@ class CourseFeatureService:
         canonical_codes.update({'CHAT', 'COURSE_REPORTS', 'CERTIFICATES', 'chat', 'course_reports', 'certificates', 'course_discussions', 'course_chat'})
         Feature.objects.exclude(code__in=canonical_codes).update(is_active=False)
 
+        # Migrate existing course settings from legacy LESSON_LOCKING or STUDENT_REPORT to LESSON_LOCKING_REPORT
+        try:
+            locking_report_feat = Feature.objects.filter(code='LESSON_LOCKING_REPORT').first()
+            if locking_report_feat:
+                legacy_enabled_course_ids = set(
+                    CourseFeature.objects.filter(
+                        feature__code__in=['LESSON_LOCKING', 'STUDENT_REPORT'],
+                        is_enabled=True
+                    ).values_list('course_id', flat=True)
+                )
+                for cid in legacy_enabled_course_ids:
+                    CourseFeature.objects.get_or_create(
+                        course_id=cid,
+                        feature=locking_report_feat,
+                        defaults={'is_enabled': True}
+                    )
+        except Exception:
+            pass
+
     @staticmethod
     def get_cache_key(course_id, feature_code=None):
         if feature_code:
@@ -176,7 +195,7 @@ class CourseFeatureService:
         elif canonical_code in ('CERTIFICATES', 'COMPLETION_CERTIFICATE', 'COMPLETION_CERTIFICATES'): canonical_code = 'COMPLETION_CERTIFICATE'
         elif canonical_code in ('FEES', 'FEE_COLLECTION'): canonical_code = 'FEE_COLLECTION'
         elif canonical_code in ('ANNOUNCEMENTS', 'COURSE_ANNOUNCEMENT', 'COURSE_ANNOUNCEMENTS'): canonical_code = 'COURSE_ANNOUNCEMENT'
-        elif canonical_code in ('LESSON_LOCKING', 'LESSON_LOCK', 'SEQUENTIAL_LOCKING'): canonical_code = 'LESSON_LOCKING'
+        elif canonical_code in ('LESSON_LOCKING_REPORT', 'LESSON_LOCKING', 'STUDENT_REPORT', 'LESSON_LOCK', 'SEQUENTIAL_LOCKING', 'STUDENT_REPORTS', 'LESSON_LOCKING_REPORT_ENABLED', 'LESSON_LOCKING_ENABLED', 'STUDENT_REPORT_ENABLED'): canonical_code = 'LESSON_LOCKING_REPORT'
         elif canonical_code in ('QUIZZES', 'ASSIGNMENTS', 'COURSE_RESOURCES', 'LESSONS'): canonical_code = 'LESSONS'
 
         cache_key = CourseFeatureService.get_cache_key(course.id, canonical_code)
@@ -206,12 +225,36 @@ class CourseFeatureService:
         if cf is not None:
             result = cf.is_enabled
         else:
-            # Default canonical system features to True if unmapped; test custom features default to False if unconfigured
-            result = False if feat.code in ('chat', 'course_reports', 'CHAT', 'COURSE_REPORTS') else True
+            # Default canonical system features to True if unmapped; optional features default to False if unconfigured
+            result = False if feat.code in ('LESSON_LOCKING_REPORT', 'LESSON_LOCKING', 'STUDENT_REPORT', 'chat', 'course_reports', 'CHAT', 'COURSE_REPORTS') else True
 
         cache_key = CourseFeatureService.get_cache_key(course.id, feat.code)
         cache.set(cache_key, result, timeout=300)
         return result
+
+    @staticmethod
+    def require_enabled(course, feature_code: str, user=None) -> bool:
+        """
+        Validates tenant access and verifies effective feature enablement for a course.
+        Raises CubixSkillAPIException with code COURSE_FEATURE_DISABLED and status 403 if OFF.
+        """
+        if not course:
+            raise CubixSkillAPIException("Course not found.", code="COURSE_NOT_FOUND", status_code=404)
+
+        if user:
+            user_academy = getattr(user, 'academy_id', None)
+            if user_academy and course.academy_id and user_academy != course.academy_id:
+                raise CubixSkillAPIException("Access denied to course in another academy.", code="CROSS_ACADEMY_FORBIDDEN", status_code=403)
+
+        if not CourseFeatureService.has_feature(course, feature_code):
+            code_upper = (feature_code or '').strip().upper()
+            raise CubixSkillAPIException(
+                f"This feature '{code_upper}' is disabled for this course.",
+                code="COURSE_FEATURE_DISABLED",
+                status_code=403,
+                extra={"feature": code_upper}
+            )
+        return True
 
     @staticmethod
     def get_features(course) -> list[dict]:
@@ -235,7 +278,7 @@ class CourseFeatureService:
         for feature in active_features:
             cf = course_features_map.get(feature.id)
             academy_enabled = CourseFeatureService.is_feature_enabled_for_academy(course.academy, feature.code)
-            course_enabled = cf.is_enabled if cf is not None else True
+            course_enabled = cf.is_enabled if cf is not None else (False if feature.code in ('LESSON_LOCKING', 'STUDENT_REPORT', 'chat', 'course_reports', 'CHAT', 'COURSE_REPORTS') else True)
             effective_enabled = academy_enabled and course_enabled
             can_configure = academy_enabled
 
@@ -245,11 +288,8 @@ class CourseFeatureService:
             billing_unit = pr.billing_unit if pr else ('PER_STUDENT' if is_per_student else 'PER_ACTION')
             pricing_active = pr.is_active if pr else True
 
-            if is_per_student:
-                display_text = f"+{credit_cost} Credits / Student" if credit_cost > 0 else "0 Credits / Student"
-            else:
-                unit_label = billing_unit.replace('PER_', '').title()
-                display_text = f"{credit_cost} Credits / {unit_label}"
+            unit_label = 'Student' if is_per_student else billing_unit.replace('PER_', '').title()
+            display_text = f"{credit_cost} Credits / {unit_label}"
 
             result.append({
                 'id': str(feature.id),
@@ -272,11 +312,13 @@ class CourseFeatureService:
                 'disabled_at': cf.disabled_at if cf else None,
                 'credit_cost': credit_cost,
                 'billing_unit': billing_unit,
+                'billing_unit_label': unit_label,
                 'is_per_student': is_per_student,
                 'display_text': display_text,
                 'pricing': {
                     'credit_cost': credit_cost,
                     'billing_unit': billing_unit,
+                    'billing_unit_label': unit_label,
                     'is_active': pricing_active,
                     'is_per_student': is_per_student,
                     'display_text': display_text,
@@ -284,6 +326,43 @@ class CourseFeatureService:
                 }
             })
         return result
+
+    @staticmethod
+    def get_canonical_features(course) -> dict:
+        if not course:
+            return {}
+        features_list = CourseFeatureService.get_features(course)
+        canonical_map = {}
+
+        key_mapping = {
+            'LESSONS': 'lessons',
+            'FEE_COLLECTION': 'fee_collection',
+            'COURSE_ANNOUNCEMENT': 'announcements',
+            'LIVE_CLASS': 'live_classes',
+            'EMAIL_DELIVERY': 'email_delivery',
+            'COMPLETION_CERTIFICATE': 'certificates',
+            'COURSE_DISCUSSION': 'discussions',
+            'ONE_TO_ONE_SESSION': 'one_to_one',
+            'LESSON_LOCKING_REPORT': 'lesson_locking_report',
+        }
+
+        for item in features_list:
+            code = item['code']
+            json_key = key_mapping.get(code, code.lower())
+            billing_unit = item['billing_unit'].replace('PER_', '')
+            canonical_map[json_key] = {
+                'enabled': item['effective_enabled'],
+                'credit': item['credit_cost'],
+                'billing_unit': billing_unit,
+                'billing_unit_label': item.get('billing_unit_label', billing_unit.title()),
+            }
+
+        # Root-level boolean flags for convenient frontend consumption
+        locking_report_enabled = CourseFeatureService.has_feature(course, 'LESSON_LOCKING_REPORT')
+        canonical_map['lesson_locking_report_enabled'] = locking_report_enabled
+        canonical_map['lesson_locking_enabled'] = locking_report_enabled
+        canonical_map['student_report_enabled'] = locking_report_enabled
+        return canonical_map
 
     @staticmethod
     def get_feature_config(course, feature_code: str) -> dict:
@@ -301,11 +380,6 @@ class CourseFeatureService:
     @staticmethod
     @transaction.atomic
     def enable_feature(course, feature_code: str, user=None, config: dict = None) -> CourseFeature:
-        from decimal import Decimal
-
-        from control_panel.models import PricingRule
-        from credits.services import CreditsService
-
         CourseFeatureService.ensure_default_features()
         try:
             feature = Feature.objects.get(code=feature_code, is_active=True)
@@ -324,36 +398,6 @@ class CourseFeatureService:
             )
 
         cf = CourseFeature.objects.filter(course=course, feature=feature).first()
-        already_enabled = cf.is_enabled if cf else False
-
-        # Read current real price from backend PricingRule
-        pr = PricingRule.objects.filter(code__iexact=feature_code, is_active=True).first()
-        if not pr and feature.frontend_key:
-            pr = PricingRule.objects.filter(code__iexact=feature.frontend_key, is_active=True).first()
-
-        credit_cost = int(pr.credit_cost) if pr else 0
-
-        # Check balance and deduct credits if feature is newly activated and has credit_cost > 0
-        if not already_enabled and credit_cost > 0 and course.academy:
-            balance = CreditsService.get_balance(course.academy)
-            if balance < Decimal(str(credit_cost)):
-                raise CubixSkillAPIException(
-                    f"Insufficient credits for feature activation. Required: {credit_cost}, Available: {balance}",
-                    code="INSUFFICIENT_CREDITS",
-                    status_code=400
-                )
-            idempotency_key = f"feature_enable:{course.id}:{feature.code}"
-            CreditsService.debit(
-                academy=course.academy,
-                amount=Decimal(str(credit_cost)),
-                source_type="OTHER",
-                idempotency_key=idempotency_key,
-                description=f"Activated feature '{feature.name}' for course '{course.title or course.id}' ({credit_cost} Credits)",
-                reference_type="COURSE_FEATURE",
-                reference_id=str(course.id),
-                created_by=user,
-                metadata={"course_id": str(course.id), "feature_code": feature_code, "credit_cost": str(credit_cost)}
-            )
 
         now = timezone.now()
         if not cf:

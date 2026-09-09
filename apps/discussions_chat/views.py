@@ -63,13 +63,8 @@ class CourseDiscussionViewSet(viewsets.ModelViewSet):
         if course_id and course_id != 'general':
             try:
                 course = Course.objects.get(id=course_id)
-                is_staff = getattr(self.request.user, 'is_staff', False) or (
-                    hasattr(self.request.user, 'academy') and course.academy and self.request.user.academy == course.academy
-                )
-                if not is_staff:
-                    from features.services import StudentFeatureService
-                    if not StudentFeatureService.has_course_feature(self.request.user, course, 'COURSE_DISCUSSION'):
-                        raise PermissionDenied("Discussions feature is disabled for this course.")
+                from features.services import CourseFeatureService
+                CourseFeatureService.require_enabled(course, 'COURSE_DISCUSSION', user=self.request.user)
             except (Course.DoesNotExist, ValueError):
                 pass
 
@@ -90,6 +85,8 @@ class CourseDiscussionViewSet(viewsets.ModelViewSet):
         if course_id and course_id != 'general':
             try:
                 course = Course.objects.get(id=course_id)
+                from features.services import CourseFeatureService
+                CourseFeatureService.require_enabled(course, 'COURSE_DISCUSSION', user=request.user)
             except (Course.DoesNotExist, ValueError):
                 raise ValidationError({"course_id": "Specified course was not found."})
 
