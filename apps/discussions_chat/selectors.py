@@ -132,7 +132,10 @@ class ChatSelector:
                 is_active=True
             )
 
-        rooms = rooms.select_related('course', 'academy').order_by('-last_message_at')
+        from django.db.models import Max, F
+        rooms = rooms.select_related('course', 'academy').annotate(
+            latest_msg_time=Max('messages__created_at', filter=Q(messages__status=MessageStatus.ACTIVE))
+        ).order_by(F('latest_msg_time').desc(nulls_last=True), F('last_message_at').desc(nulls_last=True), '-created_at')
 
         results = []
         for room in rooms:

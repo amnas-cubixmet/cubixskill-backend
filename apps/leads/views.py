@@ -9,6 +9,7 @@ from leads.serializers import (
     CompleteFollowUpSerializer,
     ConvertLeadSerializer,
     CreateLeadNoteSerializer,
+    CreateLeadSerializer,
     DemoLeadCreateSerializer,
     DemoLeadResponseSerializer,
     LeadCourseInterestSerializer,
@@ -19,6 +20,7 @@ from leads.serializers import (
     PublicLeadEnquirySerializer,
     ScheduleFollowUpSerializer,
     TransitionStatusSerializer,
+    UpdateLeadSerializer,
 )
 from leads.services import (
     LeadAssignmentService,
@@ -145,6 +147,13 @@ class LeadViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardPagination
 
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CreateLeadSerializer
+        if self.action in ['update', 'partial_update']:
+            return UpdateLeadSerializer
+        return LeadSerializer
+
     def get_queryset(self):
         user = self.request.user
         # Academy is derived from the authenticated user so clients cannot access Leads belonging to another tenant.
@@ -183,9 +192,14 @@ class LeadViewSet(viewsets.ModelViewSet):
         if not academy:
             raise ValidationError("User must belong to an Academy to create Leads.")
 
-        serializer = self.get_serializer(data=request.data)
+        serializer = CreateLeadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+
+        course = None
+        course_id = data.get('course_id')
+        if course_id:
+            course = get_object_or_404(Course, id=course_id)
 
         lead, _ = LeadService.create_or_update_lead(
             academy=academy,
@@ -196,11 +210,38 @@ class LeadViewSet(viewsets.ModelViewSet):
             source_detail=data.get('source_detail', ''),
             priority=data.get('priority', 'NORMAL'),
             preferred_contact_method=data.get('preferred_contact_method', 'EMAIL'),
-            metadata=data.get('metadata', {}),
+            course=course,
             created_by=request.user
         )
 
         return Response(LeadSerializer(lead).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = UpdateLeadSerializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        assigned_to_id = data.pop('assigned_to_id', None)
+        if assigned_to_id is not None:
+            if assigned_to_id:
+                target_user = get_object_or_404(User, id=assigned_to_id)
+                LeadAssignmentService.assign_lead(
+                    lead=instance,
+                    assigned_to_user=target_user,
+                    assigned_by_user=request.user,
+                    reason="Updated via edit lead form"
+                )
+            else:
+                instance.assigned_to = None
+
+        for attr, value in data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        return Response(LeadSerializer(instance).data, status=status.HTTP_200_OK)
+
 
     @action(detail=True, methods=['post'])
     def status(self, request, pk=None):

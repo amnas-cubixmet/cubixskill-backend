@@ -875,7 +875,8 @@ class HLSVideoUploadArchitectureTests(TestCase):
         doc_file = SimpleUploadedFile("doc.pdf", b"pdf bytes", content_type="application/pdf")
         resp = self.client.post("/api/v1/storage/upload/", {"file": doc_file, "course_uuid": "not-a-uuid"}, format="multipart")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(resp.json()["error"]["code"], "INVALID_UUID")
+        err_code = resp.json().get("code") or (resp.json().get("error") or {}).get("code")
+        self.assertEqual(err_code, "INVALID_UUID")
 
     def test_nonexistent_course_uuid_404(self):
         """Verify uploading with random course_uuid returns HTTP 404 COURSE_NOT_FOUND."""
@@ -885,7 +886,8 @@ class HLSVideoUploadArchitectureTests(TestCase):
         doc_file = SimpleUploadedFile("doc.pdf", b"pdf bytes", content_type="application/pdf")
         resp = self.client.post("/api/v1/storage/upload/", {"file": doc_file, "course_uuid": str(uuid.uuid4())}, format="multipart")
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(resp.json()["error"]["code"], "COURSE_NOT_FOUND")
+        err_code = resp.json().get("code") or (resp.json().get("error") or {}).get("code")
+        self.assertEqual(err_code, "COURSE_NOT_FOUND")
 
     def test_invalid_lesson_uuid_400(self):
         """Verify uploading with invalid lesson_uuid format returns HTTP 400 INVALID_UUID."""
@@ -893,7 +895,8 @@ class HLSVideoUploadArchitectureTests(TestCase):
         doc_file = SimpleUploadedFile("doc.pdf", b"pdf bytes", content_type="application/pdf")
         resp = self.client.post("/api/v1/storage/upload/", {"file": doc_file, "lesson_uuid": "malformed-lesson-id"}, format="multipart")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(resp.json()["error"]["code"], "INVALID_UUID")
+        err_code = resp.json().get("code") or (resp.json().get("error") or {}).get("code")
+        self.assertEqual(err_code, "INVALID_UUID")
 
     def test_nonexistent_lesson_uuid_404(self):
         """Verify uploading with non-existent lesson_uuid returns HTTP 404 LESSON_NOT_FOUND."""
@@ -903,7 +906,8 @@ class HLSVideoUploadArchitectureTests(TestCase):
         doc_file = SimpleUploadedFile("doc.pdf", b"pdf bytes", content_type="application/pdf")
         resp = self.client.post("/api/v1/storage/upload/", {"file": doc_file, "lesson_uuid": str(uuid.uuid4())}, format="multipart")
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(resp.json()["error"]["code"], "LESSON_NOT_FOUND")
+        err_code = resp.json().get("code") or (resp.json().get("error") or {}).get("code")
+        self.assertEqual(err_code, "LESSON_NOT_FOUND")
 
     def test_celery_broker_failure_graceful_handling(self):
         """Verify system returns HTTP 201 and sets processing_status=FAILED if Celery broker enqueue fails."""
@@ -967,6 +971,114 @@ class HLSVideoUploadArchitectureTests(TestCase):
         self.assertEqual(data["stream_url"], "")
         self.assertEqual(data["renditions"], [])
         self.assertEqual(data["processing_status"], "QUEUED")
+
+
+class BulkDeleteEndpointTests(TestCase):
+    def setUp(self):
+        from academy.models import Academy
+        from rest_framework.test import APIClient
+        from storage.models import MediaFile
+        from users_roles.models import SystemRoleCode, User
+
+        self.client = APIClient()
+        self.academy = Academy.objects.create(name="Bulk Delete Test Academy", slug="bulk-delete-academy", email="bulk@test.com")
+        self.user = User.objects.create_user(
+            email="bulkadmin@test.com",
+            password="Password123!",
+            full_name="Bulk Admin",
+            role_code=SystemRoleCode.ACADEMY_ADMIN,
+            academy=self.academy,
+            is_email_verified=True,
+            password_setup_completed=True
+        )
+        self.client.force_authenticate(user=self.user)
+
+        self.unused_file1 = MediaFile.objects.create(
+            academy_uuid=self.academy.id,
+            uploaded_by_uuid=self.user.id,
+            original_filename="unused1.png",
+            stored_filename="unused1.png",
+            storage_key="test/unused1.png",
+            mime_type="image/png",
+            size_bytes=500,
+            media_type="IMAGE"
+        )
+        self.unused_file2 = MediaFile.objects.create(
+            academy_uuid=self.academy.id,
+            uploaded_by_uuid=self.user.id,
+            original_filename="unused2.png",
+            stored_filename="unused2.png",
+            storage_key="test/unused2.png",
+            mime_type="image/png",
+            size_bytes=800,
+            media_type="IMAGE"
+        )
+        self.referenced_file = MediaFile.objects.create(
+            academy_uuid=self.academy.id,
+            uploaded_by_uuid=self.user.id,
+            original_filename="logo.png",
+            stored_filename="logo.png",
+            storage_key="test/logo.png",
+            mime_type="image/png",
+            size_bytes=1200,
+            media_type="IMAGE"
+        )
+        self.academy.logo = self.referenced_file
+        self.academy.save()
+
+    def test_bulk_delete_json_media_type_accepted(self):
+        """Verify POST /api/v1/storage/files/bulk-delete/ accepts application/json Content-Type (HTTP 200 instead of 415)."""
+        payload = {"file_ids": [str(self.unused_file1.id), str(self.unused_file2.id)]}
+        resp = self.client.post("/api/v1/storage/files/bulk-delete/", payload, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.json().get("data", resp.json())
+        self.assertEqual(data["deleted_count"], 2)
+
+    def test_bulk_delete_invalid_payload_returns_400(self):
+        """Verify invalid or empty file_ids returns HTTP 400 with INVALID_PAYLOAD code."""
+        resp = self.client.post("/api/v1/storage/files/bulk-delete/", {"file_ids": []}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        err_code = resp.json().get("code") or (resp.json().get("error") or {}).get("code")
+        self.assertEqual(err_code, "INVALID_PAYLOAD")
+
+    def test_bulk_delete_deletes_unused_and_blocks_referenced(self):
+        """Verify bulk deletion deletes unused files while leaving referenced files blocked and returning usage explanation."""
+        payload = {
+            "file_ids": [
+                str(self.unused_file1.id),
+                str(self.referenced_file.id)
+            ]
+        }
+        resp = self.client.post("/api/v1/storage/files/bulk-delete/", payload, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.json().get("data", resp.json())
+
+        self.assertEqual(data["deleted_count"], 1)
+        self.assertIn(str(self.unused_file1.id), data["deleted_ids"])
+        self.assertEqual(data["blocked_count"], 1)
+
+        blocked_item = data["blocked_items"][0]
+        self.assertEqual(blocked_item["id"], str(self.referenced_file.id))
+        self.assertIn("Academy Profile Logo", blocked_item["reason"])
+
+    def test_bulk_delete_idempotent_metering_deduction(self):
+        """Verify repeated soft deletion of an already DELETED file does not deduct storage usage again."""
+        from storage.metering import StorageMeteringService
+        account = StorageMeteringService.get_or_create_account(self.academy.id)
+        account.current_usage_bytes = 2000
+        account.save(update_fields=['current_usage_bytes'])
+
+        # First soft deletion
+        from storage.services import StorageService
+        StorageService.delete_media_file(self.unused_file1, hard_delete=False)
+        account.refresh_from_db()
+        self.assertEqual(account.current_usage_bytes, 1500)
+
+        # Repeated soft deletion call on already DELETED file
+        StorageService.delete_media_file(self.unused_file1, hard_delete=False)
+        account.refresh_from_db()
+        self.assertEqual(account.current_usage_bytes, 1500)
+
 
 
 

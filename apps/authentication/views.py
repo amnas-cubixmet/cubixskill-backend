@@ -787,8 +787,8 @@ class CurrentUserView(APIView):
                 "theme_color": academy.theme_color,
                 "status": academy.status,
                 "is_active": academy.is_active,
-                "logo_url": academy.logo.file.url if academy.logo and hasattr(academy.logo, 'file') and academy.logo.file else None,
-                "favicon_url": academy.favicon.file.url if academy.favicon and hasattr(academy.favicon, 'file') and academy.favicon.file else None,
+                "logo_url": getattr(academy.logo, 'url', None) or getattr(academy.logo, 'file_url', None) or (academy.logo.file.url if academy.logo and hasattr(academy.logo, 'file') and academy.logo.file else None),
+                "favicon_url": getattr(academy.favicon, 'url', None) or getattr(academy.favicon, 'file_url', None) or (academy.favicon.file.url if academy.favicon and hasattr(academy.favicon, 'file') and academy.favicon.file else None),
             }
             features = academy.get_enabled_features()
             demo_status = academy.get_demo_status()

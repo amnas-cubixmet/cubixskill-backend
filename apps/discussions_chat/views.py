@@ -369,9 +369,17 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
                 room_data = ChatRoomSerializer(room).data
                 room_data['unread_count'] = ChatService.get_unread_count(room, user)
 
-            thumbnail_url = getattr(course, 'thumbnail_url', None)
-            if not thumbnail_url and hasattr(course, 'thumbnail') and course.thumbnail:
-                thumbnail_url = getattr(course.thumbnail, 'relative_path', None)
+            thumbnail_url = None
+            if hasattr(course, 'thumbnail') and course.thumbnail:
+                mf = course.thumbnail
+                raw_path = getattr(mf, 'url', '') or getattr(mf, 'file_url', '') or getattr(mf, 'relative_path', '') or ''
+                if not raw_path:
+                    storage_key = getattr(mf, 'storage_key', '') or ''
+                    if storage_key:
+                        raw_path = f"/media/{storage_key.lstrip('/')}"
+                thumbnail_url = raw_path
+            if not thumbnail_url:
+                thumbnail_url = getattr(course, 'thumbnail_url', '') or None
 
             results.append({
                 'course': {
@@ -383,6 +391,106 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
                 },
                 'feature_enabled': True,
                 'room': room_data
+            })
+
+        # Sort results: courses with active messages first (by latest message time desc), then fallback to course title/created_at
+        def get_group_sort_key(item):
+            room = item.get('room')
+            if room and room.get('last_message') and isinstance(room['last_message'], dict):
+                t_str = room['last_message'].get('created_at')
+                if t_str:
+                    return (1, t_str)
+            if room and room.get('last_message_at'):
+                return (1, room['last_message_at'])
+            return (0, '')
+
+        results.sort(key=get_group_sort_key, reverse=True)
+
+        return Response(results, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='eligible-users')
+    def eligible_users(self, request):
+        """
+        Search authorized academy/course members that the current user is allowed to start a chat with.
+        Scope: Same academy or enrolled courses.
+        """
+        search_query = request.query_params.get('search', '').strip()
+        user = request.user
+        from django.db.models import Q
+        from users_roles.models import User
+
+        academy = getattr(user, 'academy', None)
+        if academy:
+            # Academy staff or owner: see academy members & enrolled students
+            users_qs = User.objects.filter(
+                Q(academy=academy) | Q(enrollments__course__academy=academy)
+            ).exclude(id=user.id).distinct()
+        else:
+            # Student: see instructors/staff of enrolled courses or peers in enrolled courses
+            enrolled_course_ids = list(user.enrollments.filter(status='ACTIVE').values_list('course_id', flat=True))
+            users_qs = User.objects.filter(
+                Q(academy__courses__id__in=enrolled_course_ids) | Q(enrollments__course_id__in=enrolled_course_ids)
+            ).exclude(id=user.id).distinct()
+
+        if search_query:
+            users_qs = users_qs.filter(
+                Q(full_name__icontains=search_query) | Q(email__icontains=search_query)
+            )
+
+        results = []
+        for u in users_qs[:30]:
+            avatar_url = None
+            if getattr(u, 'avatar', None):
+                try:
+                    avatar_url = u.avatar.url
+                except Exception:
+                    pass
+
+            # Check if existing DM room exists
+            existing_room = ChatRoom.objects.filter(
+                room_type='DIRECT',
+                is_active=True,
+                participants__user=user
+            ).filter(participants__user=u).first()
+
+            results.append({
+                'id': str(u.id),
+                'full_name': u.full_name or u.email,
+                'email': u.email,
+                'role': getattr(u, 'role', None) or ('ACADEMY_STAFF' if getattr(u, 'is_staff', False) else 'STUDENT'),
+                'avatar': avatar_url,
+                'existing_room_id': str(existing_room.id) if existing_room else None,
+            })
+
+        return Response(results, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path='search-messages')
+    def search_messages(self, request, pk=None):
+        """
+        Search inside messages in a specific chat room.
+        Enforces chat participant authorization.
+        """
+        room = self.get_object()
+        if not ChatService.validate_chat_access(request.user, room):
+            raise PermissionDenied("Chat access denied.")
+
+        q = request.query_params.get('q', '').strip()
+        if not q:
+            return Response([], status=status.HTTP_200_OK)
+
+        messages = ChatMessage.objects.filter(
+            room=room,
+            status='ACTIVE',
+            content__icontains=q
+        ).select_related('sender').order_by('-created_at')[:50]
+
+        results = []
+        for m in messages:
+            results.append({
+                'id': str(m.id),
+                'content': m.content,
+                'sender_name': m.sender.full_name if m.sender else '',
+                'created_at': m.created_at.isoformat(),
             })
 
         return Response(results, status=status.HTTP_200_OK)
@@ -401,7 +509,7 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
             message_type=message_type,
             media_file_ids=media_file_ids
         )
-        return Response(ChatMessageSerializer(msg).data, status=status.HTTP_201_CREATED)
+        return Response(ChatMessageSerializer(msg, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
 #--------------------------------------------------------------
 # 3. Communication Report ViewSet

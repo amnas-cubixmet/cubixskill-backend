@@ -26,14 +26,17 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        academy_id = self.request.query_params.get('academy_id') or self.request.query_params.get('academy_uuid')
         return NotificationSelector.get_user_notifications(
             user=self.request.user,
-            unread_only=(self.request.query_params.get('unread_only') == 'true')
+            unread_only=(self.request.query_params.get('unread_only') == 'true'),
+            academy_id=academy_id
         )
 
     @action(detail=False, methods=['get'], url_path='unread-count')
     def unread_count(self, request):
-        count = NotificationSelector.get_unread_count(request.user)
+        academy_id = request.query_params.get('academy_id') or request.query_params.get('academy_uuid')
+        count = NotificationSelector.get_unread_count(request.user, academy_id=academy_id)
         return Response({"unread_count": count}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='read')
@@ -46,7 +49,8 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='read-all')
     def mark_all_read(self, request):
-        count = NotificationService.mark_all_as_read(user=request.user)
+        academy_id = request.data.get('academy_id') or request.data.get('academy_uuid') or request.query_params.get('academy_id')
+        count = NotificationService.mark_all_as_read(user=request.user, academy_id=academy_id)
         return Response({
             "message": f"Marked {count} notifications as read.",
             "updated_count": count

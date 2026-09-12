@@ -37,7 +37,9 @@ def default_theme_config():
         "contact_description": "Get in touch with our team.",
         "whatsapp_number": "+1 (555) 019-9831",
         "address": "100 Innovation Parkway, Suite 400, Tech City",
-        "business_hours": "Mon - Fri: 9:00 AM - 6:00 PM EST"
+        "business_hours": "Mon - Fri: 9:00 AM - 6:00 PM EST",
+        "logo_url": "",
+        "favicon_url": ""
     }
 
 class WebsiteSettings(BaseModel):

@@ -83,14 +83,30 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
         results = []
         for acad in academies_qs:
             logo_url = ''
-            if acad.logo and hasattr(acad.logo, 'file') and acad.logo.file:
-                logo_url = acad.logo.file.url
-            elif hasattr(acad, 'logo_url') and acad.logo_url:
+            favicon_url = ''
+
+            try:
+                from apps.website.services import WebsiteService
+                settings = WebsiteService.get_or_create_settings(acad)
+                active_config = settings.published_config or settings.draft_config or {}
+                if active_config.get("logo_url"):
+                    logo_url = active_config.get("logo_url")
+                if active_config.get("favicon_url"):
+                    favicon_url = active_config.get("favicon_url")
+            except Exception:
+                pass
+
+            if not logo_url and getattr(acad, 'logo', None):
+                logo = acad.logo
+                logo_url = getattr(logo, 'url', '') or getattr(logo, 'file_url', '') or (logo.file.url if hasattr(logo, 'file') and logo.file else '')
+            if not logo_url and hasattr(acad, 'logo_url') and acad.logo_url:
                 logo_url = acad.logo_url
 
-            favicon_url = ''
-            if acad.favicon and hasattr(acad.favicon, 'file') and acad.favicon.file:
-                favicon_url = acad.favicon.file.url
+            if not favicon_url and getattr(acad, 'favicon', None):
+                fav = acad.favicon
+                favicon_url = getattr(fav, 'url', '') or getattr(fav, 'file_url', '') or (fav.file.url if hasattr(fav, 'file') and fav.file else '')
+            if not favicon_url and hasattr(acad, 'favicon_url') and acad.favicon_url:
+                favicon_url = acad.favicon_url
 
             results.append({
                 'id': str(acad.id),
@@ -176,7 +192,30 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
                 'features': CourseFeatureService.get_canonical_features(c),
             })
 
-        logo_url = academy.logo.file.url if (academy.logo and hasattr(academy.logo, 'file') and academy.logo.file) else ''
+        logo_url = ''
+        favicon_url = ''
+        try:
+            from apps.website.services import WebsiteService
+            settings = WebsiteService.get_or_create_settings(academy)
+            active_config = settings.published_config or settings.draft_config or {}
+            if active_config.get("logo_url"):
+                logo_url = active_config.get("logo_url")
+            if active_config.get("favicon_url"):
+                favicon_url = active_config.get("favicon_url")
+        except Exception:
+            pass
+
+        if not logo_url and getattr(academy, 'logo', None):
+            logo = academy.logo
+            logo_url = getattr(logo, 'url', '') or getattr(logo, 'file_url', '') or (logo.file.url if hasattr(logo, 'file') and logo.file else '')
+        if not logo_url and hasattr(academy, 'logo_url') and academy.logo_url:
+            logo_url = academy.logo_url
+
+        if not favicon_url and getattr(academy, 'favicon', None):
+            fav = academy.favicon
+            favicon_url = getattr(fav, 'url', '') or getattr(fav, 'file_url', '') or (fav.file.url if hasattr(fav, 'file') and fav.file else '')
+        if not favicon_url and hasattr(academy, 'favicon_url') and academy.favicon_url:
+            favicon_url = academy.favicon_url
 
         return Response({
             'academy': {
@@ -184,6 +223,7 @@ class StudentEnrollmentViewSet(viewsets.ReadOnlyModelViewSet):
                 'uuid': str(academy.id),
                 'name': academy.name,
                 'logo_url': logo_url,
+                'favicon_url': favicon_url,
                 'features': {
                     'lesson_locking': getattr(academy, 'lesson_locking', True),
                     'student_reports': getattr(academy, 'student_reports', True),

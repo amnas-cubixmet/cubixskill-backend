@@ -48,6 +48,16 @@ class NotificationService:
     @classmethod
     def notify_user(cls, recipient, notification_type: str, title: str, message: str, action_type: str = "LINK", action_url: str = "", source_type: str = "", source_id: str = "", academy=None):
         logger.info(f"Notification sent to user {recipient}: {title} - {message}")
+        if source_type and source_id:
+            existing = Notification.objects.filter(
+                recipient=recipient,
+                source_type=source_type,
+                source_id=source_id,
+                deleted_at__isnull=True
+            ).first()
+            if existing:
+                return existing
+
         return Notification.objects.create(
             recipient=recipient,
             title=title,
@@ -60,21 +70,28 @@ class NotificationService:
             academy=academy
         )
 
-
     @staticmethod
     def mark_as_read(notification_id, user):
-        notification = Notification.objects.get(id=notification_id, user=user)
-        notification.is_read = True
-        notification.save(update_fields=['is_read'])
+        from django.utils import timezone
+        notification = Notification.objects.get(id=notification_id, recipient=user)
+        if not notification.read_at:
+            notification.read_at = timezone.now()
+            notification.save(update_fields=['read_at'])
         return notification
 
     @staticmethod
-    def mark_all_as_read(user):
-        return Notification.objects.filter(user=user, is_read=False).update(is_read=True)
+    def mark_all_as_read(user, academy_id=None):
+        from django.utils import timezone
+        qs = Notification.objects.filter(recipient=user, read_at__isnull=True, deleted_at__isnull=True)
+        if academy_id:
+            qs = qs.filter(academy_id=academy_id)
+        return qs.update(read_at=timezone.now())
 
     @staticmethod
     def soft_delete_notification(notification_id, user):
-        notification = Notification.objects.get(id=notification_id, user=user)
-        notification.delete()
+        from django.utils import timezone
+        notification = Notification.objects.get(id=notification_id, recipient=user)
+        notification.deleted_at = timezone.now()
+        notification.save(update_fields=['deleted_at'])
         return notification
 

@@ -115,6 +115,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }
             )
 
+        elif event_type in ['message.delivered', 'messages.delivered']:
+            await self.mark_delivered(self.user, self.room_id)
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'chat_message_delivered',
+                    'user_id': str(self.user.id)
+                }
+            )
+
         elif event_type in ['message.read', 'messages.read']:
             last_read_id = data.get('last_read_message_id')
             await self.mark_read(self.user, self.room_id)
@@ -145,6 +155,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'type': event['event_type'],
             'user_id': event['user_id'],
             'user_name': event['user_name']
+        }, default=str))
+
+    async def chat_message_delivered(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'message.delivered',
+            'user_id': event['user_id']
         }, default=str))
 
     async def chat_message_read(self, event):
@@ -193,6 +209,26 @@ class ChatConsumer(AsyncWebsocketConsumer):
             media_file_ids=media_file_ids
         )
         return ChatMessageSerializer(msg).data
+
+    @database_sync_to_async
+    def mark_delivered(self, user, room_id):
+        from discussions_chat.models import ChatMessage, ChatMessageReceipt, ChatRoom
+        from django.utils import timezone
+        try:
+            room = ChatRoom.objects.get(id=room_id)
+            messages = ChatMessage.objects.filter(room=room, status='ACTIVE').exclude(sender=user)
+            now = timezone.now()
+            for msg in messages:
+                receipt, created = ChatMessageReceipt.objects.get_or_create(
+                    message=msg,
+                    user=user,
+                    defaults={'delivered_at': now}
+                )
+                if not created and not receipt.delivered_at:
+                    receipt.delivered_at = now
+                    receipt.save(update_fields=['delivered_at'])
+        except Exception:
+            pass
 
     @database_sync_to_async
     def mark_read(self, user, room_id):

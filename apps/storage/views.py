@@ -7,7 +7,7 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.views import APIView
-from storage.models import MediaFile, StorageUsageRollup, UploadSession
+from storage.models import MediaFile, MediaStatus, StorageUsageRollup, UploadSession
 from storage.serializers import (
     MediaFileSerializer,
     StorageUsageRollupSerializer,
@@ -206,30 +206,31 @@ class DirectUploadView(APIView):
         from storage.models import MediaType, ProcessingMode, ProcessingStatus
         from storage.tasks import enqueue_hls_safely
 
+        from django.db import utils as db_utils
+
         try:
-            with transaction.atomic():
-                media_file = StorageService.upload_media_direct(
-                    academy_uuid=acad_uuid,
-                    user_uuid=user_uuid,
-                    file_obj=uploaded_file,
-                    original_filename=uploaded_file.name,
-                    mime_type=uploaded_file.content_type or 'application/octet-stream',
-                    file_size_bytes=uploaded_file.size,
-                    course_uuid=course_uuid,
-                    lesson_uuid=lesson_uuid,
-                    hls_enabled_override=hls_requested,
-                    adaptive_streaming_enabled=adaptive_streaming_enabled
-                )
+            media_file = StorageService.upload_media_direct(
+                academy_uuid=acad_uuid,
+                user_uuid=user_uuid,
+                file_obj=uploaded_file,
+                original_filename=uploaded_file.name,
+                mime_type=uploaded_file.content_type or 'application/octet-stream',
+                file_size_bytes=uploaded_file.size,
+                course_uuid=course_uuid,
+                lesson_uuid=lesson_uuid,
+                hls_enabled_override=hls_requested,
+                adaptive_streaming_enabled=adaptive_streaming_enabled
+            )
 
-                should_queue_hls = (
-                    media_file.media_type == MediaType.VIDEO
-                    and media_file.processing_mode == ProcessingMode.HLS
-                    and media_file.processing_status == ProcessingStatus.QUEUED
-                )
+            should_queue_hls = (
+                media_file.media_type == MediaType.VIDEO
+                and media_file.processing_mode == ProcessingMode.HLS
+                and media_file.processing_status == ProcessingStatus.QUEUED
+            )
 
-                if should_queue_hls:
-                    media_id = str(media_file.id)
-                    transaction.on_commit(lambda media_id=media_id: enqueue_hls_safely(media_id))
+            if should_queue_hls:
+                media_id = str(media_file.id)
+                enqueue_hls_safely(media_id)
 
             logger.info(
                 "Direct upload stored media_id=%s mode=%s status=%s",
@@ -238,6 +239,15 @@ class DirectUploadView(APIView):
                 media_file.processing_status,
             )
         except CubixSkillAPIException:
+            raise
+        except db_utils.OperationalError as op_err:
+            if 'locked' in str(op_err).lower():
+                logger.warning("Storage upload database lock contention: %s", op_err)
+                raise CubixSkillAPIException(
+                    "Database is currently busy processing concurrent operations. Please retry uploading in a moment.",
+                    code="DATABASE_BUSY",
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE
+                )
             raise
         except Exception:
             logger.exception("Direct storage upload failed")
@@ -269,6 +279,8 @@ class ConfirmUploadView(APIView):
             message="Upload confirmed and media registered."
         )
 
+from rest_framework.parsers import JSONParser
+
 #--------------------------------------------------------------
 # MediaFile ViewSet
 #--------------------------------------------------------------
@@ -276,7 +288,13 @@ class ConfirmUploadView(APIView):
 class MediaFileViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, CanAccessAcademyPermission]
     serializer_class = MediaFileSerializer
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (JSONParser, MultiPartParser, FormParser)
+
+    def get_parsers(self):
+        action = getattr(self, 'action', None)
+        if action in ['create', 'update', 'partial_update']:
+            return [MultiPartParser(), FormParser()]
+        return [JSONParser(), MultiPartParser(), FormParser()]
 
     def get_queryset(self):
         acad_uuid = safe_get_user_academy_id(self.request.user)
@@ -408,14 +426,92 @@ class MediaFileViewSet(viewsets.ModelViewSet):
         usage_count = usage_data.get('usage_count', 0)
 
         if usage_count > 0 and not force:
+            refs = usage_data.get('references', [])
+            ref_locations = ", ".join([f"{r.get('context') or r.get('type')}" for r in refs[:3]])
             raise CubixSkillAPIException(
-                f"Media asset '{media_file.display_name or media_file.original_filename}' is currently in use across {usage_count} location(s). Confirm deletion to remove reference.",
+                f"Cannot delete asset '{media_file.display_name or media_file.original_filename}'. It is currently in use in {usage_count} location(s) ({ref_locations}). Please unlink or replace this file before deleting.",
                 code="MEDIA_IN_USE",
                 status_code=status.HTTP_400_BAD_REQUEST
             )
 
         StorageService.delete_media_file(media_file, hard_delete=hard_delete)
         return api_response(message="Media file safely deleted from storage and database.")
+
+    @action(detail=False, methods=['post'], url_path='bulk-delete')
+    def bulk_delete(self, request):
+        file_ids = request.data.get('file_ids', [])
+        if not isinstance(file_ids, list) or not file_ids:
+            raise CubixSkillAPIException("Please provide a valid list of 'file_ids' to delete.", code="INVALID_PAYLOAD", status_code=status.HTTP_400_BAD_REQUEST)
+
+        user_academy_id = safe_get_user_academy_id(request.user)
+        is_super = getattr(request.user, 'role_code', '') in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']
+
+        qs = MediaFile.objects.filter(id__in=file_ids).exclude(status=MediaStatus.DELETED)
+        if not is_super and user_academy_id:
+            qs = qs.filter(academy_uuid=user_academy_id)
+
+        found_files = {str(f.id): f for f in qs}
+
+        deleted_ids = []
+        blocked_items = []
+        failed_count = 0
+
+        from storage.selectors import MediaUsageSelector
+
+        import time
+        from django.db import OperationalError
+
+        for fid in file_ids:
+            fid_str = str(fid)
+            if fid_str not in found_files:
+                failed_count += 1
+                continue
+
+            media_file = found_files[fid_str]
+            usage_data = MediaUsageSelector.get_usage(media_file)
+            if usage_data.get('is_used', False):
+                refs = usage_data.get('references', [])
+                ref_str = ", ".join([f"{r.get('context') or r.get('type')}" for r in refs[:3]])
+                blocked_items.append({
+                    "id": fid_str,
+                    "filename": media_file.display_name or media_file.original_filename,
+                    "reason": f"In use in {len(refs)} location(s) ({ref_str})",
+                    "references": refs
+                })
+            else:
+                success = False
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        StorageService.delete_media_file(media_file, hard_delete=False)
+                        deleted_ids.append(fid_str)
+                        success = True
+                        break
+                    except OperationalError as op_err:
+                        if 'locked' in str(op_err).lower() and attempt < max_retries - 1:
+                            logger.warning(f"SQLite database locked deleting file {fid_str}, retrying (attempt {attempt + 1}/{max_retries})...")
+                            time.sleep(0.1 * (2 ** attempt))
+                            continue
+                        logger.exception(f"Bulk delete OperationalError for file {fid_str}: {op_err}")
+                        break
+                    except Exception as err:
+                        logger.exception(f"Bulk delete error for file {fid_str}: {err}")
+                        break
+
+                if not success:
+                    failed_count += 1
+
+        return api_response(
+            data={
+                "deleted_ids": deleted_ids,
+                "deleted_count": len(deleted_ids),
+                "blocked_items": blocked_items,
+                "blocked_count": len(blocked_items),
+                "failed_count": failed_count,
+                "total_requested": len(file_ids)
+            },
+            message=f"Bulk delete finished. Successfully deleted {len(deleted_ids)} asset(s), {len(blocked_items)} blocked due to active usage."
+        )
 
 #--------------------------------------------------------------
 # Storage Usage & History View
@@ -527,10 +623,22 @@ class StorageSummaryDashboardView(APIView):
         )
 
         settings_obj = StorageBillingSettings.get_settings()
+
+        # Reconcile AcademyStorageUsage from authoritative active MediaFiles
+        from storage.models import MediaFile, MediaStatus
+        from django.db.models import Sum
+        active_qs = MediaFile.objects.filter(academy_uuid=academy.id).exclude(status=MediaStatus.DELETED)
+        actual_used_bytes = active_qs.aggregate(total=Sum('size_bytes'))['total'] or 0
+        actual_file_count = active_qs.count()
+
         usage, _ = AcademyStorageUsage.objects.get_or_create(
             academy=academy,
-            defaults={'academy_uuid': academy.id, 'used_bytes': 0, 'file_count': 0}
+            defaults={'academy_uuid': academy.id, 'used_bytes': actual_used_bytes, 'file_count': actual_file_count}
         )
+        if usage.used_bytes != actual_used_bytes or usage.file_count != actual_file_count:
+            usage.used_bytes = actual_used_bytes
+            usage.file_count = actual_file_count
+            usage.save(update_fields=['used_bytes', 'file_count'])
 
         now = timezone.now()
         BYTES_PER_GB = Decimal(1024 ** 3)
@@ -796,5 +904,107 @@ class StorageSettlementHistoryView(APIView):
             "page_size": page_size,
             "results": serialized
         })
+
+
+class StorageMeterFileInventoryView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, meter_id):
+        academy = safe_get_user_academy(request.user)
+        if not academy and getattr(request.user, 'role_code', '') not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
+            raise CubixSkillAPIException("No academy linked to authenticated user.", code="NO_ACADEMY")
+
+        from django.db import models
+        from storage.models import MediaFile, MediaStatus, StorageMeterFileSnapshot, StorageMeterRecord
+        from storage.utils import format_bytes
+
+        try:
+            meter_record = StorageMeterRecord.objects.get(id=meter_id, academy=academy)
+        except (StorageMeterRecord.DoesNotExist, ValueError):
+            raise CubixSkillAPIException("Storage meter record not found.", code="NOT_FOUND", status_code=status.HTTP_404_NOT_FOUND)
+
+        snapshots = list(StorageMeterFileSnapshot.objects.filter(meter_record=meter_record))
+
+        if snapshots:
+            files = [
+                {
+                    "id": str(s.media_file_uuid),
+                    "original_filename": s.filename_snapshot,
+                    "display_name": s.filename_snapshot,
+                    "file_type": s.media_type_snapshot,
+                    "media_type": s.media_type_snapshot,
+                    "size_bytes": s.size_bytes_snapshot,
+                    "formatted_size": format_bytes(s.size_bytes_snapshot),
+                    "created_at": s.uploaded_at_snapshot.isoformat() if s.uploaded_at_snapshot else None,
+                    "uploaded_at": s.uploaded_at_snapshot.isoformat() if s.uploaded_at_snapshot else None,
+                }
+                for s in snapshots
+            ]
+            has_history = True
+            msg = "File inventory retrieved from snapshot."
+        else:
+            metered_at = meter_record.metered_at
+            active_files_qs = MediaFile.objects.filter(
+                academy_uuid=academy.id,
+                created_at__lte=metered_at
+            ).filter(
+                models.Q(deleted_at__isnull=True) | models.Q(deleted_at__gt=metered_at)
+            ).exclude(status=MediaStatus.PENDING)
+
+            if active_files_qs.exists() or meter_record.used_bytes == 0:
+                files = [
+                    {
+                        "id": str(f.id),
+                        "original_filename": f.original_filename,
+                        "display_name": f.display_name or f.original_filename,
+                        "file_type": f.file_type or f.file_extension or f.media_type,
+                        "media_type": f.media_type,
+                        "size_bytes": f.total_storage_bytes or f.size_bytes,
+                        "formatted_size": format_bytes(f.total_storage_bytes or f.size_bytes),
+                        "created_at": (f.uploaded_at or f.created_at).isoformat() if (f.uploaded_at or f.created_at) else None,
+                        "uploaded_at": (f.uploaded_at or f.created_at).isoformat() if (f.uploaded_at or f.created_at) else None,
+                    }
+                    for f in active_files_qs
+                ]
+                has_history = True
+                msg = "File inventory reconstructed from historical records."
+            else:
+                return api_response(data={
+                    "has_file_history": False,
+                    "message": "File-level history is unavailable for this metered record.",
+                    "meter_record": {
+                        "id": str(meter_record.id),
+                        "metered_at": meter_record.metered_at.isoformat(),
+                        "used_bytes": meter_record.used_bytes,
+                        "used_gb": str(meter_record.used_gb),
+                        "calculated_credits": str(meter_record.calculated_credits),
+                    },
+                    "total_files": 0,
+                    "total_storage_bytes": 0,
+                    "formatted_total_storage": "0 B",
+                    "accounting_difference_bytes": 0,
+                    "files": []
+                })
+
+        total_storage_size = sum(f["size_bytes"] for f in files)
+        diff_bytes = total_storage_size - meter_record.used_bytes
+
+        return api_response(data={
+            "has_file_history": has_history,
+            "message": msg,
+            "meter_record": {
+                "id": str(meter_record.id),
+                "metered_at": meter_record.metered_at.isoformat(),
+                "used_bytes": meter_record.used_bytes,
+                "used_gb": str(meter_record.used_gb),
+                "calculated_credits": str(meter_record.calculated_credits),
+            },
+            "total_files": len(files),
+            "total_storage_bytes": total_storage_size,
+            "formatted_total_storage": format_bytes(total_storage_size),
+            "accounting_difference_bytes": diff_bytes,
+            "files": files
+        })
+
 
 

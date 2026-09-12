@@ -34,6 +34,7 @@ class NotificationType(models.TextChoices):
     CREDIT_BALANCE_LOW = 'CREDIT_BALANCE_LOW', 'Credit Balance Low'
     CHAT_MENTION = 'CHAT_MENTION', 'Chat Mention'
     DISCUSSION_REPLY = 'DISCUSSION_REPLY', 'Discussion Reply'
+    ANNOUNCEMENT_PUBLISHED = 'ANNOUNCEMENT_PUBLISHED', 'Announcement Published'
 
 class EmailCategory(models.TextChoices):
     TRANSACTIONAL = 'TRANSACTIONAL', 'Transactional'

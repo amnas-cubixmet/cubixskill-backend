@@ -3998,7 +3998,7 @@ def support_ticket_detail_view(request, pk):
         return render(request, 'control_panel/403.html', status=403)
 
     ticket = get_object_or_404(SupportTicket.objects.select_related('academy', 'user'), pk=pk)
-    ticket_messages = TicketMessage.objects.filter(ticket=ticket).select_related('sender').order_by('created_at')
+    ticket_messages = TicketMessage.objects.filter(ticket=ticket).select_related('sender').prefetch_related('attachments').order_by('created_at')
 
     can_reply = (request.user.role_code == SystemRoleCode.SUPER_ADMIN or request.user.is_superuser or has_permission(request.user, 'support.reply'))
     can_update = (request.user.role_code == SystemRoleCode.SUPER_ADMIN or request.user.is_superuser or has_permission(request.user, 'support.update'))

@@ -71,6 +71,12 @@ class TokenAuthMiddleware:
             if morsel:
                 raw_token = morsel.value
 
+        if not raw_token:
+            raw_token = (
+                query_params.get("token", [None])[0] or
+                query_params.get("access_token", [None])[0]
+            )
+
         if raw_token:
             scope["user"] = await get_user_from_portal_token(raw_token, portal)
         else:

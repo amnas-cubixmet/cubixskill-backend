@@ -335,6 +335,7 @@ def ensure_default_permissions_seeded():
 
         # Support
         ("View Support", "support.view", "Support", "View support tickets"),
+        ("Create Support", "support.create", "Support", "Create support tickets"),
         ("Update Support", "support.update", "Support", "Update support ticket status"),
         ("Reply Support", "support.reply", "Support", "Reply to support tickets"),
     ]

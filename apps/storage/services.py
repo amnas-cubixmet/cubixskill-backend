@@ -84,7 +84,6 @@ class StorageService:
         return MediaType.OTHER
 
     @classmethod
-    @transaction.atomic
     def upload_media_direct(
         cls,
         academy_uuid,
@@ -100,6 +99,7 @@ class StorageService:
     ) -> MediaFile:
         """
         Directly upload binary media content to Django local MEDIA_ROOT folder inside per-Academy/per-Course directory.
+        Performs disk write outside DB transaction to eliminate SQLite database lock contention.
         """
         account = cls.get_or_create_account(academy_uuid)
 
@@ -114,6 +114,7 @@ class StorageService:
         )
 
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        # Disk write performed outside DB transaction
         with open(dest_path, 'wb') as f:
             if hasattr(file_obj, 'read'):
                 file_obj.seek(0)
@@ -153,37 +154,47 @@ class StorageService:
         processing_status = ProcessingStatus.QUEUED if effective_hls else ProcessingStatus.READY
         processing_progress = 5 if effective_hls else 100
 
-        media_file = MediaFile.objects.create(
-            academy_uuid=academy_uuid,
-            uploaded_by_uuid=user_uuid,
-            course_uuid=course_uuid,
-            lesson_uuid=lesson_uuid,
-            original_filename=original_filename,
-            display_name=original_filename,
-            stored_filename=unique_filename,
-            storage_key=storage_key,
-            relative_path=storage_key,
-            mime_type=mime_type,
-            size_bytes=file_size_bytes,
-            file_type=media_type.lower(),
-            file_extension=safe_ext,
-            storage_provider='local',
-            storage_path=dest_path,
-            file_url=f"/media/{storage_key}",
-            media_type=media_type,
-            status=MediaStatus.ACTIVE,
-            adaptive_streaming_enabled=effective_hls,
-            processing_mode=processing_mode,
-            processing_status=processing_status,
-            processing_progress=processing_progress,
-            uploaded_at=timezone.now()
-        )
+        try:
+            with transaction.atomic():
+                media_file = MediaFile.objects.create(
+                    academy_uuid=academy_uuid,
+                    uploaded_by_uuid=user_uuid,
+                    course_uuid=course_uuid,
+                    lesson_uuid=lesson_uuid,
+                    original_filename=original_filename,
+                    display_name=original_filename,
+                    stored_filename=unique_filename,
+                    storage_key=storage_key,
+                    relative_path=storage_key,
+                    mime_type=mime_type,
+                    size_bytes=file_size_bytes,
+                    file_type=media_type.lower(),
+                    file_extension=safe_ext,
+                    storage_provider='local',
+                    storage_path=dest_path,
+                    file_url=f"/media/{storage_key}",
+                    media_type=media_type,
+                    status=MediaStatus.ACTIVE,
+                    adaptive_streaming_enabled=effective_hls,
+                    processing_mode=processing_mode,
+                    processing_status=processing_status,
+                    processing_progress=processing_progress,
+                    uploaded_at=timezone.now()
+                )
 
-        # Delegate UPLOAD event creation and storage account update to StorageMeteringService
-        from storage.metering import StorageMeteringService
-        StorageMeteringService.record_upload(media_file)
+                # Delegate UPLOAD event creation and storage account update to StorageMeteringService
+                from storage.metering import StorageMeteringService
+                StorageMeteringService.record_upload(media_file)
 
-        return media_file
+                return media_file
+        except Exception:
+            # Clean up disk file if DB transaction fails
+            if os.path.exists(dest_path):
+                try:
+                    os.remove(dest_path)
+                except OSError:
+                    pass
+            raise
 
     @classmethod
     def get_media_access_url(cls, media_file: MediaFile, expires_in: int = 3600) -> str:
@@ -268,45 +279,63 @@ class StorageService:
     def delete_media_file(cls, media_file: MediaFile, hard_delete: bool = False) -> None:
         """
         Safely delete local media file from filesystem and database.
+        Database status change and storage metering update are atomic.
+        Physical local files are removed safely after transaction commits.
         """
         if media_file.status == MediaStatus.DELETED and not hard_delete:
             return
 
-        # 1. Delegate DELETE event creation and storage account update to StorageMeteringService
-        from storage.metering import StorageMeteringService
-        StorageMeteringService.record_delete(media_file)
-
-        # 2. Safely remove physical local file and derived HLS artifacts from MEDIA_ROOT
-        if media_file.storage_key:
-            local_path = os.path.join(settings.MEDIA_ROOT, media_file.storage_key)
-            if os.path.exists(local_path):
-                try:
-                    if os.path.isdir(local_path):
-                        import shutil
-                        shutil.rmtree(local_path)
-                    else:
-                        os.remove(local_path)
-                    logger.info(f"Removed local media file/directory '{local_path}'.")
-                except Exception as e:
-                    logger.warning(f"Failed to remove local file '{local_path}': {e}")
-
-        # Safely remove derived HLS video directory if present
-        if media_file.storage_path:
-            dir_path = os.path.dirname(media_file.storage_path) if os.path.isfile(media_file.storage_path) else media_file.storage_path
-            if dir_path and os.path.exists(dir_path) and 'videos' in dir_path and dir_path != settings.MEDIA_ROOT:
-                try:
-                    import shutil
-                    shutil.rmtree(dir_path)
-                except Exception as e:
-                    logger.warning(f"Failed to remove derived HLS directory '{dir_path}': {e}")
-
-        # 3. Update record
+        # 1. Update database record status atomically
         if hard_delete:
             media_file.delete()
         else:
-            media_file.status = MediaStatus.DELETED
-            media_file.deleted_at = timezone.now()
-            media_file.save(update_fields=['status', 'deleted_at'])
+            # Atomic state transition update
+            updated_count = MediaFile.objects.filter(
+                id=media_file.id
+            ).exclude(status=MediaStatus.DELETED).update(
+                status=MediaStatus.DELETED,
+                deleted_at=timezone.now()
+            )
+            if updated_count == 0:
+                # Already deleted concurrently
+                return
+            media_file.refresh_from_db()
+
+        # 2. Delegate DELETE event creation and storage account update to StorageMeteringService
+        from storage.metering import StorageMeteringService
+        StorageMeteringService.record_delete(media_file)
+
+        # 3. Schedule physical file removal after successful DB commit
+        storage_key = media_file.storage_key
+        storage_path = media_file.storage_path
+
+        def cleanup_physical_files():
+            if storage_key:
+                local_path = os.path.join(settings.MEDIA_ROOT, storage_key)
+                if os.path.exists(local_path):
+                    try:
+                        if os.path.isdir(local_path):
+                            import shutil
+                            shutil.rmtree(local_path)
+                        else:
+                            os.remove(local_path)
+                        logger.info(f"Removed local media file/directory '{local_path}'.")
+                    except Exception as e:
+                        logger.warning(f"Failed to remove local file '{local_path}': {e}")
+
+            if storage_path:
+                dir_path = os.path.dirname(storage_path) if os.path.isfile(storage_path) else storage_path
+                if dir_path and os.path.exists(dir_path) and 'videos' in dir_path and dir_path != settings.MEDIA_ROOT:
+                    try:
+                        import shutil
+                        shutil.rmtree(dir_path)
+                    except Exception as e:
+                        logger.warning(f"Failed to remove derived HLS directory '{dir_path}': {e}")
+
+        if transaction.get_connection().in_atomic_block:
+            transaction.on_commit(cleanup_physical_files)
+        else:
+            cleanup_physical_files()
 
     @classmethod
     def get_media_usage(cls, media_file: MediaFile) -> dict:

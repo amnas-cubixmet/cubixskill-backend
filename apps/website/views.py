@@ -79,8 +79,16 @@ class AcademyWebsiteSettingsView(APIView):
         academy = self.get_academy(request.user)
         settings = WebsiteService.get_or_create_settings(academy)
 
-        logo_url = academy.logo.url if getattr(academy, 'logo', None) else ""
-        favicon_url = academy.favicon.url if getattr(academy, 'favicon', None) else ""
+        draft_cfg = settings.draft_config or {}
+        if "logo_url" in draft_cfg:
+            logo_url = draft_cfg.get("logo_url") or ""
+        else:
+            logo_url = (academy.logo.url if getattr(academy, 'logo', None) else "")
+
+        if "favicon_url" in draft_cfg:
+            favicon_url = draft_cfg.get("favicon_url") or ""
+        else:
+            favicon_url = (academy.favicon.url if getattr(academy, 'favicon', None) else "")
 
         has_unpublished_changes = settings.draft_config != settings.published_config
 
@@ -107,8 +115,16 @@ class AcademyWebsiteSettingsView(APIView):
             updated_by=request.user
         )
 
-        logo_url = academy.logo.url if getattr(academy, 'logo', None) else ""
-        favicon_url = academy.favicon.url if getattr(academy, 'favicon', None) else ""
+        draft_cfg = settings.draft_config or {}
+        if "logo_url" in draft_cfg:
+            logo_url = draft_cfg.get("logo_url") or ""
+        else:
+            logo_url = (academy.logo.url if getattr(academy, 'logo', None) else "")
+
+        if "favicon_url" in draft_cfg:
+            favicon_url = draft_cfg.get("favicon_url") or ""
+        else:
+            favicon_url = (academy.favicon.url if getattr(academy, 'favicon', None) else "")
 
         has_unpublished_changes = settings.draft_config != settings.published_config
 

@@ -85,6 +85,11 @@ class AuditAction(models.TextChoices):
     WEBSITE_SETTINGS_CHANGED = 'WEBSITE_SETTINGS_CHANGED', 'Website Settings Changed'
     REPORT_EXPORTED = 'REPORT_EXPORTED', 'Sensitive Report Exported'
 
+    # Support Tickets
+    TICKET_CREATED = 'TICKET_CREATED', 'Support Ticket Created'
+    TICKET_UPDATED = 'TICKET_UPDATED', 'Support Ticket Updated'
+    TICKET_REPLIED = 'TICKET_REPLIED', 'Support Ticket Replied'
+
 # --------------------------------------------------------------
 # AuditLog Model
 # AuditLog is append-only and should never be silently edited or deleted.

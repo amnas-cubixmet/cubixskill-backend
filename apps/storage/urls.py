@@ -15,6 +15,7 @@ from storage.views import (
     StorageCurrentPeriodView,
     StorageDailyRollupView,
     StorageMeterLogsView,
+    StorageMeterFileInventoryView,
     StorageMonthlyBillingView,
     StorageSettlementHistoryView,
     StorageSnapshotsView,
@@ -32,6 +33,7 @@ router.register(r'files', MediaFileViewSet, basename='storage-file')
 urlpatterns = [
     path('summary/', StorageSummaryDashboardView.as_view(), name='storage-summary-dashboard'),
     path('meter-logs/', StorageMeterLogsView.as_view(), name='storage-meter-logs'),
+    path('meter-logs/<uuid:meter_id>/files/', StorageMeterFileInventoryView.as_view(), name='storage-meter-files'),
     path('settlements/', StorageSettlementHistoryView.as_view(), name='storage-settlements'),
     path('snapshots/', StorageSnapshotsView.as_view(), name='storage-snapshots'),
     path('billing-periods/', StorageBillingPeriodsView.as_view(), name='storage-billing-periods'),

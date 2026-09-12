@@ -112,6 +112,8 @@ class CertificateFontUploadSerializer(serializers.Serializer):
 
 class CertificateTemplateSerializer(serializers.ModelSerializer):
     background_media_url = serializers.SerializerMethodField()
+    course_id = serializers.SerializerMethodField()
+    course_name = serializers.SerializerMethodField()
 
     class Meta:
         model = CertificateTemplate
@@ -134,10 +136,31 @@ class CertificateTemplateSerializer(serializers.ModelSerializer):
             'student_photo_position',
             'is_default',
             'is_active',
+            'course_id',
+            'course_name',
             'created_at',
             'updated_at',
         ]
         read_only_fields = ['id', 'slug', 'created_at', 'updated_at']
+
+    def get_course_id(self, obj) -> str | None:
+        cfg = obj.course_configs.filter(course__academy=obj.academy).first()
+        if cfg and cfg.course:
+            return str(cfg.course.id)
+        if isinstance(obj.template_data, dict) and obj.template_data.get('selected_course_id'):
+            return str(obj.template_data.get('selected_course_id'))
+        return None
+
+    def get_course_name(self, obj) -> str | None:
+        cfg = obj.course_configs.filter(course__academy=obj.academy).first()
+        if cfg and cfg.course:
+            return cfg.course.title
+        if isinstance(obj.template_data, dict) and obj.template_data.get('selected_course_id'):
+            from courses.models import Course
+            c = Course.objects.filter(id=obj.template_data.get('selected_course_id')).first()
+            if c:
+                return c.title
+        return None
 
     def get_background_media_url(self, obj) -> str | None:
         if obj.background_media:

@@ -388,11 +388,87 @@ class CertificateTemplateViewSet(viewsets.ModelViewSet):
         return CertificateTemplate.objects.none()
 
     def perform_create(self, serializer):
+        from django.db import transaction
+        from certificates.models import CourseCertificateConfig
         user = self.request.user
         academy = getattr(user, 'academy', None)
         if not academy:
             raise ValidationError("User is not associated with an Academy.")
-        serializer.save(academy=academy)
+
+        template_data = self.request.data.get('template_data', {})
+        if isinstance(template_data, str):
+            import json
+            try:
+                template_data = json.loads(template_data)
+            except Exception:
+                template_data = {}
+        course_id = self.request.data.get('course_id') or template_data.get('selected_course_id')
+
+        with transaction.atomic():
+            if course_id:
+                existing_config = CourseCertificateConfig.objects.select_for_update().filter(
+                    course_id=course_id,
+                    course__academy=academy,
+                    template__is_active=True
+                ).first()
+                if existing_config and existing_config.template:
+                    raise ValidationError({
+                        "detail": "Only one certificate template is allowed per course. Delete or edit the existing template for this course.",
+                        "existing_template_id": str(existing_config.template.id),
+                        "code": "TEMPLATE_EXISTS"
+                    })
+            
+            template = serializer.save(academy=academy)
+            if course_id:
+                from courses.models import Course
+                course = Course.objects.filter(id=course_id, academy=academy).first()
+                if course:
+                    config, _ = CourseCertificateConfig.objects.get_or_create(course=course)
+                    config.template = template
+                    config.is_enabled = True
+                    config.save()
+
+    def perform_update(self, serializer):
+        from django.db import transaction
+        from certificates.models import CourseCertificateConfig
+        user = self.request.user
+        academy = getattr(user, 'academy', None)
+        if not academy:
+            raise ValidationError("User is not associated with an Academy.")
+
+        template_data = self.request.data.get('template_data', {})
+        if isinstance(template_data, str):
+            import json
+            try:
+                template_data = json.loads(template_data)
+            except Exception:
+                template_data = {}
+        course_id = self.request.data.get('course_id') or template_data.get('selected_course_id')
+
+        with transaction.atomic():
+            if course_id:
+                existing_config = CourseCertificateConfig.objects.select_for_update().filter(
+                    course_id=course_id,
+                    course__academy=academy,
+                    template__is_active=True
+                ).exclude(template_id=serializer.instance.id).first()
+                if existing_config and existing_config.template:
+                    raise ValidationError({
+                        "detail": "Only one certificate template is allowed per course. Delete or edit the existing template for this course.",
+                        "existing_template_id": str(existing_config.template.id),
+                        "code": "TEMPLATE_EXISTS"
+                    })
+            
+            template = serializer.save()
+            if course_id:
+                from courses.models import Course
+                course = Course.objects.filter(id=course_id, academy=academy).first()
+                if course:
+                    CourseCertificateConfig.objects.filter(template=template).exclude(course=course).update(template=None)
+                    config, _ = CourseCertificateConfig.objects.get_or_create(course=course)
+                    config.template = template
+                    config.is_enabled = True
+                    config.save()
 
     @action(detail=False, methods=['get'], url_path=r'by-slug/(?P<slug>[\w-]+)')
     def by_slug(self, request, slug=None):
@@ -459,20 +535,35 @@ class CertificateTemplateViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def duplicate(self, request, pk=None):
+        from django.db import transaction
+        from certificates.models import CourseCertificateConfig
         template = self.get_object()
-        new_template = CertificateTemplate.objects.create(
-            academy=template.academy,
-            name=f"{template.name} (Copy)",
-            description=template.description,
-            template_data=template.template_data,
-            orientation=template.orientation,
-            page_size=template.page_size,
-            background_media=template.background_media,
-            show_student_photo=template.show_student_photo,
-            student_photo_shape=template.student_photo_shape
-        )
-        serializer = self.get_serializer(new_template)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        course_id = request.data.get('course_id') or (template.template_data.get('selected_course_id') if isinstance(template.template_data, dict) else None)
+
+        with transaction.atomic():
+            if course_id:
+                existing_config = CourseCertificateConfig.objects.select_for_update().filter(
+                    course_id=course_id,
+                    course__academy=template.academy,
+                    template__is_active=True
+                ).first()
+                if existing_config and existing_config.template:
+                    raise ValidationError("Only one certificate template is allowed per course. Delete or edit the existing template for this course.")
+
+            new_template = CertificateTemplate.objects.create(
+                academy=template.academy,
+                name=f"{template.name} (Copy)",
+                description=template.description,
+                template_data=template.template_data,
+                orientation=template.orientation,
+                page_size=template.page_size,
+                background_media=template.background_media,
+                show_student_photo=template.show_student_photo,
+                student_photo_shape=template.student_photo_shape
+            )
+            serializer = self.get_serializer(new_template)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'], url_path='assign-course')
     def assign_course(self, request, pk=None):

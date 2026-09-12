@@ -31,4 +31,5 @@ urlpatterns = [
     path('settings/', include('settings.urls')),
     path('features/', include('features.urls')),
     path('pricing/', include('features.urls')),
+    path('support/', include('control_panel.support_urls')),
 ]

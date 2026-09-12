@@ -130,6 +130,32 @@ class CreateLeadSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("At least one contact method (email or phone) must be provided.")
         return attrs
 
+class UpdateLeadSerializer(serializers.ModelSerializer):
+    assigned_to_id = serializers.UUIDField(required=False, allow_null=True)
+
+    class Meta:
+        model = Lead
+        fields = [
+            'full_name',
+            'email',
+            'phone',
+            'source',
+            'source_detail',
+            'priority',
+            'preferred_contact_method',
+            'status',
+            'lost_reason',
+            'notes_summary',
+            'assigned_to_id',
+        ]
+
+    def validate(self, attrs):
+        email = attrs.get('email', self.instance.email if self.instance else '')
+        phone = attrs.get('phone', self.instance.phone if self.instance else '')
+        if not email and not phone:
+            raise serializers.ValidationError("At least one contact method (email or phone) must be provided.")
+        return attrs
+
 class DemoLeadCreateSerializer(serializers.Serializer):
     academy_id = serializers.UUIDField(required=True)
     course_id = serializers.UUIDField(required=True)

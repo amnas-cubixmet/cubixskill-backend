@@ -243,6 +243,10 @@ class DiscussionService:
             thread.credit_charge_applied = True
             thread.save(update_fields=['announcement_credits_charged', 'email_credits_charged', 'credit_charge_applied', 'email_status'])
 
+        # 6. Dispatch In-App Notifications for Published Announcement
+        if is_publishing:
+            cls._dispatch_announcement_in_app_notifications(thread, recipients_list)
+
         return thread
 
     @classmethod
@@ -275,6 +279,42 @@ class DiscussionService:
             logging.getLogger(__name__).error(f"Error dispatching announcement emails for thread {thread.id}: {err}")
             thread.email_status = 'FAILED'
             thread.save(update_fields=['email_status'])
+
+    @classmethod
+    def _dispatch_announcement_in_app_notifications(cls, thread: DiscussionThread, recipients: list):
+        """
+        Dispatches in-app notifications for published announcements to eligible recipients.
+        Ensures idempotency using source_type='ANNOUNCEMENT' and source_id=str(thread.id).
+        """
+        from notifications.models import NotificationType
+        from notifications.services import NotificationService
+
+        academy_uuid = str(thread.academy.id) if thread.academy else ""
+        course_uuid = str(thread.course.uuid) if (thread.course and hasattr(thread.course, 'uuid')) else (str(thread.course.id) if thread.course else "")
+        
+        if course_uuid and academy_uuid:
+            action_url = f"/student/academies/{academy_uuid}/courses/{course_uuid}/announcements"
+        elif academy_uuid:
+            action_url = f"/student/academies/{academy_uuid}"
+        else:
+            action_url = "/student/academies"
+
+        for recipient in recipients:
+            try:
+                NotificationService.notify_user(
+                    recipient=recipient,
+                    notification_type=NotificationType.ANNOUNCEMENT_PUBLISHED,
+                    title=f"Announcement: {thread.title}",
+                    message=thread.content[:200] + ("..." if len(thread.content) > 200 else ""),
+                    action_type="NAVIGATE",
+                    action_url=action_url,
+                    source_type="ANNOUNCEMENT",
+                    source_id=str(thread.id),
+                    academy=thread.academy
+                )
+            except Exception as err:
+                import logging
+                logging.getLogger(__name__).error(f"Error creating notification for user {recipient.id}: {err}")
 
     @classmethod
     def broadcast_event(cls, academy_id: str, event_type: str, data: dict):
@@ -611,10 +651,30 @@ class ChatService:
     @classmethod
     def mark_room_as_read(cls, room: ChatRoom, user) -> int:
         """
-        Marks room as read up to the latest message and returns remaining unread count (0).
+        Marks room as read up to the latest message, creates ChatMessageReceipt for unread messages,
+        and returns remaining unread count (0).
         """
         latest_message = ChatMessage.objects.filter(room=room, status=MessageStatus.ACTIVE).order_by('-created_at').first()
         now = timezone.now()
+
+        # Find messages not authored by user that need read receipt
+        unread_messages = ChatMessage.objects.filter(
+            room=room,
+            status=MessageStatus.ACTIVE
+        ).exclude(sender=user)
+
+        from discussions_chat.models import ChatMessageReceipt
+        for msg in unread_messages:
+            receipt, created = ChatMessageReceipt.objects.get_or_create(
+                message=msg,
+                user=user,
+                defaults={'delivered_at': now, 'read_at': now}
+            )
+            if not created and not receipt.read_at:
+                receipt.read_at = now
+                if not receipt.delivered_at:
+                    receipt.delivered_at = now
+                receipt.save(update_fields=['read_at', 'delivered_at'])
 
         participant, _ = ChatParticipant.objects.get_or_create(
             room=room,

@@ -320,6 +320,21 @@ class TicketMessage(BaseModel):
     def __str__(self):
         return f"Msg on {self.ticket.ticket_number} by {self.sender.email}"
 
+class TicketAttachment(BaseModel):
+    ticket = models.ForeignKey(SupportTicket, on_delete=models.CASCADE, related_name='attachments', null=True, blank=True)
+    message = models.ForeignKey(TicketMessage, on_delete=models.CASCADE, related_name='attachments', null=True, blank=True)
+    media_file = models.ForeignKey('storage.MediaFile', on_delete=models.SET_NULL, null=True, blank=True, related_name='ticket_attachments')
+    file_name = models.CharField(max_length=255, blank=True, default='')
+    file_url = models.CharField(max_length=1024, blank=True, default='')
+    file_size = models.BigIntegerField(default=0)
+
+    class Meta:
+        db_table = 'control_ticket_attachments'
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Attachment {self.file_name} for Ticket {self.ticket_id or (self.message and self.message.ticket_id)}"
+
 # --------------------------------------------------------------
 # 6. AcademyWebsiteConfig Model
 # --------------------------------------------------------------

@@ -160,6 +160,9 @@ class ChatMessageSerializer(serializers.ModelSerializer):
     sender_name = serializers.CharField(source='sender.full_name', read_only=True)
     sender_role = serializers.SerializerMethodField()
     attachments = ChatMessageAttachmentSerializer(many=True, read_only=True)
+    delivered_at = serializers.SerializerMethodField()
+    read_at = serializers.SerializerMethodField()
+    delivery_status = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatMessage
@@ -174,6 +177,9 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             'reply_to',
             'status',
             'attachments',
+            'delivered_at',
+            'read_at',
+            'delivery_status',
             'created_at',
             'edited_at',
         ]
@@ -183,6 +189,27 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         if not obj.sender:
             return None
         return getattr(obj.sender, 'role', None) or ('ACADEMY_STAFF' if getattr(obj.sender, 'is_staff', False) else 'STUDENT')
+
+    def get_delivered_at(self, obj):
+        receipts = [r for r in obj.receipts.all() if r.delivered_at]
+        if receipts:
+            return receipts[0].delivered_at.isoformat()
+        return None
+
+    def get_read_at(self, obj):
+        receipts = [r for r in obj.receipts.all() if r.read_at]
+        if receipts:
+            return receipts[0].read_at.isoformat()
+        return None
+
+    def get_delivery_status(self, obj):
+        # Determine status for recipient: read > delivered > sent
+        receipts = list(obj.receipts.all())
+        if any(r.read_at for r in receipts):
+            return 'READ'
+        if any(r.delivered_at for r in receipts):
+            return 'DELIVERED'
+        return 'SENT'
 
 #--------------------------------------------------------------
 # 7. Chat Room Model
@@ -195,6 +222,7 @@ class ChatRoomSerializer(serializers.ModelSerializer):
     student_name = serializers.SerializerMethodField()
     student_email = serializers.SerializerMethodField()
     student_avatar = serializers.SerializerMethodField()
+    other_participant = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
     latest_message = serializers.SerializerMethodField()
 
@@ -214,11 +242,28 @@ class ChatRoomSerializer(serializers.ModelSerializer):
             'student_name',
             'student_email',
             'student_avatar',
+            'other_participant',
             'last_message',
             'latest_message',
             'created_at',
         ]
         read_only_fields = fields
+
+    def get_other_participant(self, obj):
+        request = self.context.get('request')
+        current_user = request.user if request and hasattr(request, 'user') else None
+        participants = obj.participants.select_related('user').all()
+        for p in participants:
+            if current_user and p.user_id != current_user.id:
+                u = p.user
+                return {
+                    'id': str(u.id),
+                    'full_name': u.full_name or u.email,
+                    'email': u.email,
+                    'role': getattr(u, 'role', None) or ('ACADEMY_STAFF' if getattr(u, 'is_staff', False) else 'STUDENT'),
+                    'avatar': u.avatar.url if getattr(u, 'avatar', None) else None
+                }
+        return None
 
     def get_student_participant(self, obj):
         participants = obj.participants.select_related('user').all()
@@ -268,6 +313,14 @@ class ChatRoomSerializer(serializers.ModelSerializer):
             'sender_name': sender_name,
             'created_at': msg.created_at.isoformat() if msg.created_at else None,
         }
+
+    def get_latest_message(self, obj):
+        msg = obj.messages.filter(status='ACTIVE').order_by('-created_at').first()
+        if not msg:
+            return ''
+        if not msg.content and msg.attachments.exists():
+            return '[Attachment]'
+        return msg.content
 
     def get_latest_message(self, obj):
         msg = obj.messages.filter(status='ACTIVE').order_by('-created_at').first()

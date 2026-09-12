@@ -98,10 +98,17 @@ class StorageMeteringService:
 
         account = cls.get_or_create_account(media_file.academy_uuid)
         before_bytes = account.current_usage_bytes
-        after_bytes = max(0, before_bytes - media_file.size_bytes)
 
-        account.current_usage_bytes = after_bytes
-        account.save(update_fields=['current_usage_bytes'])
+        # Use atomic DB update using F expression to prevent SQLite lock contention & race conditions
+        from django.db.models import F, Case, When, Value
+        AcademyStorageAccount.objects.filter(id=account.id).update(
+            current_usage_bytes=Case(
+                When(current_usage_bytes__gte=media_file.size_bytes, then=F('current_usage_bytes') - media_file.size_bytes),
+                default=Value(0)
+            )
+        )
+        account.refresh_from_db(fields=['current_usage_bytes'])
+        after_bytes = account.current_usage_bytes
 
         event = StorageUsageEvent.objects.create(
             academy_uuid=media_file.academy_uuid,

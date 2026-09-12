@@ -40,6 +40,8 @@ class AcademyEventsConsumer(AsyncJsonWebsocketConsumer):
             return str(user.academy.id)
         if hasattr(user, 'academy_id') and user.academy_id:
             return str(user.academy_id)
+        if getattr(user, 'is_superuser', False) or getattr(user, 'is_central_support', False) or getattr(user, 'role_code', None) in {'SUPER_ADMIN', 'SUPER_ADMIN_STAFF'}:
+            return "platform_central"
         return None
 
     async def academy_event(self, event):

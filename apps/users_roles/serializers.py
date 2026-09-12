@@ -62,6 +62,14 @@ class UserCreateSerializer(serializers.ModelSerializer):
         model = User
         fields = ['email', 'full_name', 'phone', 'role_code', 'assigned_role', 'course_access_scope', 'course_ids']
 
+    def validate_assigned_role(self, value):
+        if value:
+            request_user = self.context['request'].user
+            if request_user.role_code not in [SystemRoleCode.SUPER_ADMIN, SystemRoleCode.SUPER_ADMIN_STAFF]:
+                if value.academy and value.academy != request_user.academy:
+                    raise serializers.ValidationError("Selected role is not authorized for this academy.")
+        return value
+
     def create(self, validated_data):
         course_ids = validated_data.pop('course_ids', [])
         request_user = self.context['request'].user

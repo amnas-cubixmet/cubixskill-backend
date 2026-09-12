@@ -105,6 +105,63 @@ class MediaUsageSelector:
         except Exception as err:
             logger.warning(f"Error checking StudentDocument usage: {err}")
 
+        # 6. Check WebsiteSettings (Logo, Favicon, Hero Image in draft & published configs)
+        try:
+            from website.models import WebsiteSettings
+            ws_qs = WebsiteSettings.objects.filter(academy_id=media_file.academy_uuid)
+            file_url_path = media_file.file_url or ""
+            storage_key_path = media_file.storage_key or ""
+            file_id_str = str(media_file.id)
+
+            for ws in ws_qs:
+                configs_to_check = [
+                    ("Website Builder Draft Config", ws.draft_config or {}),
+                    ("Website Published Config", ws.published_config or {}),
+                ]
+                for cfg_name, cfg in configs_to_check:
+                    if not isinstance(cfg, dict):
+                        continue
+                    for field in ["logo_url", "favicon_url", "hero_image_url"]:
+                        val = str(cfg.get(field, "") or "")
+                        if val and (file_url_path and file_url_path in val or storage_key_path and storage_key_path in val or file_id_str in val):
+                            field_clean = field.replace('_url', '').replace('_', ' ').title()
+                            references.append({
+                                "id": str(ws.id),
+                                "type": "WEBSITE_SETTINGS",
+                                "title": f"Website {field_clean}",
+                                "context": f"{cfg_name} ({field_clean})",
+                                "course_id": None,
+                                "lesson_id": None
+                            })
+        except Exception as err:
+            logger.warning(f"Error checking WebsiteSettings usage: {err}")
+
+        # 7. Check Academy (Logo & Favicon model files)
+        try:
+            from academy.models import Academy
+            academies = Academy.objects.filter(id=media_file.academy_uuid)
+            for acad in academies:
+                if acad.logo_id == media_file.id:
+                    references.append({
+                        "id": str(acad.id),
+                        "type": "ACADEMY_BRANDING",
+                        "title": acad.name,
+                        "context": "Academy Profile Logo",
+                        "course_id": None,
+                        "lesson_id": None
+                    })
+                if acad.favicon_id == media_file.id:
+                    references.append({
+                        "id": str(acad.id),
+                        "type": "ACADEMY_BRANDING",
+                        "title": acad.name,
+                        "context": "Academy Profile Favicon",
+                        "course_id": None,
+                        "lesson_id": None
+                    })
+        except Exception as err:
+            logger.warning(f"Error checking Academy branding usage: {err}")
+
         usage_count = len(references)
 
         return {

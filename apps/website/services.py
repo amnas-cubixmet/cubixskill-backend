@@ -81,7 +81,7 @@ class WebsiteService:
             "hero_image_url", "hero_cta_label", "hero_secondary_cta_label", "courses_title",
             "courses_description", "contact_title", "contact_description", "whatsapp_number",
             "address", "business_hours", "body_font", "heading_font", "button_radius",
-            "card_radius", "header_variant", "footer_variant"
+            "card_radius", "header_variant", "footer_variant", "logo_url", "favicon_url"
         ]
 
         for field in text_fields:
@@ -108,6 +108,11 @@ class WebsiteService:
         settings.draft_config = current_draft
         settings.updated_by = updated_by
         settings.save()
+
+        # Invalidate public cache so draft previews reflect changes
+        cache_key = f"academy:{academy.id}:website_config"
+        cache.delete(cache_key)
+
         return settings
 
     @classmethod
@@ -148,23 +153,37 @@ class WebsiteService:
         settings = cls.get_or_create_settings(academy)
         active_config = settings.published_config if settings.published_config else default_theme_config()
 
-        logo_url = academy.logo.url if getattr(academy, 'logo', None) else ""
-        favicon_url = academy.favicon.url if getattr(academy, 'favicon', None) else ""
+        # Prioritize custom theme config logo and favicon over legacy academy.logo file if present
+        if "logo_url" in active_config:
+            logo_url = active_config.get("logo_url") or ""
+        else:
+            logo_url = (academy.logo.url if getattr(academy, 'logo', None) else "")
+
+        if "favicon_url" in active_config:
+            favicon_url = active_config.get("favicon_url") or ""
+        else:
+            favicon_url = (academy.favicon.url if getattr(academy, 'favicon', None) else "")
 
         config = {
             "academy": {
                 "name": active_config.get("academy_name") or academy.name,
                 "slug": academy.slug,
+                "uuid": str(academy.id),
                 "logo": logo_url,
                 "favicon": favicon_url,
+                "logo_url": logo_url,
+                "favicon_url": favicon_url,
                 "theme_color": active_config.get("primary_color", "#2563EB"),
                 "email": getattr(academy, 'email', '') or '',
                 "phone": getattr(academy, 'phone', '') or ''
             },
+            "logo_url": logo_url,
+            "favicon_url": favicon_url,
             "theme": active_config,
             "home": {
                 "hero_title": active_config.get("home_hero_title") or settings.home_hero_title,
-                "hero_subtitle": active_config.get("home_hero_subtitle") or settings.home_hero_subtitle
+                "hero_subtitle": active_config.get("home_hero_subtitle") or settings.home_hero_subtitle,
+                "hero_image_url": active_config.get("hero_image_url") or "",
             },
             "courses": {
                 "title": active_config.get("courses_title") or settings.courses_title,
@@ -196,6 +215,8 @@ class WebsiteService:
                 "academy_name": "CubixSkill Academy",
                 "logo": "",
                 "favicon": "",
+                "logo_url": "",
+                "favicon_url": "",
                 "theme_color": "#2563EB",
                 "theme": default_theme_config()
             }
@@ -203,13 +224,22 @@ class WebsiteService:
         settings = cls.get_or_create_settings(academy)
         active_config = settings.published_config or settings.draft_config or default_theme_config()
 
-        logo_url = academy.logo.url if getattr(academy, 'logo', None) else ""
-        favicon_url = academy.favicon.url if getattr(academy, 'favicon', None) else ""
+        if "logo_url" in active_config:
+            logo_url = active_config.get("logo_url") or ""
+        else:
+            logo_url = (academy.logo.url if getattr(academy, 'logo', None) else "")
+
+        if "favicon_url" in active_config:
+            favicon_url = active_config.get("favicon_url") or ""
+        else:
+            favicon_url = (academy.favicon.url if getattr(academy, 'favicon', None) else "")
 
         return {
             "academy_name": active_config.get("academy_name") or academy.name,
             "logo": logo_url,
             "favicon": favicon_url,
+            "logo_url": logo_url,
+            "favicon_url": favicon_url,
             "theme_color": active_config.get("primary_color", "#2563EB"),
             "theme": active_config
         }
