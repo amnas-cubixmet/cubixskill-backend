@@ -793,12 +793,16 @@ class ControlPanelStorageSettingsView(APIView):
             new_data = StorageBillingSettingsSerializer(settings_obj).data
 
         try:
-            from audit_logs.models import AuditLog
+            from audit_logs.models import AuditLog, AuditAction, AuditCategory
             AuditLog.objects.create(
-                user=request.user,
-                action="STORAGE_SETTINGS_UPDATE",
-                resource_type="StorageBillingSettings",
-                resource_id=str(settings_obj.id),
+                actor=request.user,
+                actor_display=request.user.email,
+                actor_role=str(getattr(request.user, "role_code", "") or ""),
+                action=AuditAction.STORAGE_CORRECTED,
+                category=AuditCategory.STORAGE,
+                target_type="StorageBillingSettings",
+                target_id=str(settings_obj.id),
+                description="Platform storage credit billing policy updated.",
                 changes={"old": old_data, "new": new_data},
             )
         except Exception:
