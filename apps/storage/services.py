@@ -384,12 +384,31 @@ class StorageSettlementService:
         academy = cycle.academy
         now = timezone.now()
 
-        # Lock credit account and cycle row
+        # Use the same credit-account lock as the legacy monthly debit path so
+        # competing billing engines cannot both charge the same academy/month.
         account = CreditAccount.objects.select_for_update().get(id=CreditService.get_or_create_account(academy).id)
         cycle = StorageBillingCycle.objects.select_for_update().get(id=cycle.id)
 
         if cycle.status in [StorageBillingCycleStatus.SETTLED, StorageBillingCycleStatus.DEBITED]:
             return cycle, False
+
+        # Legacy GB-month invoices and the interval settlement engine must
+        # never debit the same storage period. The shared wallet lock above
+        # serializes their checks with their actual ledger debit.
+        from storage.models import BillingStatus, StorageMonthlyBilling
+        start_month = cycle.cycle_start_at.strftime("%Y-%m")
+        end_month = now.strftime("%Y-%m")
+        if StorageMonthlyBilling.objects.filter(
+            academy_uuid=academy.id,
+            billing_period__gte=start_month,
+            billing_period__lte=end_month,
+            status=BillingStatus.CHARGED,
+            credits_charged__gt=Decimal("0"),
+        ).exists():
+            raise ValueError(
+                "An overlapping legacy storage invoice was already charged. "
+                "Resolve the conflicting billing engines before settling this cycle."
+            )
 
         original_amount = cycle.accumulated_credits.quantize(Decimal("0.0000"))
         available_credits = max(account.balance, Decimal("0.0000"))
