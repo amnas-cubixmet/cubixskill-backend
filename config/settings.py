@@ -18,6 +18,9 @@ if str(APPS_DIR) not in sys.path:
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-cubixskill-production-backend-secret-key-change-in-prod')
 
 DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 't')
+# Captured at startup: Django's test runner later sets DEBUG=False even for
+# tests of development-only short metering intervals.
+STORAGE_ALLOW_10_SECOND_METERING = DEBUG
 
 if not DEBUG and SECRET_KEY.startswith('django-insecure-'):
     from django.core.exceptions import ImproperlyConfigured
