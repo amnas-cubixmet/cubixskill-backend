@@ -39,7 +39,7 @@ class StorageBillingSettingsForm(forms.ModelForm):
 
     def clean(self):
         result = super().clean()
-        if (not settings.DEBUG
+        if (not settings.STORAGE_ALLOW_10_SECOND_METERING
                 and result.get("storage_billing_enabled")
                 and result.get("storage_billing_interval") == "10_SECONDS"):
             self.add_error(
