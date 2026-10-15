@@ -84,7 +84,7 @@ def meter_due_storage_usage():
         logger.error("Storage metering blocked: negative pricing rate")
         return "Invalid storage pricing"
     interval_str = settings_obj.storage_billing_interval
-    if interval_str == "10_SECONDS" and not django_settings.DEBUG:
+    if interval_str == "10_SECONDS" and not django_settings.STORAGE_ALLOW_10_SECOND_METERING:
         logger.error("Storage metering blocked: 10-second test interval in production")
         return "Invalid production storage interval"
 
