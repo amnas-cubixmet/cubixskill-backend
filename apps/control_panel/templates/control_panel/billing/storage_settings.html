@@ -261,7 +261,7 @@
           <input type="number" step="0.0001" min="0" name="storage_credit_rate_per_gb" id="id_storage_credit_rate_per_gb" class="cp-themed-input" value="{{ setting.storage_credit_rate_per_gb }}" required style="flex: 1; min-width: 180px;">
           <span style="font-weight: 500; color: var(--text-secondary); font-size: 14px; white-space: nowrap;">Credits / GB</span>
         </div>
-        <span class="cp-field-helper">Credits charged per configured storage unit (GB).</span>
+        <span class="cp-field-helper">Credits accumulated per stored GB at <strong>each metering interval</strong>. The wallet is debited on the monthly settlement schedule; this is not a monthly per-GB price.</span>
         {% if form.storage_credit_rate_per_gb.errors %}
           <span class="cp-field-error">{{ form.storage_credit_rate_per_gb.errors.0 }}</span>
         {% endif %}
@@ -271,7 +271,7 @@
       <div class="cp-field-group">
         <label class="cp-field-label" for="id_storage_billing_interval">Metering Interval</label>
         <select name="storage_billing_interval" id="id_storage_billing_interval" class="cp-themed-input">
-          <option value="10_SECONDS" {% if setting.storage_billing_interval == "10_SECONDS" %}selected{% endif %}>10 Seconds — Test</option>
+          <option value="10_SECONDS" {% if setting.storage_billing_interval == "10_SECONDS" %}selected{% endif %}>10 Seconds — Development Test Only</option>
           <option value="6_HOURS" {% if setting.storage_billing_interval == "6_HOURS" %}selected{% endif %}>6 Hours</option>
           <option value="12_HOURS" {% if setting.storage_billing_interval == "12_HOURS" %}selected{% endif %}>12 Hours</option>
           <option value="18_HOURS" {% if setting.storage_billing_interval == "18_HOURS" %}selected{% endif %}>18 Hours</option>

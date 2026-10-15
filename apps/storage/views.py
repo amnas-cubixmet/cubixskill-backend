@@ -730,12 +730,19 @@ class StorageBillingPeriodsView(APIView):
 
 
 class ControlPanelStorageSettingsView(APIView):
+    """Read and change platform storage pricing (not academy-specific settings)."""
     permission_classes = [permissions.IsAuthenticated]
 
-    def get(self, request):
-        if request.user.role_code not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
-            raise CubixSkillAPIException("Only Super Admins can manage platform storage settings.", code="PERMISSION_DENIED", status_code=status.HTTP_403_FORBIDDEN)
+    @staticmethod
+    def _require_admin(request):
+        if request.user.role_code not in ("SUPER_ADMIN", "SUPER_ADMIN_STAFF") and not request.user.is_superuser:
+            raise CubixSkillAPIException(
+                "Only Super Admins can manage platform storage settings.",
+                code="PERMISSION_DENIED", status_code=status.HTTP_403_FORBIDDEN,
+            )
 
+    def get(self, request):
+        self._require_admin(request)
         from storage.models import StorageBillingSettings
         from storage.serializers import StorageBillingSettingsSerializer
 
@@ -743,64 +750,67 @@ class ControlPanelStorageSettingsView(APIView):
         return api_response(data=StorageBillingSettingsSerializer(settings_obj).data)
 
     def post(self, request):
-        if request.user.role_code not in ['SUPER_ADMIN', 'SUPER_ADMIN_STAFF']:
-            raise CubixSkillAPIException("Only Super Admins can manage platform storage settings.", code="PERMISSION_DENIED", status_code=status.HTTP_403_FORBIDDEN)
+        self._require_admin(request)
+        from django.conf import settings as django_settings
+        from django.db import transaction
+        from rest_framework.exceptions import ValidationError
+        from storage.models import StorageBillingSettings
+        from storage.serializers import StorageBillingSettingsSerializer, StorageBillingSettingsUpdateSerializer
 
-        from decimal import Decimal
+        data = request.data.copy()
+        aliases = {
+            "billing_enabled": "storage_billing_enabled",
+            "billing_interval": "storage_billing_interval",
+            "credit_rate_per_gb": "storage_credit_rate_per_gb",
+            "credits_per_gb_month": "storage_credit_rate_per_gb",
+        }
+        for previous, current in aliases.items():
+            if previous in data:
+                if current in data and str(data[previous]) != str(data[current]):
+                    raise ValidationError({current: "Conflicting storage setting values."})
+                if current not in data:
+                    data[current] = data[previous]
 
-        from storage.models import StorageBillingInterval, StorageBillingSettings
-        from storage.serializers import StorageBillingSettingsSerializer
+        serializer = StorageBillingSettingsUpdateSerializer(data=data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        changes = serializer.validated_data
+        if not changes:
+            raise ValidationError({"message": "No storage setting values provided."})
 
-        settings_obj = StorageBillingSettings.get_settings()
-        old_data = StorageBillingSettingsSerializer(settings_obj).data
-
-        billing_enabled = request.data.get('storage_billing_enabled')
-        if billing_enabled is None:
-            billing_enabled = request.data.get('billing_enabled')
-        if billing_enabled is not None:
-            settings_obj.storage_billing_enabled = bool(billing_enabled)
-
-        billing_interval = request.data.get('storage_billing_interval')
-        if billing_interval is None:
-            billing_interval = request.data.get('billing_interval')
-        if billing_interval is not None:
-            if billing_interval not in StorageBillingInterval.values:
-                raise CubixSkillAPIException(
-                    f"Invalid billing interval '{billing_interval}'. Allowed choices: {list(StorageBillingInterval.values)}.",
-                    code="INVALID_INTERVAL",
-                    status_code=status.HTTP_400_BAD_REQUEST
-                )
-            settings_obj.storage_billing_interval = billing_interval
-
-        credit_rate = request.data.get('storage_credit_rate_per_gb')
-        if credit_rate is None:
-            credit_rate = request.data.get('credit_rate_per_gb')
-        if credit_rate is None:
-            credit_rate = request.data.get('credits_per_gb_month')
-        if credit_rate is not None:
-            try:
-                settings_obj.storage_credit_rate_per_gb = Decimal(str(credit_rate))
-            except Exception:
-                raise CubixSkillAPIException("Invalid decimal format for storage credit rate.", code="INVALID_RATE", status_code=status.HTTP_400_BAD_REQUEST)
-
-        settings_obj.save()
-        new_data = StorageBillingSettingsSerializer(settings_obj).data
+        with transaction.atomic():
+            settings_obj = StorageBillingSettings.get_settings()
+            old_data = StorageBillingSettingsSerializer(settings_obj).data
+            for key, value in changes.items():
+                setattr(settings_obj, key, value)
+            if (settings_obj.storage_billing_enabled
+                    and settings_obj.storage_billing_interval == "10_SECONDS"
+                    and not django_settings.STORAGE_ALLOW_10_SECOND_METERING):
+                raise ValidationError({
+                    "storage_billing_interval": "10-second metering is prohibited in production.",
+                })
+            settings_obj.full_clean()
+            settings_obj.save(update_fields=list(changes.keys()) + ["updated_at"])
+            new_data = StorageBillingSettingsSerializer(settings_obj).data
 
         try:
-            from audit_logs.models import AuditLog
+            from audit_logs.models import AuditLog, AuditAction, AuditCategory
             AuditLog.objects.create(
-                user=request.user,
-                action='STORAGE_SETTINGS_UPDATE',
-                resource_type='StorageBillingSettings',
-                resource_id=str(settings_obj.id),
-                changes={'old': old_data, 'new': new_data}
+                actor=request.user,
+                actor_display=request.user.email,
+                actor_role=str(getattr(request.user, "role_code", "") or ""),
+                action=AuditAction.STORAGE_CORRECTED,
+                category=AuditCategory.STORAGE,
+                target_type="StorageBillingSettings",
+                target_id=str(settings_obj.id),
+                description="Platform storage credit billing policy updated.",
+                changes={"old": old_data, "new": new_data},
             )
-        except Exception as e:
-            logger.warning(f"Audit log entry creation failed: {e}")
+        except Exception:
+            logger.warning("Storage settings saved, but audit logging failed.", exc_info=True)
 
         return api_response(
             data=new_data,
-            message="Storage billing settings updated successfully."
+            message="Storage billing settings updated successfully.",
         )
 
 

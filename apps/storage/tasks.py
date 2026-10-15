@@ -64,113 +64,115 @@ def enqueue_hls_safely(media_id: str):
 
 @shared_task(name="storage.meter_due_storage_usage")
 def meter_due_storage_usage():
+    """Accumulate one credit reading per due interval; never debit a wallet here.
+
+    Rate units are explicitly credits per GB *per metering interval*.
+    Billing cycles are settled by the separate monthly settlement task.
     """
-    Periodically measures physical storage usage, creates a StorageMeterRecord,
-    and atomically accumulates calculated credits into the current OPEN StorageBillingCycle.
-    Does NOT debit credit balance directly.
-    """
+    from django.conf import settings as django_settings
+    from storage.utils import bytes_to_gb, storage_interval_delta
+    from storage.models import (
+        StorageBillingCycle, StorageBillingCycleStatus, StorageBillingSettings,
+        StorageMeterFileSnapshot, StorageMeterRecord, AcademyStorageUsage,
+        MediaFile, MediaStatus,
+    )
+
     settings_obj = StorageBillingSettings.get_settings()
     if not settings_obj.storage_billing_enabled:
-        logger.info("Storage billing is disabled in settings. Skipping metering.")
         return "Storage billing disabled"
-
+    if settings_obj.storage_credit_rate_per_gb < 0:
+        logger.error("Storage metering blocked: negative pricing rate")
+        return "Invalid storage pricing"
     interval_str = settings_obj.storage_billing_interval
-    rate_per_gb = settings_obj.storage_credit_rate_per_gb
+    if interval_str == "10_SECONDS" and not django_settings.STORAGE_ALLOW_10_SECOND_METERING:
+        logger.error("Storage metering blocked: 10-second test interval in production")
+        return "Invalid production storage interval"
+
     delta = storage_interval_delta(interval_str)
-    now = timezone.now()
+    rate_per_gb = settings_obj.storage_credit_rate_per_gb
     metered_count = 0
 
-    academies = Academy.objects.all()
-    for academy in academies:
-        usage, _ = AcademyStorageUsage.objects.get_or_create(
-            academy=academy,
-            defaults={'academy_uuid': academy.id, 'used_bytes': 0, 'file_count': 0}
-        )
-
-        last_billed = usage.last_billed_at
-        if last_billed:
-            next_due_at = last_billed + delta
-            if now < next_due_at:
-                logger.info(
-                    "Storage meter skipped academy=%s reason=not_due next_due_at=%s",
-                    academy.id,
-                    next_due_at,
-                )
-                continue
-
-        active_files = list(MediaFile.objects.filter(academy_uuid=academy.id, status=MediaStatus.ACTIVE))
-        actual_file_bytes = sum((f.total_storage_bytes or f.size_bytes) for f in active_files)
-        used_bytes = max(usage.used_bytes, actual_file_bytes)
-        used_gb = bytes_to_gb(used_bytes)
-        calculated_credits = (used_gb * rate_per_gb).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-
-        logger.info(f"Storage meter start academy={academy.id} used_bytes={used_bytes} rate={rate_per_gb} calculated_credits={calculated_credits}")
-
+    for academy in Academy.objects.all().iterator():
         try:
+            # Lock a single academy's usage row before checking the due time.
+            # A concurrent worker must observe the updated last_billed_at and skip.
             with transaction.atomic():
-                open_cycle = StorageBillingCycle.objects.select_for_update().filter(
+                usage, _ = AcademyStorageUsage.objects.get_or_create(
                     academy=academy,
-                    status=StorageBillingCycleStatus.OPEN
-                ).order_by('-cycle_start_at').first()
+                    defaults={"academy_uuid": academy.id, "used_bytes": 0, "file_count": 0},
+                )
+                usage = AcademyStorageUsage.objects.select_for_update().get(pk=usage.pk)
+                now = timezone.now()
+                if usage.last_billed_at and now < usage.last_billed_at + delta:
+                    continue
 
-                if not open_cycle:
-                    import uuid
-                    idempotency_key = f"storage-cycle:{academy.id}:{now.isoformat()}"
-                    if StorageBillingCycle.objects.filter(idempotency_key=idempotency_key).exists():
-                        idempotency_key = f"storage-cycle:{academy.id}:{now.isoformat()}:{uuid.uuid4().hex[:6]}"
-
+                # Real, currently active file bytes are authoritative. In
+                # particular, do not keep a stale maximum after files are deleted.
+                active_files = list(
+                    MediaFile.objects.filter(
+                        academy_uuid=academy.id, status=MediaStatus.ACTIVE,
+                    ).order_by("pk")
+                )
+                active_bytes = sum(max(0, f.total_storage_bytes) for f in active_files)
+                # Older academy usage accounting may represent data not yet
+                # migrated to MediaFile. Preserve those records ONLY when the
+                # academy has never registered a MediaFile; once media rows
+                # exist, current active files override stale usage counters.
+                has_media_registry = MediaFile.objects.filter(academy_uuid=academy.id).exists()
+                used_bytes = active_bytes if has_media_registry else max(0, usage.used_bytes)
+                used_gb = bytes_to_gb(used_bytes)
+                calculated_credits = (used_gb * rate_per_gb).quantize(
+                    Decimal("0.0001"), rounding=ROUND_HALF_UP,
+                )
+                open_cycle = (
+                    StorageBillingCycle.objects.select_for_update()
+                    .filter(academy=academy, status=StorageBillingCycleStatus.OPEN)
+                    .order_by("-cycle_start_at").first()
+                )
+                if open_cycle is None:
+                    # A unique partial constraint ensures exactly one open cycle
+                    # per academy; usage-row locking serializes local schedulers.
                     open_cycle = StorageBillingCycle.objects.create(
-                        academy=academy,
-                        academy_uuid=academy.id,
+                        academy=academy, academy_uuid=academy.id,
                         cycle_start_at=now,
                         accumulated_credits=Decimal("0.0000"),
                         status=StorageBillingCycleStatus.OPEN,
-                        idempotency_key=idempotency_key
+                        idempotency_key=f"storage-cycle:{academy.id}:{now.isoformat()}",
                     )
 
                 meter_rec = StorageMeterRecord.objects.create(
-                    academy=academy,
-                    academy_uuid=academy.id,
-                    billing_cycle=open_cycle,
-                    metered_at=now,
-                    used_bytes=used_bytes,
-                    used_gb=used_gb,
+                    academy=academy, academy_uuid=academy.id,
+                    billing_cycle=open_cycle, metered_at=now,
+                    used_bytes=used_bytes, used_gb=used_gb,
                     credit_rate_per_gb=rate_per_gb,
                     calculated_credits=calculated_credits,
                     metering_interval=interval_str,
-                    file_count=len(active_files)
+                    file_count=len(active_files),
                 )
+                if active_files:
+                    StorageMeterFileSnapshot.objects.bulk_create([
+                        StorageMeterFileSnapshot(
+                            meter_record=meter_rec,
+                            academy=academy, academy_uuid=academy.id,
+                            media_file=f, media_file_uuid=f.id,
+                            filename_snapshot=f.display_name or f.original_filename,
+                            media_type_snapshot=f.media_type,
+                            size_bytes_snapshot=max(0, f.total_storage_bytes),
+                            uploaded_at_snapshot=f.uploaded_at or f.created_at,
+                            storage_key_snapshot=f.storage_key or "",
+                        )
+                        for f in active_files
+                    ])
 
-                from storage.models import StorageMeterFileSnapshot
-                snapshots = [
-                    StorageMeterFileSnapshot(
-                        meter_record=meter_rec,
-                        academy=academy,
-                        academy_uuid=academy.id,
-                        media_file=f,
-                        media_file_uuid=f.id,
-                        filename_snapshot=f.display_name or f.original_filename,
-                        media_type_snapshot=f.media_type,
-                        size_bytes_snapshot=f.total_storage_bytes or f.size_bytes,
-                        uploaded_at_snapshot=f.uploaded_at or f.created_at,
-                        storage_key_snapshot=f.storage_key or ''
-                    )
-                    for f in active_files
-                ]
-                if snapshots:
-                    StorageMeterFileSnapshot.objects.bulk_create(snapshots)
-
-                open_cycle.accumulated_credits = models.F('accumulated_credits') + calculated_credits
-                open_cycle.save(update_fields=['accumulated_credits'])
-                open_cycle.refresh_from_db(fields=['accumulated_credits'])
-
+                open_cycle.accumulated_credits = models.F("accumulated_credits") + calculated_credits
+                open_cycle.save(update_fields=["accumulated_credits"])
+                usage.used_bytes = used_bytes
+                usage.file_count = len(active_files)
                 usage.last_billed_at = now
-                usage.save(update_fields=['last_billed_at'])
+                usage.save(update_fields=["used_bytes", "file_count", "last_billed_at"])
                 metered_count += 1
-                logger.info(f"Storage meter created academy={academy.id} meter={meter_rec.id}")
-
-        except Exception as exc:
-            logger.exception(f"Error metering storage for academy {academy.id}: {exc}")
+        except Exception:
+            logger.exception("Storage metering failed for academy %s", academy.id)
 
     return f"Metered storage for {metered_count} academies"
 

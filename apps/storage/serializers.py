@@ -144,6 +144,27 @@ class StorageUsageEventSerializer(serializers.ModelSerializer):
         ]
 
 
+class StorageBillingSettingsUpdateSerializer(serializers.Serializer):
+    """Explicit platform-admin input; reject negative/unbounded pricing."""
+    storage_billing_enabled = serializers.BooleanField(required=False)
+    storage_billing_interval = serializers.ChoiceField(
+        choices=["10_SECONDS", "6_HOURS", "12_HOURS", "18_HOURS", "1_DAY"],
+        required=False,
+    )
+    storage_credit_rate_per_gb = serializers.DecimalField(
+        max_digits=12, decimal_places=4, min_value=Decimal("0.0000"),
+        max_value=Decimal("1000000.0000"), required=False,
+    )
+    storage_credit_debit_day = serializers.IntegerField(min_value=1, max_value=31, required=False)
+    storage_credit_debit_time = serializers.TimeField(required=False)
+
+    def validate_storage_billing_interval(self, value):
+        from django.conf import settings
+        if value == "10_SECONDS" and not settings.STORAGE_ALLOW_10_SECOND_METERING:
+            raise serializers.ValidationError("10-second billing is available in development mode only.")
+        return value
+
+
 class StorageBillingSettingsSerializer(serializers.ModelSerializer):
     storage_billing_enabled = serializers.BooleanField(source='billing_enabled')
     billing_interval_label = serializers.SerializerMethodField()

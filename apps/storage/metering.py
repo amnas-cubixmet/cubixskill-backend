@@ -326,6 +326,33 @@ class StorageBillingService:
         if billing_record.status == BillingStatus.CHARGED:
             return billing_record
 
+        # The interval settlement engine is the other historic storage
+        # charging path. Serialize its account lock with this legacy path and
+        # refuse to debit an overlapping already-settled period.
+        from credits.models import CreditAccount
+        from storage.models import StorageBillingCycle, StorageBillingCycleStatus
+        academy = Academy.objects.get(id=billing_record.academy_uuid)
+        credit_account = CreditService.get_or_create_account(academy)
+        CreditAccount.objects.select_for_update().get(pk=credit_account.pk)
+        year, month = map(int, billing_record.billing_period.split("-"))
+        month_start = datetime(year, month, 1, tzinfo=dt_timezone.utc)
+        next_month_start = (
+            datetime(year + 1, 1, 1, tzinfo=dt_timezone.utc)
+            if month == 12 else datetime(year, month + 1, 1, tzinfo=dt_timezone.utc)
+        )
+        if StorageBillingCycle.objects.filter(
+            academy=academy,
+            status__in=[
+                StorageBillingCycleStatus.SETTLED, StorageBillingCycleStatus.DEBITED,
+            ],
+            cycle_start_at__lt=next_month_start,
+            cycle_end_at__gt=month_start,
+        ).exists():
+            raise ValueError(
+                "An overlapping interval storage cycle has already settled. "
+                "Do not charge the same storage month again through legacy billing."
+            )
+
         if billing_record.credits_calculated <= Decimal('0.000000'):
             billing_record.status = BillingStatus.CHARGED
             billing_record.credits_charged = Decimal('0.000000')
