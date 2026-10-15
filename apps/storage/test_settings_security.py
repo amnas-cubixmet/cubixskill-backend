@@ -65,7 +65,7 @@ class StorageSettingsSecurityTests(TestCase):
             self.url, {"storage_billing_enabled": "incorrect"}, format="json",
         ).status_code, 400)
 
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, STORAGE_ALLOW_10_SECOND_METERING=False)
     def test_production_rejects_10_second_paid_metering(self):
         self.assertEqual(self.client.post(self.url, {
             "storage_billing_enabled": True,
@@ -131,7 +131,7 @@ class MeteredStorageAccuracyTests(TestCase):
             Decimal("6.0000"),
         )
 
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, STORAGE_ALLOW_10_SECOND_METERING=False)
     def test_forbidden_production_ten_second_schedule_does_not_add_usage(self):
         result = meter_due_storage_usage()
         self.assertEqual(result, "Invalid production storage interval")
