@@ -113,7 +113,13 @@ def meter_due_storage_usage():
                         academy_uuid=academy.id, status=MediaStatus.ACTIVE,
                     ).order_by("pk")
                 )
-                used_bytes = sum(max(0, f.total_storage_bytes) for f in active_files)
+                active_bytes = sum(max(0, f.total_storage_bytes) for f in active_files)
+                # Older academy usage accounting may represent data not yet
+                # migrated to MediaFile. Preserve those records ONLY when the
+                # academy has never registered a MediaFile; once media rows
+                # exist, current active files override stale usage counters.
+                has_media_registry = MediaFile.objects.filter(academy_uuid=academy.id).exists()
+                used_bytes = active_bytes if has_media_registry else max(0, usage.used_bytes)
                 used_gb = bytes_to_gb(used_bytes)
                 calculated_credits = (used_gb * rate_per_gb).quantize(
                     Decimal("0.0001"), rounding=ROUND_HALF_UP,
