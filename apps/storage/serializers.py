@@ -160,7 +160,7 @@ class StorageBillingSettingsUpdateSerializer(serializers.Serializer):
 
     def validate_storage_billing_interval(self, value):
         from django.conf import settings
-        if value == "10_SECONDS" and not settings.DEBUG:
+        if value == "10_SECONDS" and not settings.STORAGE_ALLOW_10_SECOND_METERING:
             raise serializers.ValidationError("10-second billing is available in development mode only.")
         return value
 
