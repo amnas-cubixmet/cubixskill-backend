@@ -784,7 +784,7 @@ class ControlPanelStorageSettingsView(APIView):
                 setattr(settings_obj, key, value)
             if (settings_obj.storage_billing_enabled
                     and settings_obj.storage_billing_interval == "10_SECONDS"
-                    and not django_settings.DEBUG):
+                    and not django_settings.STORAGE_ALLOW_10_SECOND_METERING):
                 raise ValidationError({
                     "storage_billing_interval": "10-second metering is prohibited in production.",
                 })
