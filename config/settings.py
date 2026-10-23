@@ -6,6 +6,8 @@ from pathlib import Path
 from corsheaders.defaults import default_headers, default_methods
 from dotenv import load_dotenv
 
+from config.environment import env_bool, env_csv, env_int, env_origins
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / '.env')
@@ -17,7 +19,7 @@ if str(APPS_DIR) not in sys.path:
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-cubixskill-production-backend-secret-key-change-in-prod')
 
-DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 't')
+DEBUG = env_bool('DEBUG', True)
 # Captured at startup: Django's test runner later sets DEBUG=False even for
 # tests of development-only short metering intervals.
 STORAGE_ALLOW_10_SECOND_METERING = DEBUG
@@ -26,11 +28,10 @@ if not DEBUG and SECRET_KEY.startswith('django-insecure-'):
     from django.core.exceptions import ImproperlyConfigured
     raise ImproperlyConfigured("SECRET_KEY environment variable must be set to a secure secret when DEBUG is False.")
 
-raw_allowed_hosts = os.getenv('ALLOWED_HOSTS', '')
-if raw_allowed_hosts:
-    ALLOWED_HOSTS = [h.strip() for h in raw_allowed_hosts.split(',') if h.strip()]
-else:
-    ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]'] if DEBUG else []
+ALLOWED_HOSTS = env_csv(
+    'ALLOWED_HOSTS',
+    ('localhost', '127.0.0.1', '[::1]') if DEBUG else (),
+)
 
 if not DEBUG and '*' in ALLOWED_HOSTS:
     ALLOWED_HOSTS = [h for h in ALLOWED_HOSTS if h != '*']
@@ -114,21 +115,13 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
 
-# Database Configuration (Environment Driven: PostgreSQL vs SQLite fallback)
+# Database configuration: never silently change to SQLite when DATABASE_URL is supplied.
+# Development defaults to SQLite. Use DATABASE_URL or USE_POSTGRES=true + DB_NAME for PostgreSQL.
 if os.getenv('DATABASE_URL'):
-    try:
-        import dj_database_url
-        DATABASES = {
-            'default': dj_database_url.config(default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
-        }
-    except ImportError:
-        DATABASES = {
-            "default": {
-                "ENGINE": "django.db.backends.sqlite3",
-                "NAME": BASE_DIR / "db.sqlite3",
-            }
-        }
-elif os.getenv('DB_NAME') and os.getenv('USE_POSTGRES', 'False').lower() in ('true', '1', 't'):
+    import dj_database_url
+
+    DATABASES = {'default': dj_database_url.parse(os.environ['DATABASE_URL'])}
+elif os.getenv('DB_NAME') and env_bool('USE_POSTGRES', False):
     DATABASES = {
         'default': {
             'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
@@ -141,12 +134,10 @@ elif os.getenv('DB_NAME') and os.getenv('USE_POSTGRES', 'False').lower() in ('tr
     }
 else:
     DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-            "OPTIONS": {
-                "timeout": 20,
-            },
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+            'OPTIONS': {'timeout': 20},
         }
     }
 
@@ -163,16 +154,16 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=env_int('JWT_ACCESS_TOKEN_MINUTES', 60, minimum=1)),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=env_int('JWT_REFRESH_TOKEN_DAYS', 7, minimum=1)),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
 # Redis & Channels Configuration
-REDIS_URL = os.getenv('REDIS_URL', os.getenv('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/0'))
-USE_REDIS_CHANNELS = os.getenv('USE_REDIS_CHANNELS', str(not DEBUG)).lower() in ('true', '1', 't')
+REDIS_URL = os.getenv('REDIS_URL') or os.getenv('CELERY_BROKER_URL') or 'redis://127.0.0.1:6379/0'
+USE_REDIS_CHANNELS = env_bool('USE_REDIS_CHANNELS', not DEBUG)
 
 if USE_REDIS_CHANNELS:
     CHANNEL_LAYERS = {
@@ -200,7 +191,7 @@ MINIO_ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY', 'minioadmin')
 MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY', 'minioadmin')
 MINIO_STORAGE_BUCKET_NAME = os.getenv('MINIO_STORAGE_BUCKET_NAME', 'cubixskill-media')
 MINIO_REGION_NAME = os.getenv('MINIO_REGION_NAME', 'us-east-1')
-MINIO_USE_SSL = os.getenv('MINIO_USE_SSL', 'False').lower() in ('true', '1', 't')
+MINIO_USE_SSL = env_bool('MINIO_USE_SSL', False)
 
 import mimetypes
 
@@ -215,8 +206,8 @@ DOCUMENT_MAX_SIZE_MB = 25
 VIDEO_MAX_SIZE_MB = 500
 AUDIO_MAX_SIZE_MB = 100
 
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'Asia/Kolkata'
+LANGUAGE_CODE = os.getenv('LANGUAGE_CODE', 'en-us')
+TIME_ZONE = os.getenv('TIME_ZONE', 'Asia/Kolkata')
 USE_I18N = True
 USE_TZ = True
 
@@ -234,8 +225,8 @@ RAZORPAY_CURRENCY = os.getenv('RAZORPAY_CURRENCY', 'INR')
 # Email Configuration (Supports SMTP App Password via EMAIL_HOST_PASSWORD)
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend' if not DEBUG else 'django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 't')
+EMAIL_PORT = env_int('EMAIL_PORT', 587, minimum=1)
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', True)
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply@cubixskill.com')
@@ -244,59 +235,54 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply
 FFMPEG_BINARY = os.getenv('FFMPEG_BINARY', None)
 FFPROBE_BINARY = os.getenv('FFPROBE_BINARY', None)
 
-# CORS Configuration
+# Allowlist credentialed browser requests by exact origin. Local URLs are defaults
+# only in DEBUG mode; production must declare its own origins in the environment.
+# Both localhost and 127.0.0.1 are supported for public (5175), instructor (5173)
+# and student (5174) development frontends.
+LOCAL_BROWSER_ORIGINS = (
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:5175',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174',
+    'http://127.0.0.1:5175',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+)
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = False
-cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', '')
-if cors_origins_env:
-    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
-else:
-    CORS_ALLOWED_ORIGINS = [
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:5175",  # CubixSkill public website
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-        "http://127.0.0.1:5175",  # CubixSkill public website
-    ]
-
-CORS_ALLOW_HEADERS = list(default_headers) + [
-    'x-portal',
-]
-
+CORS_ALLOWED_ORIGINS = env_origins(
+    'CORS_ALLOWED_ORIGINS', LOCAL_BROWSER_ORIGINS if DEBUG else (),
+)
+CSRF_TRUSTED_ORIGINS = env_origins(
+    'CSRF_TRUSTED_ORIGINS', LOCAL_BROWSER_ORIGINS if DEBUG else (),
+)
+CORS_ALLOW_HEADERS = list(default_headers) + ['x-portal']
 CORS_ALLOW_METHODS = list(default_methods)
 
-csrf_trusted_env = os.getenv('CSRF_TRUSTED_ORIGINS', '')
-if csrf_trusted_env:
-    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_trusted_env.split(',') if origin.strip()]
-else:
-    CSRF_TRUSTED_ORIGINS = [
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:5175",  # CubixSkill public website
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-        "http://127.0.0.1:5175",  # CubixSkill public website
-    ]
-
 # Cookie Configuration for JWT Auth
-AUTH_COOKIE_SECURE = os.getenv('AUTH_COOKIE_SECURE', str(not DEBUG)).lower() in ('true', '1', 't')
-AUTH_COOKIE_SAMESITE = os.getenv('AUTH_COOKIE_SAMESITE', 'Lax')
-AUTH_COOKIE_PATH = os.getenv('AUTH_COOKIE_PATH', '/')
-AUTH_COOKIE_DOMAIN = os.getenv('AUTH_COOKIE_DOMAIN', None)
+AUTH_COOKIE_SECURE = env_bool('AUTH_COOKIE_SECURE', not DEBUG)
+AUTH_COOKIE_SAMESITE = (os.getenv('AUTH_COOKIE_SAMESITE', 'Lax') or 'Lax').strip().capitalize()
+AUTH_COOKIE_PATH = os.getenv('AUTH_COOKIE_PATH', '/') or '/'
+AUTH_COOKIE_DOMAIN = os.getenv('AUTH_COOKIE_DOMAIN', '').strip() or None
+if AUTH_COOKIE_SAMESITE not in ('Lax', 'Strict', 'None'):
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured('AUTH_COOKIE_SAMESITE must be Lax, Strict, or None.')
+if AUTH_COOKIE_SAMESITE == 'None' and not AUTH_COOKIE_SECURE:
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured('AUTH_COOKIE_SAMESITE=None requires AUTH_COOKIE_SECURE=True and HTTPS.')
 
 # HTTPS Security Header Configuration
 if not DEBUG:
-    SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'True').lower() in ('true', '1', 't')
-    SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'True').lower() in ('true', '1', 't')
-    CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'True').lower() in ('true', '1', 't')
-    SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '31536000'))
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv('SECURE_HSTS_INCLUDE_SUBDOMAINS', 'True').lower() in ('true', '1', 't')
-    SECURE_HSTS_PRELOAD = os.getenv('SECURE_HSTS_PRELOAD', 'True').lower() in ('true', '1', 't')
+    SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', True)
+    SESSION_COOKIE_SECURE = env_bool('SESSION_COOKIE_SECURE', True)
+    CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', True)
+    SECURE_HSTS_SECONDS = env_int('SECURE_HSTS_SECONDS', 31536000, minimum=0)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', True)
+    SECURE_HSTS_PRELOAD = env_bool('SECURE_HSTS_PRELOAD', True)
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
-    if os.getenv('USE_SECURE_PROXY_HEADER', 'False').lower() in ('true', '1', 't'):
+    if env_bool('USE_SECURE_PROXY_HEADER', False):
         SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Frontend URL Configuration
@@ -310,8 +296,8 @@ LOGIN_REDIRECT_URL = '/'
 # --------------------------------------------------------------
 # Celery & Redis Task Queue Configuration
 # --------------------------------------------------------------
-CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/0')
-CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://127.0.0.1:6379/1')
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL') or REDIS_URL
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND') or REDIS_URL
 
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_ENABLE_UTC = True
@@ -319,13 +305,13 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = 30 * 60
-CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_TIME_LIMIT = env_int('CELERY_TASK_TIME_LIMIT_SECONDS', 30 * 60, minimum=60)
+CELERY_WORKER_PREFETCH_MULTIPLIER = env_int('CELERY_WORKER_PREFETCH_MULTIPLIER', 1, minimum=1)
 
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
-CELERY_BROKER_CONNECTION_MAX_RETRIES = 3
-CELERY_RESULT_BACKEND_MAX_RETRIES = 3
-CELERY_RESULT_EXPIRES = 86400  # 24 hours
+CELERY_BROKER_CONNECTION_MAX_RETRIES = env_int('CELERY_BROKER_CONNECTION_MAX_RETRIES', 3, minimum=1)
+CELERY_RESULT_BACKEND_MAX_RETRIES = env_int('CELERY_RESULT_BACKEND_MAX_RETRIES', 3, minimum=1)
+CELERY_RESULT_EXPIRES = env_int('CELERY_RESULT_EXPIRES_SECONDS', 86400, minimum=60)
 
 CELERY_TASK_ROUTES = {
     'emails.tasks.*': {'queue': 'default'},
@@ -340,6 +326,13 @@ CELERY_TASK_ROUTES = {
     'analytics_reports.tasks.*': {'queue': 'default'},
 }
 
+
+# Do not run 10-second storage billing metering in production.
+STORAGE_BILLING_BEAT_INTERVAL = env_int(
+    'STORAGE_BILLING_BEAT_INTERVAL_SECONDS',
+    10 if DEBUG else 60,
+    minimum=1 if DEBUG else 60,
+)
 
 CELERY_BEAT_SCHEDULE = {
     'dispatch-pending-email-jobs-every-minute': {
@@ -360,11 +353,11 @@ CELERY_BEAT_SCHEDULE = {
     },
     'meter-due-storage-usage': {
         'task': 'storage.meter_due_storage_usage',
-        'schedule': 10.0 if DEBUG else 60.0,
+        'schedule': float(STORAGE_BILLING_BEAT_INTERVAL),
     },
     'debit-due-storage-billing-cycles': {
         'task': 'storage.debit_due_storage_billing_cycles',
-        'schedule': 10.0 if DEBUG else 60.0,
+        'schedule': float(STORAGE_BILLING_BEAT_INTERVAL),
     },
 }
 
