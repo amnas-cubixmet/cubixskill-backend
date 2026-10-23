@@ -430,3 +430,30 @@ class LeadImportJob(BaseModel):
 
     def __str__(self):
         return f"Import Job {self.id} for {self.academy.name if self.academy else 'Academy'} ({self.status})"
+
+
+class PlatformDemoRequest(BaseModel):
+    """Unauthenticated demo enquiries for CubixSkill itself (not tenant leads)."""
+
+    full_name = models.CharField(max_length=255)
+    email = models.EmailField()
+    phone = models.CharField(max_length=30)
+    country = models.CharField(max_length=100)
+    academy_name = models.CharField(max_length=255)
+    student_count = models.CharField(max_length=30)
+    course_count = models.CharField(max_length=30)
+    current_platform = models.CharField(max_length=100)
+    main_requirement = models.CharField(max_length=500)
+    preferred_date = models.DateField()
+    preferred_time = models.TimeField()
+    time_zone = models.CharField(max_length=64)
+    message = models.TextField(blank=True, default='')
+    source = models.CharField(max_length=40, default='PUBLIC_WEBSITE')
+    status = models.CharField(max_length=20, default='NEW', db_index=True)
+
+    class Meta:
+        db_table = 'platform_demo_requests'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.full_name} — {self.academy_name}"
