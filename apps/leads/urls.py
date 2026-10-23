@@ -1,4 +1,5 @@
 from django.urls import include, path
+from leads.public_demo import PublicPlatformDemoRequestView
 from leads.views import (
     DemoLeadCreateView,
     LeadFollowUpViewSet,
@@ -13,6 +14,7 @@ router.register(r'leads', LeadViewSet, basename='lead')
 router.register(r'lead-follow-ups', LeadFollowUpViewSet, basename='lead-follow-up')
 
 urlpatterns = [
+    path('public/platform-demo/', PublicPlatformDemoRequestView.as_view(), name='public-platform-demo'),
     path('public/academies/<slug:academy_slug>/enquiries/', PublicLeadEnquiryView.as_view(), name='public-lead-enquiry'),
     path('demo-leads/', DemoLeadCreateView.as_view(), name='demo-lead-create'),
     path('leads/import/', LeadImportViewSet.as_view(), name='lead-import'),
