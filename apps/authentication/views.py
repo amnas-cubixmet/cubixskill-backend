@@ -302,7 +302,10 @@ class ResendSetupEmailView(APIView):
         if user and not user.password_setup_completed:
             target_academy = academy or user.academy
             raw_token = AuthTokenService.generate_token(user, TokenType.PASSWORD_SETUP)
-            send_student_activation_email(user=user, academy=target_academy, raw_token=raw_token)
+            if user.role_code == SystemRoleCode.ACADEMY_ADMIN:
+                send_academy_activation_email(user=user, academy=target_academy, raw_token=raw_token)
+            else:
+                send_student_activation_email(user=user, academy=target_academy, raw_token=raw_token)
 
         return api_response(message="If an eligible account exists, a password setup email has been sent.")
 
