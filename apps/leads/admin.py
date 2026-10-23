@@ -8,6 +8,7 @@ from leads.models import (
     LeadImportJob,
     LeadNote,
     LeadTag,
+    PlatformDemoRequest,
 )
 
 # --------------------------------------------------------------
@@ -90,3 +91,11 @@ class LeadTagAdmin(admin.ModelAdmin):
 class LeadImportJobAdmin(admin.ModelAdmin):
     list_display = ('id', 'academy', 'uploaded_by', 'status', 'total_rows', 'created_count', 'updated_count', 'failed_count', 'created_at')
     list_filter = ('status', 'created_at')
+
+
+@admin.register(PlatformDemoRequest)
+class PlatformDemoRequestAdmin(admin.ModelAdmin):
+    list_display = ('full_name', 'academy_name', 'email', 'preferred_date', 'status', 'created_at')
+    list_filter = ('status', 'preferred_date', 'created_at')
+    search_fields = ('full_name', 'academy_name', 'email', 'phone')
+    readonly_fields = ('created_at', 'updated_at')
