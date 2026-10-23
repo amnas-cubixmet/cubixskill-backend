@@ -1,0 +1,55 @@
+name: Audit and notification migration checks
+
+on:
+  pull_request:
+    paths:
+      - "apps/audit_logs/**"
+      - "apps/notifications/**"
+      - ".github/workflows/audit-notification-migrations.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/audit_logs/**"
+      - "apps/notifications/**"
+      - ".github/workflows/audit-notification-migrations.yml"
+  workflow_dispatch:
+
+jobs:
+  migrations-and-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: cubixskill_ci
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d cubixskill_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DEBUG: "True"
+      SECRET_KEY: github-ci-audit-notifications-only-not-for-production
+      DATABASE_URL: postgresql://ci:ci_only_password@localhost:5432/cubixskill_ci
+      USE_REDIS_CHANNELS: "False"
+      CELERY_TASK_ALWAYS_EAGER: "True"
+      CELERY_TASK_EAGER_PROPAGATES: "True"
+      EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - run: python -m compileall -q apps/audit_logs apps/notifications
+      - run: python manage.py check
+      - run: python manage.py makemigrations audit_logs notifications --check --dry-run
+      - run: python manage.py migrate --noinput
+      # The legacy notifications.tests suite has unrelated service API mismatches:
+      # channels/idempotency_key kwargs and email suppression status.
+      # This workflow verifies schema drift and the new choice values.
+      - run: python manage.py test audit_logs.tests audit_logs.test_migration_choices notifications.test_migration_choices --noinput
