@@ -16,6 +16,7 @@ from emails.services import (
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -64,8 +65,26 @@ def create_portal_token(user, portal='student'):
 
 
 
+class SignupEmailThrottle(SimpleRateThrottle):
+    """Throttle by normalized email; proxy/serverless egress IPs may be shared."""
+    scope = 'academy_signup'
+    rate = '6/hour'
+
+    def get_cache_key(self, request, view):
+        email = str(request.data.get('email', '')).strip().lower()
+        identity = email if email else self.get_ident(request)
+        return self.cache_format % {'scope': self.scope, 'ident': identity}
+
+
+class SetupEmailResendThrottle(SignupEmailThrottle):
+    scope = 'academy_setup_resend'
+    rate = '3/hour'
+
+
 class RegisterAcademyView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [SignupEmailThrottle]
 
     def post(self, request):
         serializer = RegisterAcademySerializer(data=request.data)
@@ -288,6 +307,8 @@ class ResendVerificationEmailView(APIView):
 
 class ResendSetupEmailView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [SetupEmailResendThrottle]
 
     def post(self, request):
         serializer = ResendSetupEmailSerializer(data=request.data)
