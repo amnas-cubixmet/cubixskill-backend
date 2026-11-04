@@ -10,6 +10,17 @@ from emails.services import send_transactional_email
 
 logger = logging.getLogger(__name__)
 
+# Account-security messages must work for new academies with zero wallet credits.
+# Only these fixed transactional templates are exempt; course/broadcast emails
+# still use the existing per-recipient credit billing.
+FREE_SECURITY_EMAIL_TEMPLATES = frozenset({
+    'academy_activation',
+    'student_activation',
+    'verification',
+    'password_reset',
+    'password_changed',
+})
+
 
 class EmailJobService:
     @classmethod
@@ -242,8 +253,15 @@ class EmailJobService:
             job.save(update_fields=['status', 'completed_at'])
             return True
 
+        # Only system account-security emails bypass wallet billing. Otherwise
+        # a newly registered academy's first activation email cannot be sent.
+        free_security_email = (
+            job.job_type == EmailJobType.TRANSACTIONAL
+            and job.template_name in FREE_SECURITY_EMAIL_TEMPLATES
+        )
+
         # Email Credit Cost Calculation & Ledger Charge
-        if job.academy_uuid:
+        if job.academy_uuid and not free_security_email:
             from academy.models import Academy
             from credits.models import CreditSourceType
             from credits.services import CreditPricingService, CreditsService
