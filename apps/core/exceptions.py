@@ -27,11 +27,12 @@ class CubixSkillAPIException(APIException):
     default_detail = 'An error occurred.'
     default_code = 'BAD_REQUEST'
 
-    def __init__(self, detail=None, code=None, status_code=None):
+    def __init__(self, detail=None, code=None, status_code=None, extra=None, **kwargs):
         if status_code is not None:
             self.status_code = status_code
         if code is not None:
             self.default_code = code
+        self.extra = extra or {}
         super().__init__(detail, code)
 
 

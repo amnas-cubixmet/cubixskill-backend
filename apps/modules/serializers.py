@@ -16,9 +16,13 @@ class ModuleSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'course', 'created_at']
 
     def get_lesson_count(self, obj):
-        if hasattr(obj, 'lessons'):
-            return obj.lessons.count()
-        return 0
+        # Prefer prefetched cache (len) to avoid N+1 from .count() SQL.
+        cache = getattr(obj, '_prefetched_objects_cache', None) or {}
+        if 'lessons' in cache:
+            return len(obj.lessons.all())
+        if hasattr(obj, 'annotated_lesson_count'):
+            return int(obj.annotated_lesson_count or 0)
+        return obj.lessons.count() if hasattr(obj, 'lessons') else 0
 
 class ModuleCreateSerializer(serializers.ModelSerializer):
     class Meta:

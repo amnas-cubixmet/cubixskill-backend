@@ -22,10 +22,10 @@ class EmailOutboxSystemTests(TestCase):
         self.academy = Academy.objects.create(
             name='Test Tech Academy',
             slug='test-tech-academy',
-            owner=self.user
+            email='info@test-tech-academy.test',
         )
         self.user.academy = self.academy
-        self.user.save()
+        self.user.save(update_fields=['academy'])
 
         # Give Academy wallet 100 Credits
         self.account = CreditsService.get_or_create_account(self.academy)
@@ -39,7 +39,6 @@ class EmailOutboxSystemTests(TestCase):
             level=CourseLevel.INTERMEDIATE,
             status=CourseStatus.PUBLISHED,
             is_active=True,
-            created_by=self.user
         )
 
     def test_live_session_creation_creates_durable_outbox_jobs(self):

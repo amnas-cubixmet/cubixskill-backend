@@ -7,7 +7,7 @@ from academy.models import Academy
 from emails.models import EmailJob
 from users_roles.models import SystemRoleCode, User
 
-from .models import InstructorProfile
+from authentication.models import InstructorProfile
 
 
 class InstructorRegistrationTests(APITestCase):

@@ -7,6 +7,7 @@ from discussions_chat.models import (
     DiscussionReply,
     DiscussionThread,
 )
+from django.utils import timezone
 from rest_framework import serializers
 
 #--------------------------------------------------------------
@@ -249,11 +250,16 @@ class ChatRoomSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    def _participants(self, obj):
+        cache = getattr(obj, '_prefetched_objects_cache', None) or {}
+        if 'participants' in cache:
+            return list(obj.participants.all())
+        return list(obj.participants.select_related('user').all())
+
     def get_other_participant(self, obj):
         request = self.context.get('request')
         current_user = request.user if request and hasattr(request, 'user') else None
-        participants = obj.participants.select_related('user').all()
-        for p in participants:
+        for p in self._participants(obj):
             if current_user and p.user_id != current_user.id:
                 u = p.user
                 return {
@@ -266,13 +272,19 @@ class ChatRoomSerializer(serializers.ModelSerializer):
         return None
 
     def get_student_participant(self, obj):
-        participants = obj.participants.select_related('user').all()
+        cached = getattr(obj, '_cached_student_participant', None)
+        if cached is not None or hasattr(obj, '_cached_student_participant'):
+            return cached
+        participants = self._participants(obj)
+        student = None
         for p in participants:
-            if not p.user.is_staff and not hasattr(p.user, 'academy'):
-                return p.user
-        if participants.exists():
-            return participants.first().user
-        return None
+            if not p.user.is_staff and not getattr(p.user, 'academy_id', None):
+                student = p.user
+                break
+        if student is None and participants:
+            student = participants[0].user
+        obj._cached_student_participant = student
+        return student
 
     def get_student_id(self, obj):
         student = self.get_student_participant(obj)
@@ -295,17 +307,27 @@ class ChatRoomSerializer(serializers.ModelSerializer):
                 return None
         return None
 
+    def _latest_active_message(self, obj):
+        cache = getattr(obj, '_prefetched_objects_cache', None) or {}
+        if 'messages' in cache:
+            msgs = [m for m in obj.messages.all() if getattr(m, 'status', None) == 'ACTIVE']
+            msgs.sort(key=lambda m: m.created_at or timezone.now(), reverse=True)
+            return msgs[0] if msgs else None
+        return obj.messages.filter(status='ACTIVE').order_by('-created_at').first()
+
     def get_last_message(self, obj):
-        msg = obj.messages.filter(status='ACTIVE').order_by('-created_at').first()
+        msg = self._latest_active_message(obj)
         if not msg:
             return None
         sender_id = str(msg.sender_id) if msg.sender_id else None
         sender_name = msg.sender.full_name if msg.sender else ''
         content = msg.content
-        if not content and msg.attachments.exists():
-            att = msg.attachments.first()
-            att_type = getattr(att, 'attachment_type', 'IMAGE') or 'IMAGE'
-            content = f"[{att_type.capitalize()}]" if att_type else "[Attachment]"
+        if not content:
+            att_qs = msg.attachments.all()
+            if att_qs:
+                att = att_qs[0]
+                att_type = getattr(att, 'attachment_type', 'IMAGE') or 'IMAGE'
+                content = f"[{att_type.capitalize()}]" if att_type else "[Attachment]"
         return {
             'id': str(msg.id),
             'content': content,
@@ -315,19 +337,12 @@ class ChatRoomSerializer(serializers.ModelSerializer):
         }
 
     def get_latest_message(self, obj):
-        msg = obj.messages.filter(status='ACTIVE').order_by('-created_at').first()
+        msg = self._latest_active_message(obj)
         if not msg:
             return ''
-        if not msg.content and msg.attachments.exists():
-            return '[Attachment]'
-        return msg.content
-
-    def get_latest_message(self, obj):
-        msg = obj.messages.filter(status='ACTIVE').order_by('-created_at').first()
-        if not msg:
-            return ''
-        if not msg.content and msg.attachments.exists():
-            return '[Attachment]'
+        if not msg.content:
+            if msg.attachments.all():
+                return '[Attachment]'
         return msg.content
 
 #--------------------------------------------------------------

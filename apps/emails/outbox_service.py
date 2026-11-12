@@ -181,7 +181,7 @@ class EmailJobService:
             reference_type="LiveSession",
             reference_id=session.id,
             job_type=EmailJobType.LIVE_SESSION_REMINDER_EMAIL,
-            status__in=[EmailJobStatus.PENDING, EmailJobStatus.QUEUED, EmailJobStatus.RETRY]
+            status__in=[EmailJobStatus.PENDING, EmailJobStatus.QUEUED]
         ).update(status=EmailJobStatus.CANCELLED)
         logger.info(f"Cancelled {cancelled_count} pending reminder jobs for LiveSession {session.id}")
 

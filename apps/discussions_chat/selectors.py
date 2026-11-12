@@ -133,7 +133,11 @@ class ChatSelector:
             )
 
         from django.db.models import Max, F
-        rooms = rooms.select_related('course', 'academy').annotate(
+        rooms = rooms.select_related('course', 'academy').prefetch_related(
+            'participants__user',
+            'messages__sender',
+            'messages__attachments',
+        ).annotate(
             latest_msg_time=Max('messages__created_at', filter=Q(messages__status=MessageStatus.ACTIVE))
         ).order_by(F('latest_msg_time').desc(nulls_last=True), F('last_message_at').desc(nulls_last=True), '-created_at')
 

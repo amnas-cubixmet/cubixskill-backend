@@ -40,7 +40,7 @@ class EnrollmentSelector:
         return Enrollment.objects.filter(student=user).select_related('course', 'course__academy').annotate(
             annotated_total_lessons=Coalesce(Subquery(total_lessons_sq, output_field=IntegerField()), 0),
             annotated_completed_lessons=Coalesce(Subquery(completed_lessons_sq, output_field=IntegerField()), 0)
-        )
+        ).order_by('-enrolled_at')
 
     @staticmethod
     def get_academy_enrollments(

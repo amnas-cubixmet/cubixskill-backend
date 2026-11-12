@@ -25,7 +25,7 @@ class FeeCollectionTestCase(TestCase):
             title="Python Masterclass",
             slug="python-masterclass",
             price=Decimal('5000.00'),
-            sale_price=Decimal('5000.00')
+            sale_price=None,
         )
 
         self.student = User.objects.create(

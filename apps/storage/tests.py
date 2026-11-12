@@ -10,7 +10,7 @@ from credits.models import CreditSourceType
 from credits.services import CreditService
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -26,6 +26,35 @@ from storage.models import (
 )
 from storage.services import StorageService
 from users_roles.models import SystemRoleCode, User
+
+
+class StorageMediaDeleteTransactionTests(TransactionTestCase):
+    """Physical cleanup uses on_commit; needs a real commit."""
+
+    def test_delete_media_file_removes_local_file(self):
+        academy = Academy.objects.create(name="Delete Academy", slug="delete-academy", email="delete@test.com")
+        user = User.objects.create_user(
+            email="deleter@test.com",
+            password="Password123!",
+            full_name="Deleter",
+            academy=academy,
+            role_code=SystemRoleCode.ACADEMY_ADMIN,
+        )
+        dummy_image = SimpleUploadedFile("avatar.png", b"PNG dummy bytes", content_type="image/png")
+        media_file = StorageService.upload_media_direct(
+            academy_uuid=academy.id,
+            user_uuid=user.id,
+            file_obj=dummy_image,
+            original_filename="avatar.png",
+            mime_type="image/png",
+            file_size_bytes=len(b"PNG dummy bytes"),
+        )
+        local_path = media_file.storage_path
+        self.assertTrue(os.path.exists(local_path))
+        StorageService.delete_media_file(media_file, hard_delete=False)
+        self.assertFalse(os.path.exists(local_path))
+        media_file.refresh_from_db()
+        self.assertEqual(media_file.status, MediaStatus.DELETED)
 
 
 class StorageServiceTests(TestCase):
@@ -109,13 +138,16 @@ class StorageServiceTests(TestCase):
 
         StorageService.delete_media_file(media_file, hard_delete=False)
 
-        self.assertFalse(os.path.exists(local_path))
         media_file.refresh_from_db()
         self.assertEqual(media_file.status, MediaStatus.DELETED)
 
         # Verify usage updated in PostgreSQL
         account = AcademyStorageAccount.objects.get(academy_uuid=self.academy.id)
         self.assertEqual(account.current_usage_bytes, 0)
+
+        # Physical unlink is scheduled via transaction.on_commit (runs after real commit).
+        # Under TestCase the outer transaction never commits, so assert DB state here and
+        # cover filesystem cleanup in StorageMediaDeleteTransactionTests.
 
     def test_unused_file_usage_endpoint_returns_200(self):
         """Unused valid file must return HTTP 200 OK with is_used=False and references=[]."""
@@ -299,8 +331,9 @@ class StorageServiceTests(TestCase):
         account.balance = Decimal('0.000000')
         account.save()
 
-        # Create 1 GB storage event for Academy B
-        now = timezone.now()
+        # Create 1 GB storage event inside the August 2026 billing window
+        from datetime import datetime as dt
+        from datetime import timezone as dt_tz
         StorageUsageEvent.objects.create(
             academy_uuid=self.academy_b.id,
             event_type=UsageEventType.UPLOAD,
@@ -308,10 +341,11 @@ class StorageServiceTests(TestCase):
             storage_before_bytes=0,
             storage_after_bytes=1073741824,
             file_size_bytes=1073741824,
-            occurred_at=now - timedelta(days=15)
+            occurred_at=dt(2026, 8, 15, 12, 0, 0, tzinfo=dt_tz.utc),
         )
 
         billing = StorageBillingService.close_billing_period(self.academy_b.id, year=2026, month=8)
+        self.assertGreater(billing.credits_calculated, Decimal('0'))
         charged = StorageBillingService.charge_billing_period(billing)
         self.assertEqual(charged.status, BillingStatus.INSUFFICIENT_CREDITS)
 

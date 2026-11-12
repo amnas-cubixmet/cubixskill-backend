@@ -101,6 +101,9 @@ class QuizSerializer(serializers.ModelSerializer):
         fields = ['id', 'title', 'instructions', 'passing_score', 'time_limit_minutes', 'max_attempts', 'shuffle_questions', 'show_result', 'question_count', 'questions']
 
     def get_question_count(self, obj):
+        cache = getattr(obj, '_prefetched_objects_cache', None) or {}
+        if 'questions' in cache:
+            return len(obj.questions.all())
         return obj.questions.count()
 
 #--------------------------------------------------------------
@@ -187,8 +190,12 @@ class LessonSerializer(serializers.ModelSerializer):
         return getattr(obj, 'is_locked', False)
 
     def get_question_count(self, obj):
-        if obj.lesson_type == 'QUIZ' and hasattr(obj, 'quiz') and obj.quiz:
-            return obj.quiz.questions.count()
+        if obj.lesson_type == 'QUIZ' and getattr(obj, 'quiz', None):
+            quiz = obj.quiz
+            cache = getattr(quiz, '_prefetched_objects_cache', None) or {}
+            if 'questions' in cache:
+                return len(quiz.questions.all())
+            return quiz.questions.count()
         return 0
 
     def _get_primary_media_file(self, obj):
