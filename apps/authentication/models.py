@@ -147,3 +147,12 @@ class AuthTokenService:
             used_at__isnull=True,
             revoked_at__isnull=True
         ).update(revoked_at=timezone.now())
+
+
+class InstructorProfile(BaseModel):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='instructor_profile')
+    registration_phone = models.CharField(max_length=16, unique=True)
+    qualification = models.CharField(max_length=160)
+    teaching_subjects = models.CharField(max_length=200)
+    years_experience = models.PositiveSmallIntegerField()
+    bio = models.TextField(max_length=500)

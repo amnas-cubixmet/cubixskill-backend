@@ -1,10 +1,14 @@
 import logging
+from collections.abc import Mapping
+from uuid import uuid4
 
 from academy.models import Academy, AcademyStatus
 from academy.resolver import resolve_academy
 from core.utils import CubixSkillAPIException, api_response
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, connection, transaction
+from django.db.models import Value
+from django.db.models.functions import Replace
 from django.utils import timezone
 from emails.services import (
     send_academy_activation_email,
@@ -14,6 +18,7 @@ from emails.services import (
     send_verification_email,
 )
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
@@ -28,7 +33,7 @@ from .authentication import (
     StudentCookieJWTAuthentication,
 )
 from .cookies import delete_auth_cookies, set_auth_cookies
-from .models import AuthTokenService, TokenType
+from .models import AuthTokenService, InstructorProfile, TokenType
 from .serializers import (
     AuthenticatedPasswordChangeSerializer,
     ForgotPasswordSerializer,
@@ -36,6 +41,7 @@ from .serializers import (
     PasswordResetSerializer,
     PasswordSetupSerializer,
     RegisterAcademySerializer,
+    RegisterInstructorSerializer,
     RegisterStudentSerializer,
     ResendSetupEmailSerializer,
     ResendVerificationSerializer,
@@ -71,7 +77,8 @@ class SignupEmailThrottle(SimpleRateThrottle):
     rate = '6/hour'
 
     def get_cache_key(self, request, view):
-        email = str(request.data.get('email', '')).strip().lower()
+        payload = request.data
+        email = str(payload.get('email', '')).strip().lower() if isinstance(payload, Mapping) else ''
         identity = email if email else self.get_ident(request)
         return self.cache_format % {'scope': self.scope, 'ident': identity}
 
@@ -79,6 +86,23 @@ class SignupEmailThrottle(SimpleRateThrottle):
 class SetupEmailResendThrottle(SignupEmailThrottle):
     scope = 'academy_setup_resend'
     rate = '3/hour'
+
+
+def create_academy_owner(*, name, email, full_name, phone, **academy_fields):
+    academy = Academy.objects.create(
+        name=name, email=email, phone=phone, status=AcademyStatus.ACTIVE,
+        is_active=True, feature_config={}, **academy_fields,
+    )
+    user = User.objects.create_user(
+        email=email, full_name=full_name, phone=phone, academy=academy,
+        role_code=SystemRoleCode.ACADEMY_ADMIN, is_active=True,
+    )
+    return academy, user
+
+
+def queue_academy_setup(user, academy):
+    token = AuthTokenService.generate_token(user, TokenType.PASSWORD_SETUP)
+    send_academy_activation_email(user=user, academy=academy, raw_token=token)
 
 
 class RegisterAcademyView(APIView):
@@ -95,28 +119,11 @@ class RegisterAcademyView(APIView):
             raise CubixSkillAPIException("An account with this email address already exists.", code="USER_EXISTS")
 
         with transaction.atomic():
-            academy = Academy.objects.create(
-                name=data['academy_name'],
-                email=data['email'],
-                phone=data.get('phone', ''),
-                status=AcademyStatus.ACTIVE,
-                is_active=True,
-                feature_config={}
+            academy, user = create_academy_owner(
+                name=data['academy_name'], email=data['email'],
+                full_name=data['full_name'], phone=data['phone'],
             )
-
-            user = User.objects.create_user(
-                email=data['email'],
-                full_name=data['full_name'],
-                phone=data.get('phone', ''),
-                role_code=SystemRoleCode.ACADEMY_ADMIN,
-                academy=academy,
-                is_email_verified=False,
-                password_setup_completed=False,
-                is_active=True
-            )
-
-            raw_token = AuthTokenService.generate_token(user, TokenType.PASSWORD_SETUP)
-            send_academy_activation_email(user=user, academy=academy, raw_token=raw_token)
+            queue_academy_setup(user, academy)
 
             return api_response(
                 data={
@@ -128,6 +135,96 @@ class RegisterAcademyView(APIView):
                 message="Registration submitted successfully. Please check your email to activate your Academy account.",
                 status_code=status.HTTP_201_CREATED
             )
+
+
+def instructor_identity_errors(data):
+    errors = {}
+    if User.objects.filter(email__iexact=data['email']).exists():
+        errors['email'] = 'An account already uses this email address.'
+    normalized_phone = 'phone'
+    for character in ' -().':
+        normalized_phone = Replace(normalized_phone, Value(character), Value(''))
+    phone = data['phone']
+    equivalents = [phone, phone[1:], '00' + phone[1:]]
+    if data['country_code'] == '+91':
+        equivalents.append(data['mobile'])
+    if (
+        InstructorProfile.objects.filter(registration_phone=phone).exists()
+        or User.objects.alias(normalized_phone=normalized_phone).filter(normalized_phone__in=equivalents).exists()
+    ):
+        errors['mobile'] = 'An account already uses this mobile number.'
+    return errors
+
+
+class RegisterInstructorView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [SignupEmailThrottle]
+
+    def post(self, request):
+        serializer = RegisterInstructorSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            with transaction.atomic():
+                if connection.vendor == 'postgresql':
+                    # The existing account number allocator is count-based.
+                    # Serialize this signup path before checking identities and allocating a user.
+                    with connection.cursor() as cursor:
+                        cursor.execute('SELECT pg_advisory_xact_lock(%s)', [680375109])
+                errors = instructor_identity_errors(data)
+                if errors:
+                    raise ValidationError(errors)
+
+                academy, user = create_academy_owner(
+                    name=data['full_name'], email=data['email'],
+                    full_name=data['full_name'], phone=data['phone'],
+                    slug=f'instructor-{uuid4().hex}',
+                )
+                InstructorProfile.objects.create(
+                    user=user,
+                    registration_phone=data['phone'],
+                    qualification=data['qualification'],
+                    teaching_subjects=data['teaching_subjects'],
+                    years_experience=data['years_experience'],
+                    bio=data['bio'],
+                )
+                queue_academy_setup(user, academy)
+        except IntegrityError:
+            errors = instructor_identity_errors(data)
+            if errors:
+                raise ValidationError(errors) from None
+            raise
+
+        return api_response(
+            data={'status': 'pending_activation'},
+            message='Registration complete. Check your email to set up your password.',
+            status_code=status.HTTP_201_CREATED,
+        )
+
+
+class ResendInstructorSetupView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [SetupEmailResendThrottle]
+
+    def post(self, request):
+        serializer = ResendSetupEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            user = User.objects.select_for_update().filter(
+                email__iexact=serializer.validated_data['email'],
+                role_code=SystemRoleCode.ACADEMY_ADMIN,
+                academy__isnull=False,
+                instructor_profile__isnull=False,
+                is_active=True,
+                password_setup_completed=False,
+            ).first()
+            if user:
+                queue_academy_setup(user, user.academy)
+
+        return api_response(message='If your account is awaiting activation, a setup email will be sent.')
 
 
 #--------------------------------------------------------------
@@ -482,7 +579,8 @@ class ResendVerificationView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email = str(request.data.get('email', '')).strip().lower()
+        payload = request.data
+        email = str(payload.get('email', '')).strip().lower() if isinstance(payload, Mapping) else ''
         generic_response = api_response(message="If an eligible account exists, a verification email has been sent.")
 
         if not email or '*' in email:

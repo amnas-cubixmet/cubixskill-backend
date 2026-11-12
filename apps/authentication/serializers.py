@@ -29,6 +29,30 @@ class RegisterAcademySerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=30, required=False, allow_blank=True, default='')
 
 
+class RegisterInstructorSerializer(serializers.Serializer):
+    full_name = serializers.CharField(min_length=2, max_length=255)
+    email = serializers.EmailField(max_length=254)
+    country_code = serializers.ChoiceField(choices=('+91', '+971', '+966', '+974', '+968', '+965', '+973', '+1', '+44'))
+    mobile = serializers.RegexField(r'\A[0-9]{7,13}\Z')
+    qualification = serializers.CharField(max_length=160)
+    teaching_subjects = serializers.CharField(max_length=200)
+    years_experience = serializers.IntegerField(min_value=0, max_value=70)
+    bio = serializers.CharField(max_length=500)
+
+    def validate_email(self, value):
+        return value.lower()
+
+    def validate(self, data):
+        code, mobile = data['country_code'], data['mobile']
+        lengths = {'+91': 10, '+971': 9, '+966': 9, '+974': 8, '+968': 8, '+965': 8, '+973': 8, '+1': 10, '+44': 10}
+        if len(mobile) != lengths[code] or mobile.startswith('0') or (
+            code == '+91' and mobile[0] not in '6789'
+        ):
+            raise serializers.ValidationError({'mobile': 'Enter a valid mobile number for the selected country code.'})
+        data['phone'] = code + mobile
+        return data
+
+
 #--------------------------------------------------------------
 # Login Serializer
 #--------------------------------------------------------------
