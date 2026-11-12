@@ -12,6 +12,8 @@ from .views import (
     LoginView,
     LogoutView,
     RegisterAcademyView,
+    RegisterInstructorView,
+    ResendInstructorSetupView,
     RegisterStudentView,
     ResendSetupEmailView,
     ResendVerificationEmailView,
@@ -40,6 +42,8 @@ urlpatterns = [
     path('instructor/me/', InstructorCurrentUserView.as_view(), name='auth-instructor-me'),
 
     # Generic & Public Auth Endpoints
+    path('instructor/register/', RegisterInstructorView.as_view(), name='auth-register-instructor'),
+    path('instructor/setup/resend/', ResendInstructorSetupView.as_view(), name='auth-instructor-setup-resend'),
     path('register/academy/', RegisterAcademyView.as_view(), name='auth-register-academy'),
     path('register/student/', RegisterStudentView.as_view(), name='auth-register-student'),
 

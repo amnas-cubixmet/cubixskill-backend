@@ -61,7 +61,7 @@ def send_academy_activation_email(user, academy, raw_token: str, expiry_time: st
     """
     from emails.outbox_service import EmailJobService
     academy_uuid = str(academy.pk) if academy else None
-    action_url = build_setup_password_url(raw_token, academy_uuid=academy_uuid)
+    action_url = build_setup_password_url(raw_token)
     subject = SUBJECTS[EmailTemplateCodes.ACADEMY_ACTIVATION]
     context = {
         "user_name": user.full_name or "Academy Admin",
